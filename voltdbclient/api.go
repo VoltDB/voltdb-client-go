@@ -82,19 +82,13 @@ func (conn *Conn) TestConnection() bool {
 // Call invokes the procedure 'procedure' with parameter values 'params'
 // and returns a pointer to the received Response.
 func (conn *Conn) Call(procedure string, params ...interface{}) (*Response, error) {
-	var call bytes.Buffer
 	var resp *bytes.Buffer
 	var err error
 
 	if conn.tcpConn == nil {
 		return nil, fmt.Errorf("Can not call procedure on closed Conn.")
 	}
-
-	// Use 0 for handle; it's not necessary in pure sync client.
-	if call, err = serializeCall(procedure, 0, params); err != nil {
-		return nil, err
-	}
-	if err := conn.writeMessage(call); err != nil {
+	if err := conn.writeProcedureCall(procedure, 0, params); err != nil {
 		return nil, err
 	}
 	if resp, err = conn.readMessage(); err != nil {

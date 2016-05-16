@@ -33,6 +33,26 @@ func (conn *Conn) writeMessage(buf bytes.Buffer) error {
 	return nil
 }
 
+// writeProcedureCall serializes a procedure call and writes it to the tcp connection.
+func (conn *Conn) writeProcedureCall(procedure string, ud int64, params []interface{}) error {
+
+	var call bytes.Buffer
+	var err error
+
+	// Serialize the procedure call and its params.
+	// Use 0 for handle; it's not necessary in pure sync client.
+	if call, err = serializeCall(procedure, 0, params); err != nil {
+		return err
+	}
+
+	var netmsg bytes.Buffer
+	writeInt(&netmsg, int32(call.Len()))
+	io.Copy(&netmsg, &call)
+	io.Copy(conn.tcpConn, &netmsg)
+	// TODO: obviously wrong
+	return nil
+}
+
 // readMessageHdr reads the standard wireprotocol header.
 func (conn *Conn) readMessageHdr() (size int32, err error) {
 	// Total message length Integer  4
@@ -152,13 +172,16 @@ func serializeCall(proc string, ud int64, params []interface{}) (msg bytes.Buffe
 		}
 	}()
 
+	// batch timeout type
+	if err = writeByte(&msg, 0); err != nil {
+		return
+	}
 	if err = writeString(&msg, proc); err != nil {
 		return
 	}
 	if err = writeLong(&msg, ud); err != nil {
 		return
 	}
-
 	serializedParams, err := serializeParams(params)
 	if err != nil {
 		return
