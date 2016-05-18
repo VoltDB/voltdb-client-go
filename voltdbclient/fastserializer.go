@@ -56,7 +56,7 @@ func writeProtoVersion(w io.Writer) error {
 
 func writePasswordHashVersion(w io.Writer) error {
 	var b [1]byte
-	b[0] = 0
+	b[0] = 1
 	_, err := w.Write(b[:1])
 	return err
 }

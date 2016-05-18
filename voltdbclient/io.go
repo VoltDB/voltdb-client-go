@@ -18,13 +18,13 @@ package voltdbclient
 
 import (
 	"bytes"
-	"crypto/sha1"
 	"errors"
 	"fmt"
 	"io"
 	"reflect"
 	"runtime"
 	"time"
+	"crypto/sha256"
 )
 
 // io.go includes protocol-level de/serialization code. For
@@ -35,7 +35,7 @@ import (
 // Wrap up some metdata with pointer(s) to row data. Tables are
 // relatively cheap to copy (the associated user data is copied
 // reference).
-func (conn *Conn) writeMessage(buf bytes.Buffer) error {
+func (conn *Conn) writeLoginMessage(buf bytes.Buffer) error {
 	// length includes protocol version.
 	length := buf.Len() + 2
 	var netmsg bytes.Buffer
@@ -101,7 +101,7 @@ func (conn *Conn) readMessage() (*bytes.Buffer, error) {
 }
 
 func serializeLoginMessage(user string, passwd string) (msg bytes.Buffer, err error) {
-	h := sha1.New()
+	h := sha256.New()
 	io.WriteString(h, passwd)
 	shabytes := h.Sum(nil)
 

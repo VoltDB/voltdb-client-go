@@ -52,7 +52,7 @@ func NewConnection(user string, passwd string, hostAndPort string) (*Conn, error
 	if login, err = serializeLoginMessage(user, passwd); err != nil {
 		return nil, err
 	}
-	if err = conn.writeMessage(login); err != nil {
+	if err = conn.writeLoginMessage(login); err != nil {
 		return nil, err
 	}
 	if conn.connData, err = conn.readLoginResponse(); err != nil {
