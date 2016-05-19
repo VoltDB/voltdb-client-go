@@ -27,78 +27,8 @@ import (
 	"time"
 )
 
-// io.go includes protocol-level de/serialization code. For
+// A helper for protocol-level de/serialization code. For
 // example, serialize and write a procedure call to the network.
-
-// writeMessage prepends a header and writes header and buf to tcpConn
-// Table represents a VoltDB table, often as a procedure result set.
-// Wrap up some metdata with pointer(s) to row data. Tables are
-// relatively cheap to copy (the associated user data is copied
-// reference).
-func (conn *Conn) writeLoginMessage(buf bytes.Buffer) error {
-	// length includes protocol version.
-	length := buf.Len() + 2
-	var netmsg bytes.Buffer
-	writeInt(&netmsg, int32(length))
-	writeProtoVersion(&netmsg)
-	writePasswordHashVersion(&netmsg)
-	// 1 copy + 1 n/w write benchmarks faster than 2 n/w writes.
-	io.Copy(&netmsg, &buf)
-	io.Copy(conn.tcpConn, &netmsg)
-	// TODO: obviously wrong
-	return nil
-}
-
-// writeProcedureCall serializes a procedure call and writes it to the tcp connection.
-func (conn *Conn) writeProcedureCall(procedure string, ud int64, params []interface{}) error {
-
-	var call bytes.Buffer
-	var err error
-
-	// Serialize the procedure call and its params.
-	// Use 0 for handle; it's not necessary in pure sync client.
-	if call, err = serializeCall(procedure, 0, params); err != nil {
-		return err
-	}
-
-	var netmsg bytes.Buffer
-	writeInt(&netmsg, int32(call.Len()))
-	io.Copy(&netmsg, &call)
-	io.Copy(conn.tcpConn, &netmsg)
-	// TODO: obviously wrong
-	return nil
-}
-
-// readMessageHdr reads the standard wireprotocol header.
-func (conn *Conn) readMessageHdr() (size int32, err error) {
-	// Total message length Integer  4
-	size, err = readInt(conn.tcpConn)
-	if err != nil {
-		return
-	}
-	return (size), nil
-}
-
-// readLoginResponse parses the login response message.
-func (conn *Conn) readMessage() (*bytes.Buffer, error) {
-	size, err := conn.readMessageHdr()
-	if err != nil {
-		return nil, err
-	}
-	data := make([]byte, size)
-	if _, err = io.ReadFull(conn.tcpConn, data); err != nil {
-		return nil, err
-	}
-	buf := bytes.NewBuffer(data)
-
-	// Version Byte 1
-	// TODO: error on incorrect version.
-	if _, err = readByte(buf); err != nil {
-		return nil, err
-	}
-
-	return buf, nil
-}
 
 func serializeLoginMessage(user string, passwd string) (msg bytes.Buffer, err error) {
 	h := sha256.New()
@@ -118,15 +48,6 @@ func serializeLoginMessage(user string, passwd string) (msg bytes.Buffer, err er
 		return
 	}
 	return
-}
-
-func (conn *Conn) readLoginResponse() (*connectionData, error) {
-	buf, err := conn.readMessage()
-	if err != nil {
-		return nil, err
-	}
-	connData, err := deserializeLoginResponse(buf)
-	return connData, err
 }
 
 // configures conn with server's advertisement.

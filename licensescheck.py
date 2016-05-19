@@ -62,6 +62,10 @@ def rmBakFile(filename):
         os.remove(filename + ".gfbak")
     except OSError:
         pass
+    try:
+        os.remove(filename + ".lcbak")
+    except OSError:
+        pass
 
 def fixLicense(f, content, approvedLicense):
     if licenseStartsHere(content.lstrip(), approvedLicense):
@@ -145,7 +149,7 @@ for arg in sys.argv[1:]:
 
 
 (fixcount, errcount) = (0, 0)
-licensefile = basepath + 'approved_licenses/gpl3_voltdb.txt'
+licensefile = basepath + 'tools/approved_licenses/gpl3_voltdb.txt'
 (fixinc, errinc) = processAllFiles(basepath, fix, readFile(licensefile))
 fixcount += fixinc
 errcount += errinc

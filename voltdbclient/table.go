@@ -17,9 +17,61 @@
 package voltdbclient
 
 import (
+	"bytes"
 	"fmt"
 	"reflect"
 )
+
+// Table represents a single result set for a stored procedure invocation.
+type Table struct {
+	statusCode  int8
+	columnCount int16
+	columnTypes []int8
+	columnNames []string
+	rowCount    int32
+	rows        bytes.Buffer
+}
+
+func (table *Table) ColumnCount() int {
+	return int(table.columnCount)
+}
+
+func (table *Table) ColumnNames() []string {
+	rv := make([]string, 0)
+	rv = append(rv, table.columnNames...)
+	return rv
+}
+
+func (table *Table) ColumnTypes() []int8 {
+	rv := make([]int8, 0)
+	rv = append(rv, table.columnTypes...)
+	return rv
+}
+
+func (table *Table) GoString() string {
+	return fmt.Sprintf("Table: statusCode: %v, columnCount: %v, "+
+		"rowCount: %v\n", table.statusCode, table.columnCount,
+		table.rowCount)
+}
+
+// HasNext returns true of there are additional rows to read.
+func (table *Table) HasNext() bool {
+	return table.rows.Len() > 0
+}
+
+// Next populates v (*struct) with the values of the next row.
+func (table *Table) Next(v interface{}) error {
+	return table.next(v)
+}
+
+// Rowcount returns the number of rows returned by the server for this table.
+func (table *Table) RowCount() int {
+	return int(table.rowCount)
+}
+
+func (table *Table) StatusCode() int {
+	return int(table.statusCode)
+}
 
 // Internal methods to unmarshal / reflect a returned table []byte
 // into a slice of user provided row structs.

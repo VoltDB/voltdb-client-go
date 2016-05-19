@@ -21,14 +21,6 @@ import (
 	"testing"
 )
 
-func TestCallOnClosedConn(t *testing.T) {
-	conn := Conn{nil, nil}
-	_, err := conn.Call("bad", 1, 2)
-	if err == nil {
-		t.Errorf("Expected error calling procedure on closed Conn")
-	}
-}
-
 func TestTableAccessors(t *testing.T) {
 	statusCode := 1
 	columnCount := 10
