@@ -18,13 +18,13 @@ package voltdbclient
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
 	"reflect"
 	"runtime"
 	"time"
-	"crypto/sha256"
 )
 
 // io.go includes protocol-level de/serialization code. For
