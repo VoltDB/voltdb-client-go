@@ -135,7 +135,8 @@ func (table *Table) next(v interface{}) error {
 		case vt_DECIMAL:
 			panic("Can not deserialize decimals yet.")
 		case vt_VARBIN:
-			panic("Can not deserialize varbinary yet.")
+			val, _ := readByteArray(r)
+			structField.SetBytes(val)
 		default:
 			panic("Unknown type in deserialize type")
 		}

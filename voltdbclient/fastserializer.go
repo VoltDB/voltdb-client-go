@@ -96,21 +96,21 @@ func readByte(r io.Reader) (int8, error) {
 	return int8(b[0]), nil
 }
 
-func readByteArray(r io.Reader) ([]int8, error) {
+func readByteArray(r io.Reader) ([]byte, error) {
 	// byte arrays have 4 byte length prefixes.
-	cnt, err := readInt(r)
+	len, err := readInt(r)
 	if err != nil {
 		return nil, err
 	}
-	arr := make([]int8, cnt)
-	for idx := range arr {
-		val, err := readByte(r)
-		if err != nil {
-			return nil, err
-		}
-		arr[idx] = val
+	if len == -1 {
+		return nil, nil
 	}
-	return arr, nil
+	bs := make([]byte, len)
+	_, err = r.Read(bs)
+	if err != nil {
+		return nil, err
+	}
+	return bs, nil
 }
 
 func writeShort(w io.Writer, d int16) error {
