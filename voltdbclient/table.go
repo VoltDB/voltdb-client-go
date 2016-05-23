@@ -19,128 +19,95 @@ package voltdbclient
 import (
 	"bytes"
 	"fmt"
-	"reflect"
 )
 
+const INVALID_ROW_INDEX = -1
+
 // Table represents a single result set for a stored procedure invocation.
-type Table struct {
+type VoltTable struct {
 	statusCode  int8
 	columnCount int16
 	columnTypes []int8
 	columnNames []string
 	rowCount    int32
-	rows        bytes.Buffer
+	rows        [][]byte
+	rowIndex    int32
+	readers     []*bytes.Reader
 }
 
-func (table *Table) ColumnCount() int {
-	return int(table.columnCount)
+func NewVoltTable(statusCode int8, columnCount int16, columnTypes []int8, columnNames []string, rowCount int32, rows [][]byte) (*VoltTable) {
+	var vt = new(VoltTable)
+	vt.statusCode = statusCode
+	vt.columnCount = columnCount
+	vt.columnTypes = columnTypes
+	vt.columnNames = columnNames
+	vt.rowCount = rowCount
+	vt.rows = rows
+	vt.rowIndex = INVALID_ROW_INDEX
+	vt.readers = make([]*bytes.Reader, rowCount)
+	return vt
 }
 
-func (table *Table) ColumnNames() []string {
+func (vt *VoltTable) AdvanceRow() bool {
+	return vt.AdvanceToRow(vt.rowIndex + 1)
+}
+
+func (vt *VoltTable) AdvanceToRow(rowIndex int32) bool {
+	vt.rowIndex = rowIndex
+	if vt.rowIndex >= vt.rowCount {
+		return false
+	}
+	return true
+}
+
+func (vt *VoltTable) ColumnCount() int {
+	return int(vt.columnCount)
+}
+
+func (vt *VoltTable) ColumnNames() []string {
 	rv := make([]string, 0)
-	rv = append(rv, table.columnNames...)
+	rv = append(rv, vt.columnNames...)
 	return rv
 }
 
-func (table *Table) ColumnTypes() []int8 {
+func (vt *VoltTable) ColumnTypes() []int8 {
 	rv := make([]int8, 0)
-	rv = append(rv, table.columnTypes...)
+	rv = append(rv, vt.columnTypes...)
 	return rv
 }
 
-func (table *Table) GoString() string {
+func (vt *VoltTable) FetchRow(i int32) (*VoltTableRow, error) {
+	if i >= vt.rowCount {
+		return nil, fmt.Errorf("index %v is out of bounds, there are %v rows", i, vt.rowCount)
+	}
+	vt.rowIndex = i
+	tr := NewVoltTableRow(vt)
+	return tr, nil
+}
+
+func (vt *VoltTable) GetString(rowIndex int32, columnIndex int16) (string,  error) {
+	if vt.readers[rowIndex] == nil {
+		vt.readers[rowIndex] = bytes.NewReader(vt.rows[rowIndex])
+	}
+	return readStringAt(vt.readers[rowIndex], 0)
+}
+
+func (vt *VoltTable) GoString() string {
 	return fmt.Sprintf("Table: statusCode: %v, columnCount: %v, "+
-		"rowCount: %v\n", table.statusCode, table.columnCount,
-		table.rowCount)
+		"rowCount: %v\n", vt.statusCode, vt.columnCount,
+		vt.rowCount)
 }
 
 // HasNext returns true of there are additional rows to read.
-func (table *Table) HasNext() bool {
-	return table.rows.Len() > 0
-}
-
-// Next populates v (*struct) with the values of the next row.
-func (table *Table) Next(v interface{}) error {
-	return table.next(v)
+func (vt *VoltTable) HasNext() bool {
+	return vt.rowIndex + 1 < vt.rowCount
 }
 
 // Rowcount returns the number of rows returned by the server for this table.
-func (table *Table) RowCount() int {
-	return int(table.rowCount)
+func (vt *VoltTable) RowCount() int {
+	return int(vt.rowCount)
 }
 
-func (table *Table) StatusCode() int {
-	return int(table.statusCode)
-}
-
-// Internal methods to unmarshal / reflect a returned table []byte
-// into a slice of user provided row structs.
-
-func (table *Table) next(v interface{}) error {
-	// iterate and assign the fields from data
-	// must have a pointer to be modifiable
-	rv := reflect.ValueOf(v)
-	if rv.Kind() != reflect.Ptr || rv.IsNil() {
-		return fmt.Errorf("Must supply a struct pointer")
-	}
-
-	// must have a struct
-	structVal := rv.Elem()
-	typeOfT := structVal.Type()
-	if typeOfT.Kind() != reflect.Struct {
-		return fmt.Errorf("Must supply a struct to populate with row data.")
-	}
-
-	if structVal.NumField() != int(table.columnCount) {
-		return fmt.Errorf("Must supply one field per column.")
-	}
-
-	// stupid alias to type a bit less...
-	r := &table.rows
-
-	// each row has a 4 byte length
-	rowLength, err := readInt(r)
-	if err != nil {
-		return err
-	} else if rowLength <= 0 {
-		return fmt.Errorf("No more row data.")
-	}
-
-	for idx, vt := range table.columnTypes {
-		structField := structVal.Field(idx)
-		switch vt {
-		case vt_BOOL:
-			val, _ := readBoolean(r)
-			structField.SetBool(val)
-		case vt_SHORT:
-			val, _ := readShort(r)
-			structField.SetInt(int64(val))
-		case vt_INT:
-			val, _ := readInt(r)
-			structField.SetInt(int64(val))
-		case vt_LONG:
-			val, _ := readLong(r)
-			structField.SetInt(val)
-		case vt_FLOAT:
-			val, _ := readFloat(r)
-			structField.SetFloat(val)
-		case vt_STRING:
-			val, _ := readString(r)
-			structField.SetString(val)
-		case vt_TIMESTAMP:
-			val, _ := readTimestamp(r)
-			structField.Set(reflect.ValueOf(val))
-		case vt_TABLE:
-			panic("Can not deserialize embedded tables.")
-		case vt_DECIMAL:
-			panic("Can not deserialize decimals yet.")
-		case vt_VARBIN:
-			val, _ := readByteArray(r)
-			structField.SetBytes(val)
-		default:
-			panic("Unknown type in deserialize type")
-		}
-	}
-
-	return nil
+func (vt *VoltTable) StatusCode() int {
+	return int(vt.statusCode)
 }

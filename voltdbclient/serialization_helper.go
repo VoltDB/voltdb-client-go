@@ -237,7 +237,7 @@ func deserializeCallResponse(r io.Reader) (response *Response, err error) {
 		return nil, err
 	}
 
-	response.tables = make([]Table, response.resultCount)
+	response.tables = make([]*VoltTable, response.resultCount)
 	for idx, _ := range response.tables {
 		if response.tables[idx], err = deserializeTable(r); err != nil {
 			return nil, err
@@ -246,65 +246,62 @@ func deserializeCallResponse(r io.Reader) (response *Response, err error) {
 	return response, nil
 }
 
-func deserializeTable(r io.Reader) (t Table, err error) {
-	var errTable Table
-
-	ttlLength, err := readInt(r) // ttlLength
+func deserializeTable(r io.Reader) (*VoltTable, error) {
+	var err error
+	_, err = readInt(r) // ttlLength
 	if err != nil {
-		return errTable, err
+		return nil, err
 	}
-	metaLength, err := readInt(r) // metaLength
+	_, err = readInt(r) // metaLength
 	if err != nil {
-		return errTable, err
-	}
-
-	t.statusCode, err = readByte(r)
-	if err != nil {
-		return errTable, err
+		return nil, err
 	}
 
-	t.columnCount, err = readShort(r)
+	statusCode, err := readByte(r)
 	if err != nil {
-		return errTable, err
+		return nil, err
+	}
+
+	columnCount, err := readShort(r)
+	if err != nil {
+		return nil, err
 	}
 
 	// column type "array" and column name "array" are not
 	// length prefixed arrays. they are really just columnCount
 	// len sequences of bytes (types) and strings (names).
 	var i int16
-	for i = 0; i < t.columnCount; i++ {
+	var columnTypes []int8
+	for i = 0; i < columnCount; i++ {
 		ct, err := readByte(r)
 		if err != nil {
-			return errTable, err
+			return nil, err
 		}
-		t.columnTypes = append(t.columnTypes, ct)
+		columnTypes = append(columnTypes, ct)
 	}
 
-	for i = 0; i < t.columnCount; i++ {
+	var columnNames []string
+	for i = 0; i < columnCount; i++ {
 		cn, err := readString(r)
 		if err != nil {
-			return errTable, err
+			return nil, err
 		}
-		t.columnNames = append(t.columnNames, cn)
+		columnNames = append(columnNames, cn)
 	}
 
-	t.rowCount, err = readInt(r)
+	rowCount, err := readInt(r)
 	if err != nil {
-		return errTable, err
+		return nil, err
 	}
 
-	// the total row data byte count is:
-	//    ttlLength
-	//  - 4 byte metaLength field
-	//  - metaLength
-	//  - 4 byte row count field
-	var tableByteCount int64 = int64(ttlLength - metaLength - 8)
+	rows := make([][]byte, rowCount)
+	var offset int64 = 0
+	var rowI int32; for rowI = 0; rowI < rowCount; rowI++ {
+		rowLen, _ := readInt(r)
+		rows[rowI] = make([]byte, rowLen)
+		_, err = r.Read(rows[rowI])
+		offset += int64(rowLen + 4)
+	}
 
-	// OPTIMIZE? Could avoid a possibly large copy here by
-	// initializing buf to r[Pos():tableByteCount]. Unsure
-	// if that way lies madness or cleverness. For now, suck
-	// up the copy. Maybe in the future change this method
-	// to take a buffer instead of a reader?
-	io.CopyN(&t.rows, r, tableByteCount)
-	return t, nil
+	return NewVoltTable(statusCode, columnCount, columnTypes, columnNames, rowCount, rows), nil
 }

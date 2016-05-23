@@ -28,7 +28,7 @@ func TestTableAccessors(t *testing.T) {
 	columnNames := []string{"abc", "def", "ghi"}
 	rowCount := 5
 	rows := bytes.NewBufferString("rowbuf")
-	table := Table{
+	table := VoltTable{
 		int8(statusCode),
 		int16(columnCount),
 		columnTypes,

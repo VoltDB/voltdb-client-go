@@ -30,7 +30,7 @@ type Response struct {
 	exceptionLength int32
 	exceptionBytes  []byte
 	resultCount     int16
-	tables          []Table
+	tables          []*VoltTable
 }
 
 // Response status codes
@@ -81,12 +81,12 @@ func (rsp *Response) ClusterLatency() int {
 	return int(rsp.clusterLatency)
 }
 
-func (rsp *Response) ResultSets() []Table {
+func (rsp *Response) ResultSets() []*VoltTable {
 	return rsp.tables
 }
 
-func (rsp *Response) Table(offset int) *Table {
-	return &rsp.tables[offset]
+func (rsp *Response) Table(offset int) *VoltTable {
+	return rsp.tables[offset]
 }
 
 func (rsp *Response) GoString() string {
