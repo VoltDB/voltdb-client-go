@@ -35,5 +35,9 @@ func (vtr *VoltTableRow) AdvanceToRow(rowIndex int32) bool {
 }
 
 func (vtr *VoltTableRow) GetString(colIndex int16) (string, error) {
-	return vtr.vt.GetString(vtr.vt.rowIndex, colIndex)
+	return vtr.vt.GetString(colIndex)
+}
+
+func (vtr *VoltTableRow) GetVarbinary(colIndex int16) ([]byte, error) {
+	return vtr.vt.GetVarbinary(colIndex)
 }

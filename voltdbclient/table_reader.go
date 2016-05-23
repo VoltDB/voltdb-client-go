@@ -29,6 +29,22 @@ func readIntAt(r *bytes.Reader, off int64) (int32, error) {
 	return int32(result), nil
 }
 
+func readByteArrayAt(r *bytes.Reader, off int64) ([]byte, error) {
+	len, err := readIntAt(r, off)
+	if err != nil {
+		return nil, err
+	}
+	if len == -1 {
+		return nil, nil
+	}
+	bs := make([]byte, len)
+	_, err = r.ReadAt(bs, off+4)
+	if err != nil {
+		return nil, err
+	}
+	return bs, nil
+}
+
 func readStringAt(r *bytes.Reader, off int64) (string, error) {
 	len, err := readIntAt(r, off)
 	if err != nil {

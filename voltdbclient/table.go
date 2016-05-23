@@ -25,14 +25,15 @@ const INVALID_ROW_INDEX = -1
 
 // Table represents a single result set for a stored procedure invocation.
 type VoltTable struct {
-	statusCode  int8
-	columnCount int16
-	columnTypes []int8
-	columnNames []string
-	rowCount    int32
-	rows        [][]byte
-	rowIndex    int32
-	readers     []*bytes.Reader
+	statusCode    int8
+	columnCount   int16
+	columnTypes   []int8
+	columnNames   []string
+	columnOffsets [][]int32
+	rowCount      int32
+	rows          [][]byte
+	rowIndex      int32
+	readers       []*bytes.Reader
 }
 
 func NewVoltTable(statusCode int8, columnCount int16, columnTypes []int8, columnNames []string, rowCount int32, rows [][]byte) *VoltTable {
@@ -41,6 +42,7 @@ func NewVoltTable(statusCode int8, columnCount int16, columnTypes []int8, column
 	vt.columnCount = columnCount
 	vt.columnTypes = columnTypes
 	vt.columnNames = columnNames
+	vt.columnOffsets = make([][]int32, rowCount)
 	vt.rowCount = rowCount
 	vt.rows = rows
 	vt.rowIndex = INVALID_ROW_INDEX
@@ -76,20 +78,27 @@ func (vt *VoltTable) ColumnTypes() []int8 {
 	return rv
 }
 
-func (vt *VoltTable) FetchRow(i int32) (*VoltTableRow, error) {
-	if i >= vt.rowCount {
-		return nil, fmt.Errorf("index %v is out of bounds, there are %v rows", i, vt.rowCount)
+func (vt *VoltTable) FetchRow(rowIndex int32) (*VoltTableRow, error) {
+	if rowIndex >= vt.rowCount {
+		return nil, fmt.Errorf("row index %v is out of bounds, there are %v rows", rowIndex, vt.rowCount)
 	}
-	vt.rowIndex = i
+	vt.rowIndex = rowIndex
 	tr := NewVoltTableRow(vt)
 	return tr, nil
 }
 
-func (vt *VoltTable) GetString(rowIndex int32, columnIndex int16) (string, error) {
-	if vt.readers[rowIndex] == nil {
-		vt.readers[rowIndex] = bytes.NewReader(vt.rows[rowIndex])
+func (vt *VoltTable) GetString(colIndex int16) (string, error) {
+	if colIndex >= vt.columnCount {
+		return "", fmt.Errorf("column index %v is out of bounds, there are %v rows", colIndex, vt.columnCount)
 	}
-	return readStringAt(vt.readers[rowIndex], 0)
+	return vt.getString(vt.rowIndex, colIndex)
+}
+
+func (vt *VoltTable) GetVarbinary(colIndex int16) ([]byte, error) {
+	if colIndex >= vt.columnCount {
+		return nil, fmt.Errorf("column index %v is out of bounds, there are %v rows", colIndex, vt.columnCount)
+	}
+	return vt.getVarbinary(vt.rowIndex, colIndex)
 }
 
 func (vt *VoltTable) GoString() string {
@@ -110,4 +119,58 @@ func (vt *VoltTable) RowCount() int {
 
 func (vt *VoltTable) StatusCode() int {
 	return int(vt.statusCode)
+}
+
+// private
+
+func (vt *VoltTable) getReader(rowIndex int32) *bytes.Reader {
+	r := vt.readers[rowIndex]
+	if r == nil {
+		r = bytes.NewReader(vt.rows[rowIndex])
+		vt.readers[rowIndex] = r
+	}
+	return r
+}
+
+func (vt *VoltTable) getString(rowIndex int32, columnIndex int16) (string, error) {
+	r := vt.getReader(rowIndex)
+	if columnIndex == 0 {
+		return readStringAt(r, 0)
+	}
+	offsets := vt.getOffsetsForRow(rowIndex)
+	return readStringAt(r, int64(offsets[columnIndex]))
+}
+
+func (vt *VoltTable) getVarbinary(rowIndex int32, columnIndex int16) ([]byte, error) {
+	r := vt.getReader(rowIndex)
+	if columnIndex == 0 {
+		return readByteArrayAt(r, 0)
+	}
+	offsets := vt.getOffsetsForRow(rowIndex)
+	return readByteArrayAt(r, int64(offsets[columnIndex]))
+}
+
+func (vt *VoltTable) getOffsetsForRow(rowIndex int32) []int32 {
+	offsets := vt.columnOffsets[rowIndex]
+	if offsets == nil {
+		return vt.setOffsetsForRow(rowIndex)
+	}
+	return offsets
+}
+
+func (vt *VoltTable) setOffsetsForRow(rowIndex int32) []int32 {
+	offsets := make([]int32, vt.columnCount)
+	r := vt.getReader(rowIndex)
+	var colIndex int16 = 0
+	var offset int32 = 0
+	for {
+		offsets[colIndex] = offset
+		colIndex++
+		if colIndex >= vt.columnCount {
+			break
+		}
+		len, _ := readIntAt(r, int64(offset))
+		offset += (len + 4)
+	}
+	return offsets
 }
