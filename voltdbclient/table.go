@@ -35,7 +35,7 @@ type VoltTable struct {
 	readers     []*bytes.Reader
 }
 
-func NewVoltTable(statusCode int8, columnCount int16, columnTypes []int8, columnNames []string, rowCount int32, rows [][]byte) (*VoltTable) {
+func NewVoltTable(statusCode int8, columnCount int16, columnTypes []int8, columnNames []string, rowCount int32, rows [][]byte) *VoltTable {
 	var vt = new(VoltTable)
 	vt.statusCode = statusCode
 	vt.columnCount = columnCount
@@ -85,7 +85,7 @@ func (vt *VoltTable) FetchRow(i int32) (*VoltTableRow, error) {
 	return tr, nil
 }
 
-func (vt *VoltTable) GetString(rowIndex int32, columnIndex int16) (string,  error) {
+func (vt *VoltTable) GetString(rowIndex int32, columnIndex int16) (string, error) {
 	if vt.readers[rowIndex] == nil {
 		vt.readers[rowIndex] = bytes.NewReader(vt.rows[rowIndex])
 	}
@@ -100,7 +100,7 @@ func (vt *VoltTable) GoString() string {
 
 // HasNext returns true of there are additional rows to read.
 func (vt *VoltTable) HasNext() bool {
-	return vt.rowIndex + 1 < vt.rowCount
+	return vt.rowIndex+1 < vt.rowCount
 }
 
 // Rowcount returns the number of rows returned by the server for this table.

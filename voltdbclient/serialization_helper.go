@@ -296,7 +296,8 @@ func deserializeTable(r io.Reader) (*VoltTable, error) {
 
 	rows := make([][]byte, rowCount)
 	var offset int64 = 0
-	var rowI int32; for rowI = 0; rowI < rowCount; rowI++ {
+	var rowI int32
+	for rowI = 0; rowI < rowCount; rowI++ {
 		rowLen, _ := readInt(r)
 		rows[rowI] = make([]byte, rowLen)
 		_, err = r.Read(rows[rowI])
