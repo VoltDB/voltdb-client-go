@@ -20,17 +20,17 @@ import "fmt"
 
 // Response is a stored procedure result.
 type Response struct {
-	clientData      int64
-	fieldsPresent   uint8
-	status          int8
-	statusString    string
-	appStatus       int8
-	appStatusString string
-	clusterLatency  int32
-	exceptionLength int32
-	exceptionBytes  []byte
-	resultCount     int16
-	tables          []*VoltTable
+	clientHandle         int64
+	fieldsPresent        uint8
+	status               int8
+	statusString         string
+	appStatus            int8
+	appStatusString      string
+	clusterRoundTripTime int32
+	exceptionLength      int32
+	exceptionBytes       []byte
+	tableCount           int16
+	tables               []*VoltTable
 }
 
 // Response status codes
@@ -77,8 +77,8 @@ func (rsp *Response) AppStatusString() string {
 	return rsp.appStatusString
 }
 
-func (rsp *Response) ClusterLatency() int {
-	return int(rsp.clusterLatency)
+func (rsp *Response) ClusterRoundTripTime() int {
+	return int(rsp.clusterRoundTripTime)
 }
 
 func (rsp *Response) ResultSets() []*VoltTable {
@@ -90,8 +90,8 @@ func (rsp *Response) Table(offset int) *VoltTable {
 }
 
 func (rsp *Response) GoString() string {
-	return fmt.Sprintf("Response: clientData:%v, status:%v, statusString:%v, "+
-		"clusterLatency: %v, appStatus: %v, appStatusString: %v\n",
-		rsp.clientData, rsp.status, rsp.statusString,
-		rsp.clusterLatency, rsp.appStatus, rsp.appStatusString)
+	return fmt.Sprintf("Response: clientHandle:%v, status:%v, statusString:%v, "+
+		"clusterRoundTripTime: %v, appStatus: %v, appStatusString: %v\n",
+		rsp.clientHandle, rsp.status, rsp.statusString,
+		rsp.clusterRoundTripTime, rsp.appStatus, rsp.appStatusString)
 }

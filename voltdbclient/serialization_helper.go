@@ -191,15 +191,18 @@ func marshalParam(buf io.Writer, param interface{}) (err error) {
 // readCallResponse reads a stored procedure invocation response.
 func deserializeCallResponse(r io.Reader) (response *Response, err error) {
 	response = new(Response)
-	if response.clientData, err = readLong(r); err != nil {
+	if response.clientHandle, err = readLong(r); err != nil {
 		return nil, err
 	}
 
-	fields, err := readByte(r)
+	// Some fields are optionally included in the response.  Which of these optional
+	// fields are included is indicated by this byte, 'fieldsPresent'.  The set
+	// of optional fields includes 'statusString', 'appStatusString', and 'exceptionLength'.
+	fieldsPresent, err := readByte(r)
 	if err != nil {
 		return nil, err
 	} else {
-		response.fieldsPresent = uint8(fields)
+		response.fieldsPresent = uint8(fieldsPresent)
 	}
 
 	if response.status, err = readByte(r); err != nil {
@@ -218,7 +221,7 @@ func deserializeCallResponse(r io.Reader) (response *Response, err error) {
 			return nil, err
 		}
 	}
-	if response.clusterLatency, err = readInt(r); err != nil {
+	if response.clusterRoundTripTime, err = readInt(r); err != nil {
 		return nil, err
 	}
 	if response.fieldsPresent&(1<<6) != 0 {
@@ -233,11 +236,14 @@ func deserializeCallResponse(r io.Reader) (response *Response, err error) {
 			}
 		}
 	}
-	if response.resultCount, err = readShort(r); err != nil {
+	if response.tableCount, err = readShort(r); err != nil {
 		return nil, err
 	}
+	if response.tableCount < 0 {
+		return nil, fmt.Errorf("Bad table count in procudure response %v", response.tableCount)
+	}
 
-	response.tables = make([]*VoltTable, response.resultCount)
+	response.tables = make([]*VoltTable, response.tableCount)
 	for idx, _ := range response.tables {
 		if response.tables[idx], err = deserializeTable(r); err != nil {
 			return nil, err
