@@ -43,6 +43,7 @@ func NewVoltTable(statusCode int8, columnCount int16, columnTypes []int8, column
 	vt.statusCode = statusCode
 	vt.columnCount = columnCount
 	vt.columnTypes = columnTypes
+	vt.columnNames = columnNames
 	vt.columnOffsets = make([][]int32, rowCount)
 	vt.rowCount = rowCount
 	vt.rows = rows

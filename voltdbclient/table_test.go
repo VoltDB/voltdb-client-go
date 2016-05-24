@@ -17,7 +17,6 @@
 package voltdbclient
 
 import (
-	"bytes"
 	"testing"
 )
 
@@ -27,14 +26,16 @@ func TestTableAccessors(t *testing.T) {
 	columnTypes := []int8{1, 2, 3}
 	columnNames := []string{"abc", "def", "ghi"}
 	rowCount := 5
-	rows := bytes.NewBufferString("rowbuf")
-	table := VoltTable{
+	rows := make([][]byte, 1)
+	rows[0] = []byte("rowbuf")
+
+	table := NewVoltTable(
 		int8(statusCode),
 		int16(columnCount),
 		columnTypes,
 		columnNames,
 		int32(rowCount),
-		*rows}
+		rows)
 
 	if table.StatusCode() != statusCode {
 		t.Errorf("Bad StatusCode()")
