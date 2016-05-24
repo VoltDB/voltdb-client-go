@@ -103,7 +103,7 @@ func (client *Client) GoString() string {
 }
 
 // Ping the database for liveness.
-func (client *Client) TestConnection() bool {
+func (client *Client) PingConnection() bool {
 	if client.tcpConn == nil {
 		return false
 	}
