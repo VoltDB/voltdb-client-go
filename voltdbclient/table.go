@@ -19,6 +19,7 @@ package voltdbclient
 import (
 	"bytes"
 	"fmt"
+	"strings"
 )
 
 const INVALID_ROW_INDEX = -1
@@ -34,6 +35,7 @@ type VoltTable struct {
 	rows          [][]byte
 	rowIndex      int32
 	readers       []*bytes.Reader
+	cnToCi        map[string]int16
 }
 
 func NewVoltTable(statusCode int8, columnCount int16, columnTypes []int8, columnNames []string, rowCount int32, rows [][]byte) *VoltTable {
@@ -41,12 +43,18 @@ func NewVoltTable(statusCode int8, columnCount int16, columnTypes []int8, column
 	vt.statusCode = statusCode
 	vt.columnCount = columnCount
 	vt.columnTypes = columnTypes
-	vt.columnNames = columnNames
 	vt.columnOffsets = make([][]int32, rowCount)
 	vt.rowCount = rowCount
 	vt.rows = rows
 	vt.rowIndex = INVALID_ROW_INDEX
 	vt.readers = make([]*bytes.Reader, rowCount)
+
+	// store columnName to columnIndex
+	vt.cnToCi = make(map[string]int16)
+	for ci, cn := range columnNames {
+		vt.cnToCi[cn] = int16(ci)
+	}
+
 	return vt
 }
 
@@ -87,18 +95,34 @@ func (vt *VoltTable) FetchRow(rowIndex int32) (*VoltTableRow, error) {
 	return tr, nil
 }
 
-func (vt *VoltTable) GetString(colIndex int16) (string, error) {
+func (vt *VoltTable) GetStringByIndex(colIndex int16) (string, error) {
 	if colIndex >= vt.columnCount {
 		return "", fmt.Errorf("column index %v is out of bounds, there are %v rows", colIndex, vt.columnCount)
 	}
 	return vt.getString(vt.rowIndex, colIndex)
 }
 
-func (vt *VoltTable) GetVarbinary(colIndex int16) ([]byte, error) {
+func (vt *VoltTable) GetStringByName(cn string) (string, error) {
+	ci, ok := vt.cnToCi[strings.ToUpper(cn)]
+	if !ok {
+		return "", fmt.Errorf("column name %v was not found", cn)
+	}
+	return vt.GetStringByIndex(ci)
+}
+
+func (vt *VoltTable) GetVarbinaryByIndex(colIndex int16) ([]byte, error) {
 	if colIndex >= vt.columnCount {
 		return nil, fmt.Errorf("column index %v is out of bounds, there are %v rows", colIndex, vt.columnCount)
 	}
 	return vt.getVarbinary(vt.rowIndex, colIndex)
+}
+
+func (vt *VoltTable) GetVarbinaryByName(cn string) ([]byte, error) {
+	ci, ok := vt.cnToCi[strings.ToUpper(cn)]
+	if !ok {
+		return nil, fmt.Errorf("column name %v was not found", cn)
+	}
+	return vt.GetVarbinaryByIndex(ci)
 }
 
 func (vt *VoltTable) GoString() string {

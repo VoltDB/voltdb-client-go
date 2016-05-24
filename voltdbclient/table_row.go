@@ -34,10 +34,18 @@ func (vtr *VoltTableRow) AdvanceToRow(rowIndex int32) bool {
 	return vtr.vt.AdvanceToRow(rowIndex)
 }
 
-func (vtr *VoltTableRow) GetString(colIndex int16) (string, error) {
-	return vtr.vt.GetString(colIndex)
+func (vtr *VoltTableRow) GetStringByIndex(colIndex int16) (string, error) {
+	return vtr.vt.GetStringByIndex(colIndex)
 }
 
-func (vtr *VoltTableRow) GetVarbinary(colIndex int16) ([]byte, error) {
-	return vtr.vt.GetVarbinary(colIndex)
+func (vtr *VoltTableRow) GetStringByName(cn string) (string, error) {
+	return vtr.vt.GetStringByName(cn)
+}
+
+func (vtr *VoltTableRow) GetVarbinaryByIndex(colIndex int16) ([]byte, error) {
+	return vtr.vt.GetVarbinaryByIndex(colIndex)
+}
+
+func (vtr *VoltTableRow) GetVarbinaryByName(cn string) ([]byte, error) {
+	return vtr.vt.GetVarbinaryByName(cn)
 }
