@@ -149,8 +149,9 @@ for arg in sys.argv[1:]:
 
 
 (fixcount, errcount) = (0, 0)
-licensefile = basepath + 'tools/approved_licenses/gpl3_voltdb.txt'
-(fixinc, errinc) = processAllFiles(basepath, fix, readFile(licensefile))
+licensefile = basepath + 'approved_licenses/gpl3_voltdb.txt'
+sourcepath = basepath + '/..'
+(fixinc, errinc) = processAllFiles(sourcepath, fix, readFile(licensefile))
 fixcount += fixinc
 errcount += errinc
 
