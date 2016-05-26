@@ -3,6 +3,7 @@ package voltdbclient
 import (
 	"fmt"
 	"net"
+	"time"
 )
 
 // NetworkListener listens for responses for asynchronous procedure calls from
@@ -30,7 +31,11 @@ func (l *NetworkListener) listen() {
 			c, ok := l.callbacks[handle]
 			if ok {
 				l.removeCallback(handle)
-				c <- resp
+				select {
+				case c <- resp:
+				case <-time.After(10 * time.Millisecond):
+					fmt.Printf("Client failed to read response from server on handle %v\n", handle)
+				}
 			} else {
 				// todo: should log?
 				fmt.Println("listener doesn't have callback for server response on client handle %v.", handle)
