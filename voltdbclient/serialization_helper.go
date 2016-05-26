@@ -224,18 +224,6 @@ func deserializeCallResponse(r io.Reader) (response *Response, err error) {
 	if response.clusterRoundTripTime, err = readInt(r); err != nil {
 		return nil, err
 	}
-	if response.fieldsPresent&(1<<6) != 0 {
-		if response.exceptionLength, err = readInt(r); err != nil {
-			return nil, err
-		}
-		if response.exceptionLength > 0 {
-			// TODO: implement exception deserialization.
-			ignored := make([]byte, response.exceptionLength)
-			if _, err = io.ReadFull(r, ignored); err != nil {
-				return nil, err
-			}
-		}
-	}
 	if response.tableCount, err = readShort(r); err != nil {
 		return nil, err
 	}
