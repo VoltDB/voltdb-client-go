@@ -14,6 +14,16 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
+/*
+Package voltdbclient is a VoltDB client driver for the go language.
+The api is consistent with the client api implemented in other languages, notably java and c++.
+The main user facing api in accessible from Client and includes:
+NewClient(username string, password string)
+CreateConnection(hostAndPort string)
+Call(procedure string, params ...interface{})
+CallAsync(procedure string, params ...interface{})
+Close()
+ */
 package voltdbclient
 
 import (
@@ -26,6 +36,7 @@ import (
 
 // Client is a single connection to a single node of a VoltDB database
 type Client struct {
+	config *ClientConfig
 	tcpConn  *net.TCPConn
 	connData *connectionData
 	netListener *NetworkListener
@@ -40,32 +51,16 @@ type connectionData struct {
 	buildString string
 }
 
-// NewClient creates an initialized, authenticated Client.
-func NewClient(user string, passwd string, hostAndPort string) (*Client, error) {
-	var client = new(Client)
-	var err error
-	var raddr *net.TCPAddr
-	var login bytes.Buffer
+type ClientConfig struct {
+	username string
+	password string
+}
 
-	if raddr, err = net.ResolveTCPAddr("tcp", hostAndPort); err != nil {
-		return nil, fmt.Errorf("Error resolving %v.", hostAndPort)
-	}
-	if client.tcpConn, err = net.DialTCP("tcp", nil, raddr); err != nil {
-		return nil, err
-	}
-	if login, err = serializeLoginMessage(user, passwd); err != nil {
-		return nil, err
-	}
-	if err = client.writeLoginMessage(login); err != nil {
-		return nil, err
-	}
-	if client.connData, err = client.readLoginResponse(); err != nil {
-		return nil, err
-	}
-	client.clientHandle = 0;
-	client.netListener = NewListener(client.tcpConn)
-	client.netListener.start()
-	return client, nil
+// NewClient creates an initialized, authenticated Client.
+func NewClient(username string, password string) *Client {
+	var client = new(Client)
+	client.config = &ClientConfig{username, password}
+	return client
 }
 
 // Call invokes the procedure 'procedure' with parameter values 'params'
@@ -99,6 +94,30 @@ func (client *Client) CallAsync(procedure string, params ...interface{}) (chan *
 		return nil, err
 	}
 	return c, nil
+}
+
+func (client *Client) CreateConnection(hostAndPort string) error {
+	raddr, err := net.ResolveTCPAddr("tcp", hostAndPort);
+	if  err != nil {
+		return fmt.Errorf("Error resolving %v.", hostAndPort)
+	}
+	if client.tcpConn, err = net.DialTCP("tcp", nil, raddr); err != nil {
+		return err
+	}
+	login, err := serializeLoginMessage(client.config.username, client.config.password);
+	if  err != nil {
+		return err
+	}
+	if err = client.writeLoginMessage(login); err != nil {
+		return err
+	}
+	if client.connData, err = client.readLoginResponse(); err != nil {
+		return err
+	}
+	client.clientHandle = 0;
+	client.netListener = NewListener(client.tcpConn)
+	client.netListener.start()
+	return nil
 }
 
 // Close a client if open. A Client, once closed, has no further use.
