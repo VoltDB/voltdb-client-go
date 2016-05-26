@@ -21,12 +21,15 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync/atomic"
 )
 
 // Client is a single connection to a single node of a VoltDB database
 type Client struct {
 	tcpConn  *net.TCPConn
 	connData *connectionData
+	netListener *NetworkListener
+	clientHandle int64
 }
 
 // connectionData are the values returned by a successful login.
@@ -59,25 +62,43 @@ func NewClient(user string, passwd string, hostAndPort string) (*Client, error) 
 	if client.connData, err = client.readLoginResponse(); err != nil {
 		return nil, err
 	}
+	client.clientHandle = 0;
+	client.netListener = NewListener(client.tcpConn)
+	client.netListener.start()
 	return client, nil
 }
 
 // Call invokes the procedure 'procedure' with parameter values 'params'
 // and returns a pointer to the received Response.
 func (client *Client) Call(procedure string, params ...interface{}) (*Response, error) {
-	var resp *bytes.Buffer
-	var err error
-
 	if client.tcpConn == nil {
 		return nil, fmt.Errorf("Can not call procedure on closed Client.")
 	}
-	if err := client.writeProcedureCall(procedure, 0, params); err != nil {
+	handle := atomic.AddInt64(&client.clientHandle, 1)
+	if err := client.writeProcedureCall(procedure, handle, params); err != nil {
 		return nil, err
 	}
-	if resp, err = client.readMessage(); err != nil {
+	resp, err := readMessage(client.tcpConn)
+	if err != nil {
 		return nil, err
 	}
 	return deserializeCallResponse(resp)
+}
+
+// CallAsync asynchronously invokes the procedure 'procedure' with parameter values 'params'.
+// A pointer to the Response from the server will be put on the returned channel.
+func (client *Client) CallAsync(procedure string, params ...interface{}) (chan *Response, error) {
+	if client.tcpConn == nil {
+		return nil, fmt.Errorf("Can not call procedure on closed Client.")
+	}
+	handle := atomic.AddInt64(&client.clientHandle, 1)
+	c := make(chan *Response)
+	client.netListener.registerCallback(handle, c)
+	if err := client.writeProcedureCall(procedure, handle, params); err != nil {
+		client.netListener.removeCallback(handle)
+		return nil, err
+	}
+	return c, nil
 }
 
 // Close a client if open. A Client, once closed, has no further use.
@@ -116,44 +137,14 @@ func (client *Client) PingConnection() bool {
 
 // functions private to this package.
 
+// readLoginResponse parses the login response message.
 func (client *Client) readLoginResponse() (*connectionData, error) {
-	buf, err := client.readMessage()
+	buf, err := readMessage(client.tcpConn)
 	if err != nil {
 		return nil, err
 	}
 	connData, err := deserializeLoginResponse(buf)
 	return connData, err
-}
-
-// readLoginResponse parses the login response message.
-func (client *Client) readMessage() (*bytes.Buffer, error) {
-	size, err := client.readMessageHdr()
-	if err != nil {
-		return nil, err
-	}
-	data := make([]byte, size)
-	if _, err = io.ReadFull(client.tcpConn, data); err != nil {
-		return nil, err
-	}
-	buf := bytes.NewBuffer(data)
-
-	// Version Byte 1
-	// TODO: error on incorrect version.
-	if _, err = readByte(buf); err != nil {
-		return nil, err
-	}
-
-	return buf, nil
-}
-
-// readMessageHdr reads the standard wireprotocol header.
-func (client *Client) readMessageHdr() (size int32, err error) {
-	// Total message length Integer  4
-	size, err = readInt(client.tcpConn)
-	if err != nil {
-		return
-	}
-	return (size), nil
 }
 
 // writeLoginMessage writes a login message to the connection.
@@ -171,22 +162,22 @@ func (client *Client) writeLoginMessage(buf bytes.Buffer) error {
 	return nil
 }
 
-// writeProcedureCall serializes a procedure call and writes it to the tcp connection.
-func (client *Client) writeProcedureCall(procedure string, ud int64, params []interface{}) error {
+// writeProcedureCall serializes a procedure call and writes it to a tcp connection.
+func (client *Client) writeProcedureCall(procedure string, handle int64, params []interface{}) error {
 
 	var call bytes.Buffer
 	var err error
 
 	// Serialize the procedure call and its params.
 	// Use 0 for handle; it's not necessary in pure sync client.
-	if call, err = serializeCall(procedure, 0, params); err != nil {
+	if call, err = serializeCall(procedure, handle, params); err != nil {
 		return err
 	}
 
+	// todo: should prefer byte[] in all cases.
 	var netmsg bytes.Buffer
 	writeInt(&netmsg, int32(call.Len()))
 	io.Copy(&netmsg, &call)
 	io.Copy(client.tcpConn, &netmsg)
-	// TODO: obviously wrong
 	return nil
 }

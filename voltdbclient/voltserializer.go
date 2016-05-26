@@ -21,6 +21,7 @@ import (
 	"io"
 	"math"
 	"time"
+	"bytes"
 )
 
 // package private methods that perform voltdb compatible
@@ -46,6 +47,46 @@ var order = binary.BigEndian
 
 // protoVersion is the implemented VoltDB wireprotocol version.
 const protoVersion = 1
+
+// reads and deserializes a procedure call response from the server.
+func readResponse(r io.Reader) (*Response, error) {
+	buf, err := readMessage(r)
+	if err != nil {
+		return nil, err
+	}
+	return deserializeCallResponse(buf)
+}
+
+// reads a message
+func readMessage(r io.Reader) (*bytes.Buffer, error) {
+	size, err := readMessageHdr(r)
+	if err != nil {
+		return nil, err
+	}
+	data := make([]byte, size)
+	if _, err = io.ReadFull(r, data); err != nil {
+		return nil, err
+	}
+	buf := bytes.NewBuffer(data)
+
+	// Version Byte 1
+	// TODO: error on incorrect version.
+	if _, err = readByte(buf); err != nil {
+		return nil, err
+	}
+
+	return buf, nil
+}
+
+// readMessageHdr reads the standard wireprotocol header.
+func readMessageHdr(r io.Reader) (size int32, err error) {
+	// Total message length Integer  4
+	size, err = readInt(r)
+	if err != nil {
+		return
+	}
+	return (size), nil
+}
 
 func writeProtoVersion(w io.Writer) error {
 	var b [1]byte

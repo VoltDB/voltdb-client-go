@@ -19,7 +19,7 @@ package voltdbclient
 import "testing"
 
 func TestCallOnClosedConn(t *testing.T) {
-	client := Client{nil, nil}
+	client := Client{nil, nil, nil, 0}
 	_, err := client.Call("bad", 1, 2)
 	if err == nil {
 		t.Errorf("Expected error calling procedure on closed Conn")
