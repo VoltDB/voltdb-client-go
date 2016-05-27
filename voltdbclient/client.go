@@ -56,11 +56,23 @@ type ClientConfig struct {
 	password string
 }
 
+type Callback struct {
+	Channel <-chan *Response
+	Handle  int64
+}
+
 // NewClient creates an initialized, authenticated Client.
 func NewClient(username string, password string) *Client {
 	var client = new(Client)
 	client.config = &ClientConfig{username, password}
 	return client
+}
+
+func NewCallback(channel <-chan *Response, handle int64) *Callback {
+	var callback = new(Callback)
+	callback.Channel = channel
+	callback.Handle = handle
+	return callback
 }
 
 // Call invokes the procedure 'procedure' with parameter values 'params'
@@ -70,27 +82,27 @@ func (client *Client) Call(procedure string, params ...interface{}) (*Response, 
 		return nil, fmt.Errorf("Can not call procedure on closed Client.")
 	}
 	handle := atomic.AddInt64(&client.clientHandle, 1)
-	c := client.netListener.registerCallback(handle)
+	cb := client.netListener.registerCallback(handle)
 	if err := client.writeProcedureCall(procedure, handle, params); err != nil {
 		client.netListener.removeCallback(handle)
 		return nil, err
 	}
-	return <- c, nil
+	return <- cb.Channel, nil
 }
 
 // CallAsync asynchronously invokes the procedure 'procedure' with parameter values 'params'.
 // A pointer to the Response from the server will be put on the returned channel.
-func (client *Client) CallAsync(procedure string, params ...interface{}) (chan *Response, error) {
+func (client *Client) CallAsync(procedure string, params ...interface{}) (*Callback, error) {
 	if client.tcpConn == nil {
 		return nil, fmt.Errorf("Can not call procedure on closed Client.")
 	}
 	handle := atomic.AddInt64(&client.clientHandle, 1)
-	c := client.netListener.registerCallback(handle)
+	cb := client.netListener.registerCallback(handle)
 	if err := client.writeProcedureCall(procedure, handle, params); err != nil {
 		client.netListener.removeCallback(handle)
 		return nil, err
 	}
-	return c, nil
+	return cb, nil
 }
 
 func (client *Client) CreateConnection(hostAndPort string) error {

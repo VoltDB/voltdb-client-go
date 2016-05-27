@@ -89,6 +89,10 @@ func (rsp *Response) Table(offset int) *VoltTable {
 	return rsp.tables[offset]
 }
 
+func (rsp *Response) TableCount() int16 {
+	return rsp.tableCount
+}
+
 func (rsp *Response) GoString() string {
 	return fmt.Sprintf("Response: clientHandle:%v, status:%v, statusString:%v, "+
 		"clusterRoundTripTime: %v, appStatus: %v, appStatusString: %v\n",

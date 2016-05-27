@@ -37,23 +37,27 @@ func main() {
 		fmt.Println(err.Error())
 		os.Exit(-1)
 	}
-	table := response.Table(0)
-	row, err := table.FetchRow(0)
-	if err != nil {
-		fmt.Println(err.Error())
-		os.Exit(-1)
+	if response.TableCount() > 0 {
+		table := response.Table(0)
+		row, err := table.FetchRow(0)
+		if err != nil {
+			fmt.Println(err.Error())
+			os.Exit(-1)
+		}
+		hello, err := row.GetStringByName("HELLO")
+		if err != nil {
+			fmt.Println(err.Error())
+			os.Exit(-1)
+		}
+		world, err := row.GetStringByName("WORLD")
+		if err != nil {
+			fmt.Println(err.Error())
+			os.Exit(-1)
+		}
+		fmt.Printf("%v, %v!\n", hello, world)
+	} else {
+		fmt.Println("Select statement didn't return any data")
 	}
-	hello, err := row.GetStringByName("HELLO")
-	if err != nil {
-		fmt.Println(err.Error())
-		os.Exit(-1)
-	}
-	world, err := row.GetStringByName("WORLD")
-	if err != nil {
-		fmt.Println(err.Error())
-		os.Exit(-1)
-	}
-	fmt.Printf("%v, %v!\n", hello, world)
 }
 
 func insertData(client *voltdbclient.Client, hello, world, dialect string) error {

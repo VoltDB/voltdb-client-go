@@ -47,10 +47,10 @@ func (l *NetworkListener) listen() {
 	}
 }
 
-func (l *NetworkListener) registerCallback(handle int64) chan *Response {
+func (l *NetworkListener) registerCallback(handle int64) *Callback {
 	c := make(chan *Response)
 	l.callbacks[handle] = c;
-	return c
+	return NewCallback(c, handle)
 }
 
 func (l *NetworkListener) removeCallback(handle int64) {
