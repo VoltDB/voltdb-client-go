@@ -151,6 +151,18 @@ func (client *Client) GoString() string {
 	return "uninitialized"
 }
 
+// MultiplexCallbacks 'fans in' callbacks - listens for the given set of callbacks on one channel
+func MultiplexCallbacks(callbacks []*Callback) <-chan *Response {
+	c := make(chan *Response)
+	for _, callback := range callbacks {
+		ch := callback.Channel
+		go func() {
+			c <- <- ch
+		}()
+	}
+	return c
+}
+
 // Ping the database for liveness.
 func (client *Client) PingConnection() bool {
 	if client.tcpConn == nil {

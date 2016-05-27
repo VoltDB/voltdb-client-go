@@ -3,14 +3,13 @@ package main
 import (
 	"github.com/VoltDB/voltdb-client-go/voltdbclient"
 	"fmt"
-	"os"
+	"log"
 )
 
 func main() {
 	client := voltdbclient.NewClient("", "")
 	if err := client.CreateConnection("localhost:21212"); err != nil {
-		fmt.Println("failed to connect to server")
-		os.Exit(-1);
+		log.Fatal("failed to connect to server")
 	}
 	defer func() {
 		if client != nil {
@@ -26,47 +25,38 @@ func main() {
 	rows[3] = []string{"Hej", "Verden", "Danish"}
 	rows[4] = []string{"Ciao", "Mondo", "Italian"}
 	for _, row := range rows {
-		err := insertData(client, row[0], row[1], row[2])
-		if err != nil {
-			fmt.Println(err.Error())
-			os.Exit(-1)
-		}
+		insertData(client, row[0], row[1], row[2])
 	}
 	response, err := client.Call("HELLOWORLD.select", "French")
 	if err != nil {
-		fmt.Println(err.Error())
-		os.Exit(-1)
+		log.Fatal(err)
 	}
 	if response.TableCount() > 0 {
 		table := response.Table(0)
 		row, err := table.FetchRow(0)
 		if err != nil {
-			fmt.Println(err.Error())
-			os.Exit(-1)
+			log.Fatal(err)
 		}
 		hello, err := row.GetStringByName("HELLO")
 		if err != nil {
-			fmt.Println(err.Error())
-			os.Exit(-1)
+			log.Fatal(err)
 		}
 		world, err := row.GetStringByName("WORLD")
 		if err != nil {
-			fmt.Println(err.Error())
-			os.Exit(-1)
+			log.Fatal(err)
 		}
 		fmt.Printf("%v, %v!\n", hello, world)
 	} else {
-		fmt.Println("Select statement didn't return any data")
+		log.Fatal("Select statement didn't return any data")
 	}
 }
 
-func insertData(client *voltdbclient.Client, hello, world, dialect string) error {
+func insertData(client *voltdbclient.Client, hello, world, dialect string) {
 	response, err := client.Call("HELLOWORLD.insert", hello, world, dialect)
 	if err != nil {
-		return err
+		log.Fatal(err)
 	}
 	if (response.Status() != voltdbclient.SUCCESS) {
-		return fmt.Errorf("Insert failed with " + response.StatusString())
+		log.Fatal("Insert failed with " + response.StatusString())
 	}
-	return nil;
 }
