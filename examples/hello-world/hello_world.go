@@ -7,17 +7,16 @@ import (
 )
 
 func main() {
-	var client *voltdbclient.Client
+	client := voltdbclient.NewClient("", "")
+	if err := client.CreateConnection("localhost:21212"); err != nil {
+		fmt.Println("failed to connect to server")
+		os.Exit(-1);
+	}
 	defer func() {
 		if client != nil {
 			client.Close()
 		}
 	}()
-	client = voltdbclient.NewClient("", "")
-	if err := client.CreateConnection("localhost:21212"); err != nil {
-		fmt.Println("failed to connect to server")
-		os.Exit(-1);
-	}
 
 	// rows to insert
 	rows := make([][]string, 5)
