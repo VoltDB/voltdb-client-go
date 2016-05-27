@@ -70,14 +70,12 @@ func (client *Client) Call(procedure string, params ...interface{}) (*Response, 
 		return nil, fmt.Errorf("Can not call procedure on closed Client.")
 	}
 	handle := atomic.AddInt64(&client.clientHandle, 1)
+	c := client.netListener.registerCallback(handle)
 	if err := client.writeProcedureCall(procedure, handle, params); err != nil {
+		client.netListener.removeCallback(handle)
 		return nil, err
 	}
-	resp, err := readMessage(client.tcpConn)
-	if err != nil {
-		return nil, err
-	}
-	return deserializeCallResponse(resp)
+	return <- c, nil
 }
 
 // CallAsync asynchronously invokes the procedure 'procedure' with parameter values 'params'.
@@ -87,8 +85,7 @@ func (client *Client) CallAsync(procedure string, params ...interface{}) (chan *
 		return nil, fmt.Errorf("Can not call procedure on closed Client.")
 	}
 	handle := atomic.AddInt64(&client.clientHandle, 1)
-	c := make(chan *Response)
-	client.netListener.registerCallback(handle, c)
+	c := client.netListener.registerCallback(handle)
 	if err := client.writeProcedureCall(procedure, handle, params); err != nil {
 		client.netListener.removeCallback(handle)
 		return nil, err
