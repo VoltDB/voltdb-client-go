@@ -118,9 +118,7 @@ func (client *Client) CreateConnection(hostAndPort string) error {
 	if err != nil {
 		return err
 	}
-	if err = client.writeLoginMessage(login); err != nil {
-		return err
-	}
+	client.writeLoginMessage(&login)
 	if client.connData, err = client.readLoginResponse(); err != nil {
 		return err
 	}
@@ -142,8 +140,8 @@ func (client *Client) Close() error {
 	return err
 }
 
-// Implement 'Stringer' from 'fmt' package
-func (client *Client) String() string {
+// GoString provides a default printable format for Client.
+func (client *Client) GoString() string {
 	if client.connData != nil {
 		return fmt.Sprintf("hostId:%v, connId:%v, leaderAddr:%v buildString:%v",
 			client.connData.hostId, client.connData.connId,
@@ -189,7 +187,7 @@ func (client *Client) readLoginResponse() (*connectionData, error) {
 }
 
 // writeLoginMessage writes a login message to the connection.
-func (client *Client) writeLoginMessage(buf bytes.Buffer) {
+func (client *Client) writeLoginMessage(buf *bytes.Buffer) {
 	// length includes protocol version.
 	length := buf.Len() + 2
 	var netmsg bytes.Buffer
@@ -197,7 +195,7 @@ func (client *Client) writeLoginMessage(buf bytes.Buffer) {
 	writeProtoVersion(&netmsg)
 	writePasswordHashVersion(&netmsg)
 	// 1 copy + 1 n/w write benchmarks faster than 2 n/w writes.
-	io.Copy(&netmsg, &buf)
+	io.Copy(&netmsg, buf)
 	io.Copy(client.tcpConn, &netmsg)
 }
 
