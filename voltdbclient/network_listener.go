@@ -10,7 +10,7 @@ import (
 // the server.  If a callback (channel) is registered for the procedure, the
 // listener puts the response on the channel (calls back).
 type NetworkListener struct {
-	tcpConn *net.TCPConn
+	tcpConn   *net.TCPConn
 	callbacks map[int64]chan *Response
 }
 
@@ -49,7 +49,7 @@ func (l *NetworkListener) listen() {
 
 func (l *NetworkListener) registerCallback(handle int64) *Callback {
 	c := make(chan *Response)
-	l.callbacks[handle] = c;
+	l.callbacks[handle] = c
 	return NewCallback(c, handle)
 }
 

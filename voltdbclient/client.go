@@ -23,7 +23,8 @@ CreateConnection(hostAndPort string)
 Call(procedure string, params ...interface{})
 CallAsync(procedure string, params ...interface{})
 Close()
- */
+MultiplexCallbacks()
+*/
 package voltdbclient
 
 import (
@@ -36,10 +37,10 @@ import (
 
 // Client is a single connection to a single node of a VoltDB database
 type Client struct {
-	config *ClientConfig
-	tcpConn  *net.TCPConn
-	connData *connectionData
-	netListener *NetworkListener
+	config       *ClientConfig
+	tcpConn      *net.TCPConn
+	connData     *connectionData
+	netListener  *NetworkListener
 	clientHandle int64
 }
 
@@ -87,7 +88,7 @@ func (client *Client) Call(procedure string, params ...interface{}) (*Response, 
 		client.netListener.removeCallback(handle)
 		return nil, err
 	}
-	return <- cb.Channel, nil
+	return <-cb.Channel, nil
 }
 
 // CallAsync asynchronously invokes the procedure 'procedure' with parameter values 'params'.
@@ -106,15 +107,15 @@ func (client *Client) CallAsync(procedure string, params ...interface{}) (*Callb
 }
 
 func (client *Client) CreateConnection(hostAndPort string) error {
-	raddr, err := net.ResolveTCPAddr("tcp", hostAndPort);
-	if  err != nil {
+	raddr, err := net.ResolveTCPAddr("tcp", hostAndPort)
+	if err != nil {
 		return fmt.Errorf("Error resolving %v.", hostAndPort)
 	}
 	if client.tcpConn, err = net.DialTCP("tcp", nil, raddr); err != nil {
 		return err
 	}
-	login, err := serializeLoginMessage(client.config.username, client.config.password);
-	if  err != nil {
+	login, err := serializeLoginMessage(client.config.username, client.config.password)
+	if err != nil {
 		return err
 	}
 	if err = client.writeLoginMessage(login); err != nil {
@@ -123,7 +124,7 @@ func (client *Client) CreateConnection(hostAndPort string) error {
 	if client.connData, err = client.readLoginResponse(); err != nil {
 		return err
 	}
-	client.clientHandle = 0;
+	client.clientHandle = 0
 	client.netListener = NewListener(client.tcpConn)
 	client.netListener.start()
 	return nil
@@ -141,8 +142,8 @@ func (client *Client) Close() error {
 	return err
 }
 
-// GoString provides a default printable format for Client.
-func (client *Client) GoString() string {
+// Implement 'Stringer' from 'fmt' package
+func (client *Client) String() string {
 	if client.connData != nil {
 		return fmt.Sprintf("hostId:%v, connId:%v, leaderAddr:%v buildString:%v",
 			client.connData.hostId, client.connData.connId,
@@ -152,12 +153,12 @@ func (client *Client) GoString() string {
 }
 
 // MultiplexCallbacks 'fans in' callbacks - listens for the given set of callbacks on one channel
-func MultiplexCallbacks(callbacks []*Callback) <-chan *Response {
+func (client *Client) MultiplexCallbacks(callbacks []*Callback) <-chan *Response {
 	c := make(chan *Response)
 	for _, callback := range callbacks {
 		ch := callback.Channel
 		go func() {
-			c <- <- ch
+			c <- <-ch
 		}()
 	}
 	return c
@@ -188,7 +189,7 @@ func (client *Client) readLoginResponse() (*connectionData, error) {
 }
 
 // writeLoginMessage writes a login message to the connection.
-func (client *Client) writeLoginMessage(buf bytes.Buffer) error {
+func (client *Client) writeLoginMessage(buf bytes.Buffer) {
 	// length includes protocol version.
 	length := buf.Len() + 2
 	var netmsg bytes.Buffer
@@ -198,8 +199,6 @@ func (client *Client) writeLoginMessage(buf bytes.Buffer) error {
 	// 1 copy + 1 n/w write benchmarks faster than 2 n/w writes.
 	io.Copy(&netmsg, &buf)
 	io.Copy(client.tcpConn, &netmsg)
-	// TODO: obviously wrong
-	return nil
 }
 
 // writeProcedureCall serializes a procedure call and writes it to a tcp connection.

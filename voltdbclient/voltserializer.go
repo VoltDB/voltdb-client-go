@@ -17,11 +17,11 @@
 package voltdbclient
 
 import (
+	"bytes"
 	"encoding/binary"
 	"io"
 	"math"
 	"time"
-	"bytes"
 )
 
 // package private methods that perform voltdb compatible

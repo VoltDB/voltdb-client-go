@@ -38,7 +38,7 @@ func main() {
 		}
 		callbacks[i] = callback;
 	}
-	ch := voltdbclient.MultiplexCallbacks(callbacks)
+	ch := client.MultiplexCallbacks(callbacks)
 	for i := 0; i < 5; i++ {
 		resp := <- ch
 		handleResponse(resp)
