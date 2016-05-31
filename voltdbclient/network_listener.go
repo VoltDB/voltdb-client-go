@@ -1,8 +1,24 @@
+/* This file is part of VoltDB.
+ * Copyright (C) 2008-2016 VoltDB Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
+ */
 package voltdbclient
 
 import (
 	"fmt"
-	"net"
+	"io"
 	"time"
 )
 
@@ -10,13 +26,13 @@ import (
 // the server.  If a callback (channel) is registered for the procedure, the
 // listener puts the response on the channel (calls back).
 type NetworkListener struct {
-	tcpConn   *net.TCPConn
+	reader    io.Reader
 	callbacks map[int64]chan *Response
 }
 
-func NewListener(tcpConn *net.TCPConn) *NetworkListener {
+func NewListener(reader io.Reader) *NetworkListener {
 	var l = new(NetworkListener)
-	l.tcpConn = tcpConn
+	l.reader = reader
 	l.callbacks = make(map[int64]chan *Response)
 	return l
 }
@@ -25,7 +41,7 @@ func NewListener(tcpConn *net.TCPConn) *NetworkListener {
 // listen blocks on input from the server and should be run as a go routine.
 func (l *NetworkListener) listen() {
 	for {
-		resp, err := readResponse(l.tcpConn)
+		resp, err := readResponse(l.reader)
 		if err == nil {
 			handle := resp.clientHandle
 			c, ok := l.callbacks[handle]

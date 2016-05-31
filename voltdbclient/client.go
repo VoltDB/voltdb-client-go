@@ -38,7 +38,8 @@ import (
 // Client is a single connection to a single node of a VoltDB database
 type Client struct {
 	config       *ClientConfig
-	tcpConn      *net.TCPConn
+	reader       io.Reader
+	writer       io.Writer
 	connData     *connectionData
 	netListener  *NetworkListener
 	clientHandle int64
@@ -79,7 +80,7 @@ func NewCallback(channel <-chan *Response, handle int64) *Callback {
 // Call invokes the procedure 'procedure' with parameter values 'params'
 // and returns a pointer to the received Response.
 func (client *Client) Call(procedure string, params ...interface{}) (*Response, error) {
-	if client.tcpConn == nil {
+	if client.writer == nil {
 		return nil, fmt.Errorf("Can not call procedure on closed Client.")
 	}
 	handle := atomic.AddInt64(&client.clientHandle, 1)
@@ -94,7 +95,7 @@ func (client *Client) Call(procedure string, params ...interface{}) (*Response, 
 // CallAsync asynchronously invokes the procedure 'procedure' with parameter values 'params'.
 // A pointer to the Response from the server will be put on the returned channel.
 func (client *Client) CallAsync(procedure string, params ...interface{}) (*Callback, error) {
-	if client.tcpConn == nil {
+	if client.writer == nil {
 		return nil, fmt.Errorf("Can not call procedure on closed Client.")
 	}
 	handle := atomic.AddInt64(&client.clientHandle, 1)
@@ -111,9 +112,12 @@ func (client *Client) CreateConnection(hostAndPort string) error {
 	if err != nil {
 		return fmt.Errorf("Error resolving %v.", hostAndPort)
 	}
-	if client.tcpConn, err = net.DialTCP("tcp", nil, raddr); err != nil {
+	var tcpConn *net.TCPConn
+	if tcpConn, err = net.DialTCP("tcp", nil, raddr); err != nil {
 		return err
 	}
+	client.reader = tcpConn
+	client.writer = tcpConn
 	login, err := serializeLoginMessage(client.config.username, client.config.password)
 	if err != nil {
 		return err
@@ -123,7 +127,7 @@ func (client *Client) CreateConnection(hostAndPort string) error {
 		return err
 	}
 	client.clientHandle = 0
-	client.netListener = NewListener(client.tcpConn)
+	client.netListener = NewListener(client.reader)
 	client.netListener.start()
 	return nil
 }
@@ -132,10 +136,12 @@ func (client *Client) CreateConnection(hostAndPort string) error {
 // To open a new client, use NewClient.
 func (client *Client) Close() error {
 	var err error = nil
-	if client.tcpConn != nil {
-		err = client.tcpConn.Close()
+	if client.reader != nil {
+		tcpConn := client.reader.(*net.TCPConn)
+		tcpConn.Close()
 	}
-	client.tcpConn = nil
+	client.reader = nil
+	client.writer = nil
 	client.connData = nil
 	return err
 }
@@ -164,7 +170,7 @@ func (client *Client) MultiplexCallbacks(callbacks []*Callback) <-chan *Response
 
 // Ping the database for liveness.
 func (client *Client) PingConnection() bool {
-	if client.tcpConn == nil {
+	if client.writer == nil {
 		return false
 	}
 	rsp, err := client.Call("@Ping")
@@ -174,11 +180,15 @@ func (client *Client) PingConnection() bool {
 	return rsp.Status() == SUCCESS
 }
 
+func (client *Client) setWriter(writer io.Writer) {
+	client.writer = writer
+}
+
 // functions private to this package.
 
 // readLoginResponse parses the login response message.
 func (client *Client) readLoginResponse() (*connectionData, error) {
-	buf, err := readMessage(client.tcpConn)
+	buf, err := readMessage(client.reader)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +206,7 @@ func (client *Client) writeLoginMessage(buf *bytes.Buffer) {
 	writePasswordHashVersion(&netmsg)
 	// 1 copy + 1 n/w write benchmarks faster than 2 n/w writes.
 	io.Copy(&netmsg, buf)
-	io.Copy(client.tcpConn, &netmsg)
+	io.Copy(client.writer, &netmsg)
 }
 
 // writeProcedureCall serializes a procedure call and writes it to a tcp connection.
@@ -215,6 +225,6 @@ func (client *Client) writeProcedureCall(procedure string, handle int64, params 
 	var netmsg bytes.Buffer
 	writeInt(&netmsg, int32(call.Len()))
 	io.Copy(&netmsg, &call)
-	io.Copy(client.tcpConn, &netmsg)
+	io.Copy(client.writer, &netmsg)
 	return nil
 }

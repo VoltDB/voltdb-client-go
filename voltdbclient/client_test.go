@@ -16,12 +16,39 @@
  */
 package voltdbclient
 
-import "testing"
+import (
+	"bytes"
+	"io/ioutil"
+	"testing"
+)
 
 func TestCallOnClosedConn(t *testing.T) {
-	client := Client{nil, nil, nil, nil, 0}
+	client := Client{nil, nil, nil, nil, nil, 0}
 	_, err := client.Call("bad", 1, 2)
 	if err == nil {
 		t.Errorf("Expected error calling procedure on closed Conn")
+	}
+}
+
+func TestSerializeLogin(t *testing.T) {
+	config := ClientConfig{"hello", "world"}
+	var loginBytes []byte
+	loginBuf := bytes.NewBuffer(loginBytes)
+	client := Client{&config, nil, loginBuf, nil, nil, 0}
+	login, err := serializeLoginMessage(client.config.username, client.config.password)
+	check(t, err)
+	client.writeLoginMessage(&login)
+
+	fileBytes, err := ioutil.ReadFile("./test_resources/authentication_request_sha256.msg")
+	check(t, err)
+
+	if !bytes.Equal(loginBuf.Bytes(), fileBytes) {
+		t.Fatal("login message doesn't match expected contents")
+	}
+}
+
+func check(t *testing.T, err error) {
+	if err != nil {
+		t.Fatal(err.Error())
 	}
 }
