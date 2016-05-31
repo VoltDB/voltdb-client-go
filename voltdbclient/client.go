@@ -180,10 +180,6 @@ func (client *Client) PingConnection() bool {
 	return rsp.Status() == SUCCESS
 }
 
-func (client *Client) setWriter(writer io.Writer) {
-	client.writer = writer
-}
-
 // functions private to this package.
 
 // readLoginResponse parses the login response message.
