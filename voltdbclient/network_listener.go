@@ -41,7 +41,7 @@ func NewListener(reader io.Reader) *NetworkListener {
 // listen blocks on input from the server and should be run as a go routine.
 func (l *NetworkListener) listen() {
 	for {
-		resp, err := readResponse(l.reader)
+		resp, err := l.readOneMsg(l.reader)
 		if err == nil {
 			handle := resp.clientHandle
 			c, ok := l.callbacks[handle]
@@ -61,6 +61,11 @@ func (l *NetworkListener) listen() {
 			fmt.Println("error reading from server %v", err.Error())
 		}
 	}
+}
+
+// break this out to support testing
+func (l *NetworkListener) readOneMsg(reader io.Reader) (*Response, error) {
+	return readResponse(reader)
 }
 
 func (l *NetworkListener) registerCallback(handle int64) *Callback {

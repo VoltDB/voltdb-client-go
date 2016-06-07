@@ -16,6 +16,11 @@
  */
 package voltdbclient
 
+import (
+	"time"
+	"math/big"
+)
+
 type VoltTableRow struct {
 	vt *VoltTable
 }
@@ -34,18 +39,74 @@ func (vtr *VoltTableRow) AdvanceToRow(rowIndex int32) bool {
 	return vtr.vt.AdvanceToRow(rowIndex)
 }
 
-func (vtr *VoltTableRow) GetStringByIndex(colIndex int16) (string, error) {
-	return vtr.vt.GetStringByIndex(colIndex)
+func (vtr *VoltTableRow) GetBigInt(colIndex int16) (int64, bool, error) {
+	return vtr.vt.GetBigInt(colIndex)
 }
 
-func (vtr *VoltTableRow) GetStringByName(cn string) (string, error) {
+func (vtr *VoltTableRow) GetBigIntByName(cn string) (int64, bool, error) {
+	return vtr.vt.GetBigIntByName(cn)
+}
+
+func (vtr *VoltTableRow) GetDecimal(colIndex int16)  (*big.Float, bool, error) {
+	return vtr.vt.GetDecimal(colIndex)
+}
+
+func (vtr *VoltTableRow) GetDecimalByName(cn string)  (*big.Float, bool, error) {
+	return vtr.vt.GetDecimalByName(cn)
+}
+
+func (vtr *VoltTableRow) GetFloat(colIndex int16) (float64, bool, error) {
+	return vtr.vt.GetFloat(colIndex)
+}
+
+func (vtr *VoltTableRow) GetFloatByName(cn string) (float64, bool, error) {
+	return vtr.vt.GetFloatByName(cn)
+}
+
+func (vtr *VoltTableRow) GetInteger(colIndex int16) (int32, bool, error) {
+	return vtr.vt.GetInteger(colIndex)
+}
+
+func (vtr *VoltTableRow) GetIntegerByName(cn string) (int32, bool, error) {
+	return vtr.vt.GetIntegerByName(cn)
+}
+
+func (vtr *VoltTableRow) GetSmallInt(colIndex int16) (int16, bool, error) {
+	return vtr.vt.GetSmallInt(colIndex)
+}
+
+func (vtr *VoltTableRow) GetSmallIntByName(cn string) (int16, bool, error) {
+	return vtr.vt.GetSmallIntByName(cn)
+}
+
+func (vtr *VoltTableRow) GetString(colIndex int16) (string, bool, error) {
+	return vtr.vt.GetString(colIndex)
+}
+
+func (vtr *VoltTableRow) GetStringByName(cn string) (string, bool, error) {
 	return vtr.vt.GetStringByName(cn)
 }
 
-func (vtr *VoltTableRow) GetVarbinaryByIndex(colIndex int16) ([]byte, error) {
-	return vtr.vt.GetVarbinaryByIndex(colIndex)
+func (vtr *VoltTableRow) GetTimestamp(colIndex int16) (time.Time, bool, error) {
+	return vtr.vt.GetTimestamp(colIndex)
 }
 
-func (vtr *VoltTableRow) GetVarbinaryByName(cn string) ([]byte, error) {
+func (vtr *VoltTableRow) GetTimestampByName(cn string) (time.Time, bool, error) {
+	return vtr.vt.GetTimestampByName(cn)
+}
+
+func (vtr *VoltTableRow) GetTinyInt(colIndex int16) (int8, bool, error) {
+	return vtr.vt.GetTinyInt(colIndex)
+}
+
+func (vtr *VoltTableRow) GetTinyIntByName(cn string) (int8, bool, error) {
+	return vtr.vt.GetTinyIntByName(cn)
+}
+
+func (vtr *VoltTableRow) GetVarbinary(colIndex int16) ([]byte, bool, error) {
+	return vtr.vt.GetVarbinary(colIndex)
+}
+
+func (vtr *VoltTableRow) GetVarbinaryByName(cn string) ([]byte, bool, error) {
 	return vtr.vt.GetVarbinaryByName(cn)
 }
