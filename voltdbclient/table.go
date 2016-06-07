@@ -222,27 +222,27 @@ func colLength(r *bytes.Reader, offset int32, colType int8) (int32, error) {
 	case 8:  // FLOAT
 		return 8, nil
 	case 9:  // STRING
-		len, err := readIntAt(r, int64(offset))
+		strlen, err := readInt32At(r, int64(offset))
 		if err != nil {
 			return 0, err
 		}
-		if len == -1 { // encoding for null string.
+		if strlen == -1 { // encoding for null string.
 			return 4, nil
 		}
-		return len + 4, nil
+		return strlen + 4, nil
 	case 11:  // TIMESTAMP
 		return 8, nil
 	case 22:  // DECIMAL
 		return 16, nil
 	case 25:  // VARBINARY
-		len, err := readIntAt(r, int64(offset))
+		strlen, err := readInt32At(r, int64(offset))
 		if err != nil {
 			return 0, err
 		}
-		if len == -1 { // encoding for null.
+		if strlen == -1 { // encoding for null.
 			return 4, nil
 		}
-		return len + 4, nil
+		return strlen + 4, nil
 	case 26:  // GEOGRAPHY_POINT
 		return 0, fmt.Errorf("Not supporting GEOGRAPHY_POINT")
 	case 27:  // GEOGRAPHY

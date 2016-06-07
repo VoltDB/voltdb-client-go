@@ -53,15 +53,19 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		hello, err := row.GetStringByName("HELLO")
+		hello, nullHello, err := row.GetStringByName("HELLO")
 		if err != nil {
 			log.Fatal(err)
 		}
-		world, err := row.GetStringByName("WORLD")
+		world, nullWorld, err := row.GetStringByName("WORLD")
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Printf("%v, %v!\n", hello, world)
+		if nullHello || nullWorld {
+			fmt.Println("Unexpected null values")
+		} else {
+			fmt.Printf("%v, %v!\n", hello, world)
+		}
 	} else {
 		log.Fatal("Select statement didn't return any data")
 	}

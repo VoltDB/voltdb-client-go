@@ -85,7 +85,7 @@ func (client *Client) Call(procedure string, params ...interface{}) (*Response, 
 	}
 	handle := atomic.AddInt64(&client.clientHandle, 1)
 	cb := client.netListener.registerCallback(handle)
-	if err := client.writeProcedureCall(procedure, handle, params); err != nil {
+	if err := client.writeProcedureCall(client.writer, procedure, handle, params); err != nil {
 		client.netListener.removeCallback(handle)
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func (client *Client) CallAsync(procedure string, params ...interface{}) (*Callb
 	}
 	handle := atomic.AddInt64(&client.clientHandle, 1)
 	cb := client.netListener.registerCallback(handle)
-	if err := client.writeProcedureCall(procedure, handle, params); err != nil {
+	if err := client.writeProcedureCall(client.writer, procedure, handle, params); err != nil {
 		client.netListener.removeCallback(handle)
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func (client *Client) writeLoginMessage(buf *bytes.Buffer) {
 }
 
 // writeProcedureCall serializes a procedure call and writes it to a tcp connection.
-func (client *Client) writeProcedureCall(procedure string, handle int64, params []interface{}) error {
+func (client *Client) writeProcedureCall(writer io.Writer, procedure string, handle int64, params []interface{}) error {
 
 	var call bytes.Buffer
 	var err error
@@ -221,6 +221,6 @@ func (client *Client) writeProcedureCall(procedure string, handle int64, params 
 	var netmsg bytes.Buffer
 	writeInt(&netmsg, int32(call.Len()))
 	io.Copy(&netmsg, &call)
-	io.Copy(client.writer, &netmsg)
+	io.Copy(writer, &netmsg)
 	return nil
 }
