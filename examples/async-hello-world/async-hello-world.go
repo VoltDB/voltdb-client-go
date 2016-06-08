@@ -78,11 +78,13 @@ func handleResponse(resp *voltdbclient.Response) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		hello, err := row.GetStringByName("HELLO")
+		iHello, err := row.GetStringByName("HELLO")
+		hello := iHello.(string)
 		if err != nil {
 			log.Fatal(err)
 		}
-		world, err := row.GetStringByName("WORLD")
+		iWorld, err := row.GetStringByName("WORLD")
+		world := iWorld.(string)
 		if err != nil {
 			log.Fatal(err)
 		}

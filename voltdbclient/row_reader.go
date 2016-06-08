@@ -9,39 +9,39 @@ import (
 	"math/big"
 )
 
-func (vt *VoltTable) GetBigInt(colIndex int16) (int64, bool, error) {
+func (vt *VoltTable) GetBigInt(colIndex int16) (interface{}, error) {
 	bs, err := vt.getBytes(vt.rowIndex, colIndex)
 	if err != nil {
-		return 0, false, err
+		return nil, err
 	}
 	if len(bs) != 8 {
-		return 0, false, fmt.Errorf("Did not find at BIGINT column at index %d\n", colIndex)
+		return nil, fmt.Errorf("Did not find at BIGINT column at index %d\n", colIndex)
 	}
 	i := vt.bytesToBigInt(bs)
 	if i == math.MinInt64 {
-		return 0, true, nil
+		return nil, nil
 	}
-	return i, false, nil
+	return i, nil
 }
 
-func (vt *VoltTable) GetBigIntByName(cn string) (int64, bool, error) {
+func (vt *VoltTable) GetBigIntByName(cn string) (interface{}, error) {
 	ci, ok := vt.cnToCi[strings.ToUpper(cn)]
 	if !ok {
-		return 0, false, fmt.Errorf("column name %v was not found", cn)
+		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
 	return vt.GetBigInt(ci)
 }
 
-func (vt *VoltTable) GetDecimal(colIndex int16) (*big.Float, bool, error) {
+func (vt *VoltTable) GetDecimal(colIndex int16) (interface{}, error) {
 	bs, err := vt.getBytes(vt.rowIndex, colIndex)
 	if err != nil {
-		return new(big.Float), false, err
+		return nil, err
 	}
 	if len(bs) != 16 {
-		return new(big.Float), false, fmt.Errorf("Did not find at DECIMAL column at index %d\n", colIndex)
+		return nil, fmt.Errorf("Did not find at DECIMAL column at index %d\n", colIndex)
 	}
 	if bytes.Compare(bs, NULL_DECIMAL[:]) == 0 {
-		return nil, true, nil
+		return nil, nil
 	}
 	var leadingZeroCount = 0
 	for i, b := range bs {
@@ -56,175 +56,173 @@ func (vt *VoltTable) GetDecimal(colIndex int16) (*big.Float, bool, error) {
 	fl.SetInt(bi)
 	dec := new(big.Float)
 	dec = dec.Quo(fl, big.NewFloat(1e12))
-	return dec, false, nil
+	return dec, nil
 }
 
-func (vt *VoltTable) GetDecimalByName(cn string) (*big.Float, bool, error) {
+func (vt *VoltTable) GetDecimalByName(cn string) (interface{}, error) {
 	ci, ok := vt.cnToCi[strings.ToUpper(cn)]
 	if !ok {
-		return new(big.Float), false, fmt.Errorf("column name %v was not found", cn)
+		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
 	return vt.GetDecimal(ci)
 }
 
-func (vt *VoltTable) GetFloat(colIndex int16) (float64, bool, error) {
+func (vt *VoltTable) GetFloat(colIndex int16) (interface{}, error) {
 	bs, err := vt.getBytes(vt.rowIndex, colIndex)
 	if err != nil {
-		return 0, false, err
-	}
-	if len(bs) == 0 {
-		return 0, true, nil
+		return nil, err
 	}
 	if len(bs) != 8 {
-		return 0, false, fmt.Errorf("Did not find at FLOAT column at index %d\n", colIndex)
+		return nil, fmt.Errorf("Did not find at FLOAT column at index %d\n", colIndex)
 	}
 	f := vt.bytesToFloat(bs)
 	if f == -1.7E+308 {
-		return 0, true, nil
+		return nil, nil
 	}
-	return f, false, nil
+	return f, nil
 }
 
-func (vt *VoltTable) GetFloatByName(cn string) (float64, bool, error) {
+func (vt *VoltTable) GetFloatByName(cn string) (interface{}, error) {
 	ci, ok := vt.cnToCi[strings.ToUpper(cn)]
 	if !ok {
-		return 0, false, fmt.Errorf("column name %v was not found", cn)
+		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
 	return vt.GetFloat(ci)
 }
 
 
-func (vt *VoltTable) GetInteger(colIndex int16) (int32, bool, error) {
+func (vt *VoltTable) GetInteger(colIndex int16) (interface{}, error) {
 	bs, err := vt.getBytes(vt.rowIndex, colIndex)
 	if err != nil {
-		return 0, false, err
+		return nil, err
+	}
+	if len(bs) != 4 {
+		return nil, fmt.Errorf("Did not find at INTEGER column at index %d\n", colIndex)
 	}
 	i := vt.bytesToInt(bs)
 	if i == math.MinInt32 {
-		return 0, true, nil
+		return nil, nil
 	}
-	return i, false, nil
+	return i, nil
 }
 
-func (vt *VoltTable) GetIntegerByName(cn string) (int32, bool, error) {
+func (vt *VoltTable) GetIntegerByName(cn string) (interface{}, error) {
 	ci, ok := vt.cnToCi[strings.ToUpper(cn)]
 	if !ok {
-		return 0, false, fmt.Errorf("column name %v was not found", cn)
+		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
 	return vt.GetInteger(ci)
 }
 
-func (vt *VoltTable) GetSmallInt(colIndex int16) (int16, bool, error) {
+func (vt *VoltTable) GetSmallInt(colIndex int16) (interface{}, error) {
 	bs, err := vt.getBytes(vt.rowIndex, colIndex)
 	if err != nil {
-		return 0, false, err
+		return nil, err
 	}
 	if len(bs) != 2 {
-		return 0, false, fmt.Errorf("Did not find at SMALLINT column at index %d\n", colIndex)
+		return nil, fmt.Errorf("Did not find at SMALLINT column at index %d\n", colIndex)
 	}
 	i := vt.bytesToSmallInt(bs)
 	if i == math.MinInt16 {
-		return 0, true, nil
+		return nil, nil
 	}
-	return i, false, nil
+	return i, nil
 }
 
 
-func (vt *VoltTable) GetSmallIntByName(cn string) (int16, bool, error) {
+func (vt *VoltTable) GetSmallIntByName(cn string) (interface{}, error) {
 	ci, ok := vt.cnToCi[strings.ToUpper(cn)]
 	if !ok {
-		return 0, false, fmt.Errorf("column name %v was not found", cn)
+		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
 	return vt.GetSmallInt(ci)
 }
 
-func (vt *VoltTable) GetString(colIndex int16) (string, bool, error) {
+func (vt *VoltTable) GetString(colIndex int16) (interface{}, error) {
 	bs, err := vt.getBytes(vt.rowIndex, colIndex)
 	if err != nil {
-		return "", false, err
+		return nil, err
 	}
 	// if there are only four bytes then there is just the
 	// length, which must be -1, the null encoding.
 	if len(bs) == 4 {
-		return "", true, nil
+		return nil, nil
 	}
 	// exclude the length from the string itself.
-	return string(bs[4:]), false, nil
+	return string(bs[4:]), nil
 }
 
-func (vt *VoltTable) GetStringByName(cn string) (string, bool, error) {
+func (vt *VoltTable) GetStringByName(cn string) (interface{}, error) {
 	ci, ok := vt.cnToCi[strings.ToUpper(cn)]
 	if !ok {
-		return "", false, fmt.Errorf("column name %v was not found", cn)
+		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
 	return vt.GetString(ci)
 }
 
-func (vt *VoltTable) GetTimestamp(colIndex int16) (time.Time, bool, error) {
-	var zeroTime time.Time
+func (vt *VoltTable) GetTimestamp(colIndex int16) (interface{}, error) {
 	bs, err := vt.getBytes(vt.rowIndex, colIndex)
 	if err != nil {
-		return zeroTime, false, err
+		return nil, err
 	}
 	if len(bs) != 8 {
-		return zeroTime, false, fmt.Errorf("Did not find at TIMESTAMP column at index %d\n", colIndex)
+		return nil, fmt.Errorf("Did not find at TIMESTAMP column at index %d\n", colIndex)
 	}
 	if bytes.Compare(bs, NULL_TIMESTAMP[:]) == 0 {
-		return zeroTime, true, nil
+		return nil, nil
 	}
 	t := vt.bytesToTime(bs)
-	return t, false, nil
+	return t, nil
 }
 
-func (vt *VoltTable) GetTimestampByName(cn string) (time.Time, bool, error) {
-	var zeroTime time.Time
+func (vt *VoltTable) GetTimestampByName(cn string) (interface{}, error) {
 	ci, ok := vt.cnToCi[strings.ToUpper(cn)]
 	if !ok {
-		return zeroTime, false, fmt.Errorf("column name %v was not found", cn)
+		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
 	return vt.GetTimestamp(ci)
 }
 
 
-func (vt *VoltTable) GetTinyInt(colIndex int16) (int8, bool, error) {
+func (vt *VoltTable) GetTinyInt(colIndex int16) (interface{}, error) {
 	bs, err := vt.getBytes(vt.rowIndex, colIndex)
 	if err != nil {
-		return 0, false, err
+		return nil, err
 	}
 	if len(bs) > 1 {
-		return 0, false, fmt.Errorf("Did not find at TINYINT column at index %d\n", colIndex)
+		return nil, fmt.Errorf("Did not find at TINYINT column at index %d\n", colIndex)
 	}
 	i := int8(bs[0])
 	if i == math.MinInt8 {
-		return 0, true, nil
+		return nil, nil
 	}
-	return i, false, nil
+	return i, nil
 
 }
 
-func (vt *VoltTable) GetTinyIntByName(cn string) (int8, bool, error) {
+func (vt *VoltTable) GetTinyIntByName(cn string) (interface{}, error) {
 	ci, ok := vt.cnToCi[strings.ToUpper(cn)]
 	if !ok {
-		return 0, false, fmt.Errorf("column name %v was not found", cn)
+		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
 	return vt.GetTinyInt(ci)
 }
 
-func (vt *VoltTable) GetVarbinary(colIndex int16) ([]byte, bool, error) {
+func (vt *VoltTable) GetVarbinary(colIndex int16) (interface{}, error) {
 	bs, err := vt.getBytes(vt.rowIndex, colIndex)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if len(bs) == 4 {
-		return nil, true, nil
+		return nil, nil
 	}
-	return bs[4:], false, nil
+	return bs[4:], nil
 }
 
-func (vt *VoltTable) GetVarbinaryByName(cn string) ([]byte, bool, error) {
+func (vt *VoltTable) GetVarbinaryByName(cn string) (interface{}, error) {
 	ci, ok := vt.cnToCi[strings.ToUpper(cn)]
 	if !ok {
-		return nil, false, fmt.Errorf("column name %v was not found", cn)
+		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
 	return vt.GetVarbinary(ci)
 }

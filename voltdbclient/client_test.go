@@ -22,6 +22,8 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"time"
+	"math/big"
 )
 
 func TestCallOnClosedConn(t *testing.T) {
@@ -59,11 +61,9 @@ func TestReadDataTypes(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		vtr, err := vt.FetchRow(int32(i))
 		check(t, err)
-		id, null, err := vtr.GetInteger(0)
+		iId, err := vtr.GetInteger(0)
+		id := iId.(int32)
 		check(t, err)
-		if null {
-			t.Fatal("See null id")
-		}
 		if id == 25 {
 			checkRowData(t, vtr, int32(25), true, 0, true, "", true, "", 0, true, 0, true, 0, true, 0, true, 0,
 			true, 0, true, "")
@@ -85,120 +85,137 @@ statusIsNull bool, expectedStatus int8, typeIsNull bool, expectedType int16, pan
 boIsNull bool, expectedBo float64, balanceIsNull bool, expectedBalance float64,
 lastUpdatedIsNull bool, expectedLastUpdated string) {
 	// ID
-	id, null, err := row.GetIntegerByName("ID")
+	iId, err := row.GetIntegerByName("ID")
 	check(t, err)
-	if null {
-		t.Error("Unexpected null value for ID\n")
-	}
+	id := iId.(int32)
 	if expectedId != id {
 		t.Error(fmt.Printf("For ID, expected %d but saw %d\n", expectedId, id))
 	}
 
 	// NULLABLE_ID
-	n_id, null, err := row.GetIntegerByName("NULLABLE_ID")
+	iNid, err := row.GetIntegerByName("NULLABLE_ID")
 	check(t, err)
-	if null {
-		if !nIdIsNull {
-			t.Error(fmt.Printf("For NULLABLE_ID, expected %d but saw null\n", expectedId))
+	if iNid != nil {
+		nId := iNid.(int32)
+		if nIdIsNull || expectedNId != nId {
+			t.Error(fmt.Printf("For NULLABLE_ID, expected value %s", expectedNId))
 		}
-	} else if expectedNId != n_id {
-		t.Error(fmt.Printf("For NULLABLE_ID, expected %d but saw %d\n", expectedId, id))
+	} else {
+		if !nIdIsNull {
+			t.Error("Unexpected null value for NULLABLE_ID\n")
+		}
 	}
 
 	// NAME
-	name, null, err := row.GetStringByName("NAME")
+	iName, err := row.GetStringByName("NAME")
 	check(t, err)
-	if null {
+	if iName != nil {
+		name := iName.(string)
+		if nameIsNull || expectedName != name {
+			t.Error(fmt.Printf("For NAME, expected value %s", expectedName))
+		}
+	} else {
 		if !nameIsNull {
 			t.Error("Unexpected null value for NAME\n")
 		}
-	} else if expectedName != name {
-		t.Error(fmt.Printf("For NAME, expected %s but saw %s\n", expectedName, name))
 	}
 
 	// DATA
-	data, null, err := row.GetVarbinaryByName("DATA")
+	iData, err := row.GetVarbinaryByName("DATA")
 	check(t, err)
-	if null {
-		if !dataIsNull {
-			t.Error("Unexpected null value for DATA\n")
+	if iData != nil {
+		data := iData.([]byte)
+		if dataIsNull || !strings.HasPrefix(string(data), expectedPrefix) {
+			t.Error(fmt.Printf("For DATA, expected value to start with %s", expectedPrefix))
 		}
 	} else {
-		if !strings.HasPrefix(string(data), expectedPrefix) {
-			t.Error(fmt.Printf("For DATA, expected data to start with %s\n", expectedPrefix))
-		} else if expectedDataLen != len(data) {
-			t.Error(fmt.Printf("For DATA, expected length %d but saw length %d\n", expectedDataLen, len(data)))
+		if !dataIsNull {
+			t.Error("Unexpected null value for DATA\n")
 		}
 	}
 
 	// STATUS
-	status, null, err := row.GetTinyIntByName("STATUS")
+	iStatus, err := row.GetTinyIntByName("STATUS")
 	check(t, err)
-	if null {
+	if iStatus != nil {
+		status := iStatus.(int8)
+		if statusIsNull || expectedStatus != status {
+			t.Error(fmt.Printf("For STATUS, expected value %s", expectedStatus))
+		}
+	} else {
 		if !statusIsNull {
 			t.Error("Unexpected null value for STATUS\n")
 		}
-	} else if expectedStatus != status {
-		t.Error(fmt.Printf("For STATUS, expected %d but saw %d\n", expectedStatus, status))
 	}
 
 	// TYPE
-	typ, null, err := row.GetSmallIntByName("TYPE")
+	iType, err := row.GetSmallIntByName("TYPE")
 	check(t, err)
-	if null {
+	if iType != nil {
+		typ := iType.(int16)
+		if typeIsNull || expectedType != typ {
+			t.Error(fmt.Printf("For TYPE, expected value %s", expectedType))
+		}
+	} else {
 		if !typeIsNull {
 			t.Error("Unexpected null value for TYPE\n")
 		}
-	} else if expectedType != typ {
-		t.Error(fmt.Printf("For TYPE, expected %d but saw %d\n", expectedType, typ))
 	}
 
 	// PAN
-	pan, null, err := row.GetBigIntByName("PAN")
+	iPan, err := row.GetBigIntByName("PAN")
 	check(t, err)
-	if null {
+	if iPan != nil {
+		pan := iPan.(int64)
+		if panIsNull || expectedPan != pan {
+			t.Error(fmt.Printf("For PAN, expected value %s", expectedPan))
+		}
+	} else {
 		if !panIsNull {
 			t.Error("Unexpected null value for PAN\n")
 		}
-	} else if expectedPan != pan {
-		t.Error(fmt.Printf("For PAN, expected %d but saw %d\n", expectedPan, pan))
 	}
 
 	// BALANCE_OPEN
-	bo, null, err := row.GetFloatByName("BALANCE_OPEN")
+	iBo, err := row.GetFloatByName("BALANCE_OPEN")
 	check(t, err)
-	if null {
+	if iBo != nil {
+		bo := iBo.(float64)
+		if boIsNull || expectedBo != bo {
+			t.Error(fmt.Printf("For BALANCE_OPEN, expected value %s", expectedBo))
+		}
+	} else {
 		if !boIsNull {
 			t.Error("Unexpected null value for BALANCE_OPEN\n")
 		}
-	} else if expectedBo != bo {
-		t.Error(fmt.Printf("For BALANCE_OPEN, expected %d but saw %d\n", expectedBo, bo))
 	}
 
 	// BALANCE
-	balance, null, err := row.GetDecimalByName("BALANCE")
+	iBalance, err := row.GetDecimalByName("BALANCE")
 	check(t, err)
-	if null {
+	if iBalance != nil {
+		balance := iBalance.(*big.Float)
+		fl, _ := balance.Float64()
+		if balanceIsNull || expectedBalance != fl {
+			t.Error(fmt.Printf("For BALANCE, expected value %s", expectedBalance))
+		}
+	} else {
 		if !balanceIsNull {
 			t.Error("Unexpected null value for BALANCE\n")
 		}
-	} else {
-		fl, _ := balance.Float64()
-		if expectedBalance != fl {
-			t.Error(fmt.Printf("For BALANCE, expected %d but saw %d\n", expectedBalance, fl))
-		}
 	}
 
-	lu, null, err := row.GetTimestampByName("LAST_UPDATED")
+	// LAST_UPDATED
+	iLu, err := row.GetTimestampByName("LAST_UPDATED")
 	check(t, err)
-	if null {
-		if ! lastUpdatedIsNull {
-			t.Error("Unexpected null value for LAST_UPDATED\n")
+	if iLu != nil {
+		lu := iLu.(time.Time)
+		if lastUpdatedIsNull || expectedLastUpdated != lu.String() {
+			t.Error(fmt.Printf("For LAST_UPDATED, expected value %s", expectedLastUpdated))
 		}
 	} else {
-		s := lu.String()
-		if expectedLastUpdated != s {
-			t.Error(fmt.Printf("For LAST_UPDATED, expected %s but saw %s\n", expectedLastUpdated, s))
+		if !lastUpdatedIsNull {
+			t.Error("Unexpected null value for LAST_UPDATED\n")
 		}
 	}
 }
