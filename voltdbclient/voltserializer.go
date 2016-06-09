@@ -33,8 +33,8 @@ const (
 	vt_NULL      int8 = 1   // null
 	VT_BOOL      int8 = 3   // boolean, byte
 	VT_SHORT     int8 = 4   // int16
-	VT_INT	     int8 = 5   // int32
-	VT_LONG	     int8 = 6   // int64
+	VT_INT       int8 = 5   // int32
+	VT_LONG      int8 = 6   // int64
 	VT_FLOAT     int8 = 8   // float64
 	VT_STRING    int8 = 9   // string (int32-length-prefix)(utf-8 bytes)
 	VT_TIMESTAMP int8 = 11  // int64 timestamp microseconds

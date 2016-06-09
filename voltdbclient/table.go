@@ -22,8 +22,9 @@ import (
 )
 
 const INVALID_ROW_INDEX = -1
-var NULL_DECIMAL = [...]byte {128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-var NULL_TIMESTAMP = [...]byte {128, 0, 0, 0, 0, 0, 0, 0}
+
+var NULL_DECIMAL = [...]byte{128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+var NULL_TIMESTAMP = [...]byte{128, 0, 0, 0, 0, 0, 0, 0}
 
 // Table represents a single result set for a stored procedure invocation.
 type VoltTable struct {
@@ -47,7 +48,7 @@ func NewVoltTable(statusCode int8, columnCount int16, columnTypes []int8, column
 	vt.columnNames = columnNames
 	// rowCount +1 because want to represent the end of the data as an offset
 	// so we can know the ending index of the last column.
-	vt.columnOffsets = make([][]int32, rowCount + 1)
+	vt.columnOffsets = make([][]int32, rowCount+1)
 	vt.rowCount = rowCount
 	vt.rows = rows
 	vt.rowIndex = INVALID_ROW_INDEX
@@ -167,7 +168,7 @@ func (vt *VoltTable) getVarbinary(rowIndex int32, columnIndex int16) ([]byte, er
 		return readByteArrayAt(r, 0)
 	}
 	offsets, err := vt.getOffsetsForRow(rowIndex)
-	if (err != nil) {
+	if err != nil {
 		return nil, err
 	}
 	return readByteArrayAt(r, int64(offsets[columnIndex]))
@@ -179,7 +180,7 @@ func (vt *VoltTable) getOffsetsForRow(rowIndex int32) ([]int32, error) {
 		return offsets, nil
 	}
 	offsets, err := vt.calcOffsetsForRow(rowIndex)
-	if (err != nil) {
+	if err != nil {
 		return nil, err
 	}
 	vt.columnOffsets[rowIndex] = offsets
@@ -188,7 +189,7 @@ func (vt *VoltTable) getOffsetsForRow(rowIndex int32) ([]int32, error) {
 
 func (vt *VoltTable) calcOffsetsForRow(rowIndex int32) ([]int32, error) {
 	// column count + 1, want starting and ending index for every column
-	offsets := make([]int32, vt.columnCount + 1)
+	offsets := make([]int32, vt.columnCount+1)
 	r := vt.getReader(rowIndex)
 	var colIndex int16 = 0
 	var offset int32 = 0
@@ -199,7 +200,7 @@ func (vt *VoltTable) calcOffsetsForRow(rowIndex int32) ([]int32, error) {
 			return nil, err
 		}
 		offset += len
-		offsets[colIndex + 1] = offset
+		offsets[colIndex+1] = offset
 
 	}
 	return offsets, nil
@@ -207,21 +208,21 @@ func (vt *VoltTable) calcOffsetsForRow(rowIndex int32) ([]int32, error) {
 
 func colLength(r *bytes.Reader, offset int32, colType int8) (int32, error) {
 	switch colType {
-	case -99:  // ARRAY
+	case -99: // ARRAY
 		return 0, fmt.Errorf("Not supporting ARRAY")
-	case 1:  // NULL
+	case 1: // NULL
 		return 0, nil
-	case 3:  // TINYINT
+	case 3: // TINYINT
 		return 1, nil
-	case 4:  // SMALLINT
+	case 4: // SMALLINT
 		return 2, nil
-	case 5:  // INTEGER
+	case 5: // INTEGER
 		return 4, nil
-	case 6:  // BIGINT
+	case 6: // BIGINT
 		return 8, nil
-	case 8:  // FLOAT
+	case 8: // FLOAT
 		return 8, nil
-	case 9:  // STRING
+	case 9: // STRING
 		strlen, err := readInt32At(r, int64(offset))
 		if err != nil {
 			return 0, err
@@ -230,11 +231,11 @@ func colLength(r *bytes.Reader, offset int32, colType int8) (int32, error) {
 			return 4, nil
 		}
 		return strlen + 4, nil
-	case 11:  // TIMESTAMP
+	case 11: // TIMESTAMP
 		return 8, nil
-	case 22:  // DECIMAL
+	case 22: // DECIMAL
 		return 16, nil
-	case 25:  // VARBINARY
+	case 25: // VARBINARY
 		strlen, err := readInt32At(r, int64(offset))
 		if err != nil {
 			return 0, err
@@ -243,9 +244,9 @@ func colLength(r *bytes.Reader, offset int32, colType int8) (int32, error) {
 			return 4, nil
 		}
 		return strlen + 4, nil
-	case 26:  // GEOGRAPHY_POINT
+	case 26: // GEOGRAPHY_POINT
 		return 0, fmt.Errorf("Not supporting GEOGRAPHY_POINT")
-	case 27:  // GEOGRAPHY
+	case 27: // GEOGRAPHY
 		return 0, fmt.Errorf("Not supporting GEOGRAPHY")
 	default:
 		return 0, fmt.Errorf("Unexpected type %d", colType)

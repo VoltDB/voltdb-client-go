@@ -17,13 +17,13 @@
 package voltdbclient
 
 import (
-	"testing"
-	"io/ioutil"
 	"bytes"
 	"fmt"
-	"strings"
-	"time"
+	"io/ioutil"
 	"math/big"
+	"strings"
+	"testing"
+	"time"
 )
 
 func TestCallOnClosedConn(t *testing.T) {
@@ -43,7 +43,7 @@ func TestReadDataTypes(t *testing.T) {
 	check(t, err)
 
 	if resp.tableCount != 1 {
-		t.Fatal("Unexpected table count");
+		t.Fatal("Unexpected table count")
 	}
 	vt := resp.tables[0]
 
@@ -57,7 +57,6 @@ func TestReadDataTypes(t *testing.T) {
 		t.Fatal("Unexpected row count")
 	}
 
-
 	for i := 0; i < 3; i++ {
 		vtr, err := vt.FetchRow(int32(i))
 		check(t, err)
@@ -66,24 +65,24 @@ func TestReadDataTypes(t *testing.T) {
 		check(t, err)
 		if id == 25 {
 			checkRowData(t, vtr, int32(25), true, 0, true, "", true, "", 0, true, 0, true, 0, true, 0, true, 0,
-			true, 0, true, "")
+				true, 0, true, "")
 		} else if id == 50 {
 			checkRowData(t, vtr, int32(50), false, 50, false, "Beckett", false, "Every word is like", 67,
 				false, int8(36), false, int16(-500), false, int64(1465242120398), false, float64(-2469.1356),
-			false, float64(12345.678900000000), false, "2016-06-06 15:42:00.398 -0400 EDT")
+				false, float64(12345.678900000000), false, "2016-06-06 15:42:00.398 -0400 EDT")
 		} else {
 			checkRowData(t, vtr, int32(100), false, 100, false, "Poe", false, "Once upon a midnight dreary", 246,
 				false, int8(36), false, int16(-1000), false, int64(1465242120384), false, float64(-1234.5678),
-			false, float64(12345.678900000000), false, "2016-06-06 15:42:00.385 -0400 EDT")
+				false, float64(12345.678900000000), false, "2016-06-06 15:42:00.385 -0400 EDT")
 		}
 	}
 }
 
 func checkRowData(t *testing.T, row *VoltTableRow, expectedId int32, nIdIsNull bool, expectedNId int32,
-nameIsNull bool, expectedName string, dataIsNull bool, expectedPrefix string, expectedDataLen int,
-statusIsNull bool, expectedStatus int8, typeIsNull bool, expectedType int16, panIsNull bool, expectedPan int64,
-boIsNull bool, expectedBo float64, balanceIsNull bool, expectedBalance float64,
-lastUpdatedIsNull bool, expectedLastUpdated string) {
+	nameIsNull bool, expectedName string, dataIsNull bool, expectedPrefix string, expectedDataLen int,
+	statusIsNull bool, expectedStatus int8, typeIsNull bool, expectedType int16, panIsNull bool, expectedPan int64,
+	boIsNull bool, expectedBo float64, balanceIsNull bool, expectedBalance float64,
+	lastUpdatedIsNull bool, expectedLastUpdated string) {
 	// ID
 	iId, err := row.GetIntegerByName("ID")
 	check(t, err)

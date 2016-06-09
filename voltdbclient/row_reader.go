@@ -1,12 +1,28 @@
+/* This file is part of VoltDB.
+ * Copyright (C) 2008-2016 VoltDB Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
+ */
 package voltdbclient
 
 import (
+	"bytes"
 	"fmt"
 	"math"
+	"math/big"
 	"strings"
 	"time"
-	"bytes"
-	"math/big"
 )
 
 func (vt *VoltTable) GetBigInt(colIndex int16) (interface{}, error) {
@@ -90,7 +106,6 @@ func (vt *VoltTable) GetFloatByName(cn string) (interface{}, error) {
 	return vt.GetFloat(ci)
 }
 
-
 func (vt *VoltTable) GetInteger(colIndex int16) (interface{}, error) {
 	bs, err := vt.getBytes(vt.rowIndex, colIndex)
 	if err != nil {
@@ -128,7 +143,6 @@ func (vt *VoltTable) GetSmallInt(colIndex int16) (interface{}, error) {
 	}
 	return i, nil
 }
-
 
 func (vt *VoltTable) GetSmallIntByName(cn string) (interface{}, error) {
 	ci, ok := vt.cnToCi[strings.ToUpper(cn)]
@@ -183,7 +197,6 @@ func (vt *VoltTable) GetTimestampByName(cn string) (interface{}, error) {
 	return vt.GetTimestamp(ci)
 }
 
-
 func (vt *VoltTable) GetTinyInt(colIndex int16) (interface{}, error) {
 	bs, err := vt.getBytes(vt.rowIndex, colIndex)
 	if err != nil {
@@ -227,19 +240,19 @@ func (vt *VoltTable) GetVarbinaryByName(cn string) (interface{}, error) {
 	return vt.GetVarbinary(ci)
 }
 
-func (vt *VoltTable) bytesToBigInt(bs []byte) (int64) {
+func (vt *VoltTable) bytesToBigInt(bs []byte) int64 {
 	return int64(order.Uint64(bs))
 }
 
-func (vt *VoltTable) bytesToInt(bs []byte) (int32) {
+func (vt *VoltTable) bytesToInt(bs []byte) int32 {
 	return int32(order.Uint32(bs))
 }
 
-func (vt *VoltTable) bytesToFloat(bs []byte) (float64) {
+func (vt *VoltTable) bytesToFloat(bs []byte) float64 {
 	return math.Float64frombits(order.Uint64(bs))
 }
 
-func (vt *VoltTable) bytesToSmallInt(bs []byte) (int16) {
+func (vt *VoltTable) bytesToSmallInt(bs []byte) int16 {
 	return int16(order.Uint16(bs))
 }
 
@@ -247,5 +260,5 @@ func (vt *VoltTable) bytesToTime(bs []byte) time.Time {
 	// the time is essentially a long as milliseconds
 	millis := int64(order.Uint64(bs))
 	// time.Unix will take either seconds or nanos.  Multiply by 1000 and use nanos.
-	return time.Unix(0, millis * 1000)
+	return time.Unix(0, millis*1000)
 }

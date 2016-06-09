@@ -22,10 +22,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"reflect"
 	"runtime"
 	"time"
-	"math"
 )
 
 // A helper for protocol-level de/serialization code. For

@@ -42,11 +42,11 @@ func (vtr *VoltTableRow) GetBigIntByName(cn string) (interface{}, error) {
 	return vtr.vt.GetBigIntByName(cn)
 }
 
-func (vtr *VoltTableRow) GetDecimal(colIndex int16)  (interface{}, error) {
+func (vtr *VoltTableRow) GetDecimal(colIndex int16) (interface{}, error) {
 	return vtr.vt.GetDecimal(colIndex)
 }
 
-func (vtr *VoltTableRow) GetDecimalByName(cn string)  (interface{}, error) {
+func (vtr *VoltTableRow) GetDecimalByName(cn string) (interface{}, error) {
 	return vtr.vt.GetDecimalByName(cn)
 }
 
