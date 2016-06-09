@@ -58,6 +58,10 @@ type ClientConfig struct {
 	password string
 }
 
+type NullValue struct {
+	colType int8
+}
+
 type Callback struct {
 	Channel <-chan *Response
 	Handle  int64
@@ -75,6 +79,12 @@ func NewCallback(channel <-chan *Response, handle int64) *Callback {
 	callback.Channel = channel
 	callback.Handle = handle
 	return callback
+}
+
+func NewNullValue(colType int8) *NullValue {
+	var nv = new(NullValue)
+	nv.colType = colType
+	return nv
 }
 
 // Call invokes the procedure 'procedure' with parameter values 'params'
@@ -223,4 +233,8 @@ func (client *Client) writeProcedureCall(writer io.Writer, procedure string, han
 	io.Copy(&netmsg, &call)
 	io.Copy(writer, &netmsg)
 	return nil
+}
+
+func (nv *NullValue) ColType() int8 {
+	return nv.colType
 }

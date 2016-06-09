@@ -25,6 +25,7 @@ import (
 	"reflect"
 	"runtime"
 	"time"
+	"math"
 )
 
 // A helper for protocol-level de/serialization code. For
@@ -149,36 +150,43 @@ func marshalParam(buf io.Writer, param interface{}) (err error) {
 	switch v.Kind() {
 	case reflect.Bool:
 		x := v.Bool()
-		writeByte(buf, vt_BOOL)
+		writeByte(buf, VT_BOOL)
 		err = writeBoolean(buf, x)
 	case reflect.Int8:
 		x := v.Int()
-		writeByte(buf, vt_BOOL)
+		writeByte(buf, VT_BOOL)
 		err = writeByte(buf, int8(x))
 	case reflect.Int16:
 		x := v.Int()
-		writeByte(buf, vt_SHORT)
+		writeByte(buf, VT_SHORT)
 		err = writeShort(buf, int16(x))
 	case reflect.Int32:
 		x := v.Int()
-		writeByte(buf, vt_INT)
+		writeByte(buf, VT_INT)
 		err = writeInt(buf, int32(x))
-	case reflect.Int, reflect.Int64:
+	case reflect.Int64:
 		x := v.Int()
-		writeByte(buf, vt_LONG)
+		writeByte(buf, VT_LONG)
 		err = writeLong(buf, int64(x))
 	case reflect.Float64:
 		x := v.Float()
-		writeByte(buf, vt_FLOAT)
+		writeByte(buf, VT_FLOAT)
 		err = writeFloat(buf, float64(x))
 	case reflect.String:
 		x := v.String()
-		writeByte(buf, vt_STRING)
+		writeByte(buf, VT_STRING)
 		err = writeString(buf, x)
+	case reflect.Slice:
+		x := v.Slice(0, v.Len())
+		bs := x.Bytes()
+		writeByte(buf, VT_VARBIN)
+		err = writeVarbinary(buf, bs)
 	case reflect.Struct:
 		if t, ok := v.Interface().(time.Time); ok {
-			writeByte(buf, vt_TIMESTAMP)
+			writeByte(buf, VT_TIMESTAMP)
 			writeTimestamp(buf, t)
+		} else if nv, ok := v.Interface().(NullValue); ok {
+			marshalNullValue(buf, nv)
 		} else {
 			panic("Can't marshal struct-type parameters")
 		}
@@ -186,6 +194,39 @@ func marshalParam(buf io.Writer, param interface{}) (err error) {
 		panic(fmt.Sprintf("Can't marshal %v-type parameters", v.Kind()))
 	}
 	return
+}
+
+func marshalNullValue(buf io.Writer, nv NullValue) error {
+	switch nv.ColType() {
+	case VT_BOOL:
+		writeByte(buf, VT_BOOL)
+		return writeByte(buf, math.MinInt8)
+	case VT_SHORT:
+		writeByte(buf, VT_SHORT)
+		return writeShort(buf, math.MinInt16)
+	case VT_INT:
+		writeByte(buf, VT_INT)
+		return writeInt(buf, math.MinInt32)
+	case VT_LONG:
+		writeByte(buf, VT_LONG)
+		return writeLong(buf, math.MinInt64)
+	case VT_FLOAT:
+		writeByte(buf, VT_FLOAT)
+		return writeFloat(buf, float64(-1.7E+308))
+	case VT_STRING:
+		writeByte(buf, VT_STRING)
+		return writeInt(buf, int32(-1))
+	case VT_VARBIN:
+		writeByte(buf, VT_VARBIN)
+		return writeInt(buf, int32(-1))
+	case VT_TIMESTAMP:
+		writeByte(buf, VT_TIMESTAMP)
+		_, err := buf.Write(NULL_TIMESTAMP[:])
+		return err
+	default:
+		panic(fmt.Sprintf("Unexpected null type %d", nv.ColType()))
+	}
+	return nil
 }
 
 // readCallResponse reads a stored procedure invocation response.

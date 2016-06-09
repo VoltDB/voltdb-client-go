@@ -31,16 +31,16 @@ import (
 const (
 	vt_ARRAY     int8 = -99 // array (short)(values*)
 	vt_NULL      int8 = 1   // null
-	vt_BOOL      int8 = 3   // boolean, byte
-	vt_SHORT     int8 = 4   // int16
-	vt_INT       int8 = 5   // int32
-	vt_LONG      int8 = 6   // int64
-	vt_FLOAT     int8 = 8   // float64
-	vt_STRING    int8 = 9   // string (int32-length-prefix)(utf-8 bytes)
-	vt_TIMESTAMP int8 = 11  // int64 timestamp microseconds
+	VT_BOOL      int8 = 3   // boolean, byte
+	VT_SHORT     int8 = 4   // int16
+	VT_INT	     int8 = 5   // int32
+	VT_LONG	     int8 = 6   // int64
+	VT_FLOAT     int8 = 8   // float64
+	VT_STRING    int8 = 9   // string (int32-length-prefix)(utf-8 bytes)
+	VT_TIMESTAMP int8 = 11  // int64 timestamp microseconds
 	vt_TABLE     int8 = 21  // VoltTable
-	vt_DECIMAL   int8 = 22  // fix-scaled, fix-precision decimal
-	vt_VARBIN    int8 = 25  // varbinary (int)(bytes)
+	VT_DECIMAL   int8 = 22  // fix-scaled, fix-precision decimal
+	VT_VARBIN    int8 = 25  // varbinary (int)(bytes)
 )
 
 var order = binary.BigEndian
@@ -124,6 +124,11 @@ func writeByte(w io.Writer, d int8) error {
 	var b [1]byte
 	b[0] = byte(d)
 	_, err := w.Write(b[:1])
+	return err
+}
+
+func writeBytes(w io.Writer, d []byte) error {
+	_, err := w.Write(d)
 	return err
 }
 
@@ -294,7 +299,7 @@ func writePasswordBytes(w io.Writer, d []byte) error {
 	return err
 }
 
-func writeByteString(w io.Writer, d []byte) error {
+func writeVarbinary(w io.Writer, d []byte) error {
 	writeInt(w, int32(len(d)))
 	_, err := w.Write(d)
 	return err

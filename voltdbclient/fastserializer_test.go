@@ -174,7 +174,7 @@ func TestReflection(t *testing.T) {
 	var expInt8 int8 = 5
 	marshalParam(&b, expInt8)
 	rVtByte, _ := readByte(&b) // volttype
-	if rVtByte != vt_BOOL {
+	if rVtByte != VT_BOOL {
 		t.Errorf("reflect failed to write volttype byte")
 	}
 	result, _ := readByte(&b)
@@ -186,7 +186,7 @@ func TestReflection(t *testing.T) {
 	var expString string = "abcde"
 	marshalParam(&b, expString)
 	rVtString, _ := readByte(&b) // volttype
-	if rVtString != vt_STRING {
+	if rVtString != VT_STRING {
 		t.Errorf("reflect failed to write volttype string")
 	}
 	rString, _ := readString(&b)
@@ -198,7 +198,7 @@ func TestReflection(t *testing.T) {
 	var expTimestamp time.Time = time.Now().Round(time.Microsecond)
 	marshalParam(&b, expTimestamp)
 	rVtTimestamp, _ := readByte(&b) // volttype
-	if rVtTimestamp != vt_TIMESTAMP {
+	if rVtTimestamp != VT_TIMESTAMP {
 		t.Errorf("reflect failed to write volttype timestamp")
 	}
 	rTimestamp, _ := readTimestamp(&b)

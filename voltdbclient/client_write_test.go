@@ -82,8 +82,8 @@ expectedNumParams int16, expectedStringParamOne string, expectedStringParamTwo s
 		t.Error("Failed reading colType %s", err)
 		return
 	}
-	if colType != vt_STRING {
-		t.Error(fmt.Printf("For stringParamOne, expected colType %d but saw %d\n", vt_STRING, colType))
+	if colType != VT_STRING {
+		t.Error(fmt.Printf("For stringParamOne, expected colType %d but saw %d\n", VT_STRING, colType))
 		return
 	}
 	offset++
@@ -104,8 +104,8 @@ expectedNumParams int16, expectedStringParamOne string, expectedStringParamTwo s
 		t.Error("Failed reading colType %s", err)
 		return
 	}
-	if colType != vt_STRING {
-		t.Error(fmt.Printf("For stringParamOne, expected colType %d but saw %d\n", vt_STRING, colType))
+	if colType != VT_STRING {
+		t.Error(fmt.Printf("For stringParamOne, expected colType %d but saw %d\n", VT_STRING, colType))
 		return
 	}
 	offset++
@@ -126,8 +126,8 @@ expectedNumParams int16, expectedStringParamOne string, expectedStringParamTwo s
 		t.Error("Failed reading colType %s", err)
 		return
 	}
-	if colType != vt_STRING {
-		t.Error(fmt.Printf("For stringParamOne, expected colType %d but saw %d\n", vt_STRING, colType))
+	if colType != VT_STRING {
+		t.Error(fmt.Printf("For stringParamOne, expected colType %d but saw %d\n", VT_STRING, colType))
 		return
 	}
 	offset++
