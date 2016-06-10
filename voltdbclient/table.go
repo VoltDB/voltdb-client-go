@@ -142,11 +142,6 @@ func (vt *VoltTable) getBytes(rowIndex int32, columnIndex int16) ([]byte, error)
 }
 
 func (vt *VoltTable) getString(rowIndex int32, columnIndex int16) (string, error) {
-	b, err := vt.getBytes(rowIndex, columnIndex)
-	if err != nil {
-		return "", err
-	}
-	fmt.Printf("XXX bytes %d\n", len(b))
 	r := vt.getReader(rowIndex)
 	if columnIndex == 0 {
 		return readStringAt(r, 0)
@@ -155,10 +150,6 @@ func (vt *VoltTable) getString(rowIndex int32, columnIndex int16) (string, error
 	if err != nil {
 		return "", err
 	}
-	for i, v := range offsets {
-		fmt.Printf("XXX offsets %d %v\n", i, v)
-	}
-	fmt.Printf("XXX offset is %v\n", offsets[columnIndex])
 	return readStringAt(r, int64(offsets[columnIndex]))
 }
 

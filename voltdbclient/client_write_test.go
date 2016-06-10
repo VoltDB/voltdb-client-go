@@ -19,24 +19,61 @@ package voltdbclient
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"testing"
+	"time"
 )
 
-func TestWriteProcedureCall(t *testing.T) {
-
-	config := ClientConfig{"", ""}
+func TestSimpleProcedureCall(t *testing.T) {
 
 	// this is the writer, write the serialized procedure to this buffer.
+	config := ClientConfig{"", ""}
 	var bs []byte
 	buf := bytes.NewBuffer(bs)
 	client := Client{&config, nil, buf, nil, nil, 0}
 	var handle int64 = 51515
 	client.writeProcedureCall(client.writer, "HELLOWORLD.insert", handle, []interface{}{"Bonjour", "Monde", "French"})
 	r := bytes.NewReader(buf.Bytes())
-	readTheBuffer(t, r, 0, "HELLOWORLD.insert", 51515, 3, "Bonjour", "Monde", "French")
+	checkSimpleBuffer(t, r, 0, "HELLOWORLD.insert", 51515, 3, "Bonjour", "Monde", "French")
 }
 
-func readTheBuffer(t *testing.T, r *bytes.Reader, expectedBtt byte, expectedPName string, expectedHandle int64,
+func TestInsertDifferentTypes(t *testing.T) {
+	config := ClientConfig{"", ""}
+	var bs []byte
+	buf := bytes.NewBuffer(bs)
+	client := Client{&config, nil, buf, nil, nil, 0}
+
+	var id int32 = 100
+	var nid int32 = 100
+	var name string = "Poe"
+	var data []byte = []byte("Once upon a midnight dreary, while I pondered, weak and weary, \n" +
+		"Over many a quaint and curious volume of forgotten lore— \n" +
+		"While I nodded, nearly napping, suddenly there came a tapping, \n" +
+		"As of some one gently rapping, rapping at my chamber door.")
+
+	var status int8 = 36
+	var typ int16 = -1000
+	var pan int64 = 1465474603108
+	var bo float64 = -1234.5678
+	//bal := big.NewFloat(float64(12345.6789))
+	now := time.Date(2016, time.June, 10, 23, 0, 0, 0, time.UTC)
+
+	var handle int64 = 61616
+	client.writeProcedureCall(client.writer, "EXAMPLE_OF_TYPES.insert", handle, []interface{}{id, nid, name, data, status, typ, pan, bo, now})
+
+	// read the verification file into a buffer and compare the two buffers
+	bs, err := ioutil.ReadFile("./test_resources/verify_insert_types.msg")
+	if err != nil {
+		t.Errorf(fmt.Sprintf("Read of verification file failed %d", err.Error()))
+	}
+
+	bb := buf.Bytes()
+	if bytes.Compare(bs, bb) != 0 {
+		t.Errorf("Unexpected result, byte buffers don't match")
+	}
+}
+
+func checkSimpleBuffer(t *testing.T, r *bytes.Reader, expectedBtt byte, expectedPName string, expectedHandle int64,
 	expectedNumParams int16, expectedStringParamOne string, expectedStringParamTwo string, expectedStringParamThree string) {
 	var offset int64 = 0
 	bufLen, err := readInt32At(r, offset)
