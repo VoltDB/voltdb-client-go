@@ -172,7 +172,7 @@ func TestRoundTripNegativeTimestamp(t *testing.T) {
 func TestReflection(t *testing.T) {
 	var b bytes.Buffer
 	var expInt8 int8 = 5
-	marshalParam(&b, expInt8)
+	marshallParam(&b, expInt8)
 	rVtByte, _ := readByte(&b) // volttype
 	if rVtByte != VT_BOOL {
 		t.Errorf("reflect failed to write volttype byte")
@@ -184,7 +184,7 @@ func TestReflection(t *testing.T) {
 
 	b.Reset()
 	var expString string = "abcde"
-	marshalParam(&b, expString)
+	marshallParam(&b, expString)
 	rVtString, _ := readByte(&b) // volttype
 	if rVtString != VT_STRING {
 		t.Errorf("reflect failed to write volttype string")
@@ -196,7 +196,7 @@ func TestReflection(t *testing.T) {
 
 	b.Reset()
 	var expTimestamp time.Time = time.Now().Round(time.Microsecond)
-	marshalParam(&b, expTimestamp)
+	marshallParam(&b, expTimestamp)
 	rVtTimestamp, _ := readByte(&b) // volttype
 	if rVtTimestamp != VT_TIMESTAMP {
 		t.Errorf("reflect failed to write volttype timestamp")

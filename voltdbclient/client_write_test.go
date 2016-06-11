@@ -73,6 +73,35 @@ func TestInsertDifferentTypes(t *testing.T) {
 	}
 }
 
+func TestIntArrayParam(t *testing.T) {
+	intArray := []int32{11, 12, 13}
+	var bs []byte
+	buf := bytes.NewBuffer(bs)
+	marshallParam(buf, intArray)
+
+	expLen := 18
+	if expLen != buf.Len() {
+		t.Logf("Unexpected buffer length, expected: %d, actual: %d", expLen, buf.Len())
+		t.FailNow()
+	}
+
+	var offset int64 = 0
+	r := bytes.NewReader(buf.Bytes())
+	verifyInt8(t, r, offset, VT_ARRAY) // verify array type
+	offset++
+
+	verifyInt16(t, r, offset, int16(3)) // verify 3 params
+	offset += 2
+
+	// verify each int
+	for _, exp := range intArray {
+		verifyInt8(t, r, offset, VT_INT)
+		offset++
+		verifyInt32(t, r, offset, exp)
+		offset += 4
+	}
+}
+
 func checkSimpleBuffer(t *testing.T, r *bytes.Reader, expectedBtt byte, expectedPName string, expectedHandle int64,
 	expectedNumParams int16, expectedStringParamOne string, expectedStringParamTwo string, expectedStringParamThree string) {
 	var offset int64 = 0

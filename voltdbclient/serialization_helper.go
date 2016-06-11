@@ -135,15 +135,21 @@ func serializeParams(params []interface{}) (msg bytes.Buffer, err error) {
 		return
 	}
 	for _, val := range params {
-		if err = marshalParam(&msg, val); err != nil {
+		if err = marshallParam(&msg, val); err != nil {
 			return
 		}
 	}
 	return
 }
 
-func marshalParam(buf io.Writer, param interface{}) (err error) {
+func marshallParam(buf io.Writer, param interface{}) (err error) {
 	v := reflect.ValueOf(param)
+	t := reflect.TypeOf(param)
+	marshallValue(buf, v, t)
+	return
+}
+
+func marshallValue(buf io.Writer, v reflect.Value, t reflect.Type) (err error) {
 	if !v.IsValid() {
 		return errors.New("Can not encode value.")
 	}
@@ -161,9 +167,7 @@ func marshalParam(buf io.Writer, param interface{}) (err error) {
 		writeByte(buf, VT_SHORT)
 		err = writeShort(buf, int16(x))
 	case reflect.Int32:
-		x := v.Int()
-		writeByte(buf, VT_INT)
-		err = writeInt(buf, int32(x))
+		marshallInt32(buf, v)
 	case reflect.Int64:
 		x := v.Int()
 		writeByte(buf, VT_LONG)
@@ -177,16 +181,15 @@ func marshalParam(buf io.Writer, param interface{}) (err error) {
 		writeByte(buf, VT_STRING)
 		err = writeString(buf, x)
 	case reflect.Slice:
-		x := v.Slice(0, v.Len())
-		bs := x.Bytes()
-		writeByte(buf, VT_VARBIN)
-		err = writeVarbinary(buf, bs)
+		l := v.Len()
+		x := v.Slice(0, l)
+		err = marshallSlice(buf, x, t, l)
 	case reflect.Struct:
 		if t, ok := v.Interface().(time.Time); ok {
 			writeByte(buf, VT_TIMESTAMP)
 			writeTimestamp(buf, t)
 		} else if nv, ok := v.Interface().(NullValue); ok {
-			marshalNullValue(buf, nv)
+			marshallNullValue(buf, nv)
 		} else {
 			panic("Can't marshal struct-type parameters")
 		}
@@ -196,7 +199,14 @@ func marshalParam(buf io.Writer, param interface{}) (err error) {
 	return
 }
 
-func marshalNullValue(buf io.Writer, nv NullValue) error {
+func marshallInt32(buf io.Writer, v reflect.Value) (err error) {
+	x := v.Int()
+	writeByte(buf, VT_INT)
+	err = writeInt(buf, int32(x))
+	return
+}
+
+func marshallNullValue(buf io.Writer, nv NullValue) error {
 	switch nv.ColType() {
 	case VT_BOOL:
 		writeByte(buf, VT_BOOL)
@@ -227,6 +237,25 @@ func marshalNullValue(buf io.Writer, nv NullValue) error {
 		panic(fmt.Sprintf("Unexpected null type %d", nv.ColType()))
 	}
 	return nil
+}
+
+func marshallSlice(buf io.Writer, v reflect.Value, t reflect.Type, l int) (err error) {
+	k := t.Elem().Kind()
+
+	// distinguish between byte arrays and all other slices.
+	// byte arrays are handled as VARBINARY, all others are handled as ARRAY.
+	if k == reflect.Uint8 {
+		bs := v.Bytes()
+		writeByte(buf, VT_VARBIN)
+		err = writeVarbinary(buf, bs)
+	} else {
+		writeByte(buf, VT_ARRAY)
+		writeShort(buf, int16(l))
+		for i := 0; i < l; i++ {
+			err = marshallValue(buf, v.Index(i), t)
+		}
+	}
+	return
 }
 
 // readCallResponse reads a stored procedure invocation response.

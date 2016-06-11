@@ -29,7 +29,7 @@ import (
 // See: http://community.voltdb.com/docs/WireProtocol/index
 
 const (
-	vt_ARRAY     int8 = -99 // array (short)(values*)
+	VT_ARRAY     int8 = -99 // array (short)(values*)
 	vt_NULL      int8 = 1   // null
 	VT_BOOL      int8 = 3   // boolean, byte
 	VT_SHORT     int8 = 4   // int16
