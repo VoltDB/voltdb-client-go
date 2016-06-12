@@ -74,10 +74,10 @@ func TestInsertDifferentTypes(t *testing.T) {
 }
 
 func TestIntArrayParam(t *testing.T) {
-	intArray := []int32{11, 12, 13}
+	array := []int32{11, 12, 13}
 	var bs []byte
 	buf := bytes.NewBuffer(bs)
-	marshallParam(buf, intArray)
+	marshallParam(buf, array)
 
 	expLen := 18
 	if expLen != buf.Len() {
@@ -87,18 +87,76 @@ func TestIntArrayParam(t *testing.T) {
 
 	var offset int64 = 0
 	r := bytes.NewReader(buf.Bytes())
-	verifyInt8(t, r, offset, VT_ARRAY) // verify array type
+	verifyInt8At(t, r, offset, VT_ARRAY) // verify array type
 	offset++
 
-	verifyInt16(t, r, offset, int16(3)) // verify 3 params
+	verifyInt16At(t, r, offset, int16(3)) // verify number of params
 	offset += 2
 
 	// verify each int
-	for _, exp := range intArray {
-		verifyInt8(t, r, offset, VT_INT)
+	for _, exp := range array {
+		verifyInt8At(t, r, offset, VT_INT)
 		offset++
-		verifyInt32(t, r, offset, exp)
+		verifyInt32At(t, r, offset, exp)
 		offset += 4
+	}
+}
+
+func TestStringArrayParam(t *testing.T) {
+	array := []string{"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+		"twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"}
+	var bs []byte
+	buf := bytes.NewBuffer(bs)
+	marshallParam(buf, array)
+
+	expLen := 213
+	if expLen != buf.Len() {
+		t.Logf("Unexpected buffer length, expected: %d, actual: %d", expLen, buf.Len())
+		t.FailNow()
+	}
+
+	var offset int64 = 0
+	r := bytes.NewReader(buf.Bytes())
+	verifyInt8At(t, r, offset, VT_ARRAY) // verify array type
+	offset++
+
+	verifyInt16At(t, r, offset, int16(20)) // verify number of params
+	offset += 2
+
+	// verify each string
+	for _, exp := range array {
+		verifyInt8At(t, r, offset, VT_STRING)
+		offset++
+		verifyStringAt(t, r, offset, exp)
+		offset += int64((4 + len(exp)))
+	}
+}
+
+func TestFloatArrayParam(t *testing.T) {
+	array := []float64{-459.67, 32.0, 212.0}
+	var bs []byte
+	buf := bytes.NewBuffer(bs)
+	marshallParam(buf, array)
+
+	expLen := 30
+	if expLen != buf.Len() {
+		t.Logf("Unexpected buffer length, expected: %d, actual: %d", expLen, buf.Len())
+		t.FailNow()
+	}
+	var offset int64 = 0
+	r := bytes.NewReader(buf.Bytes())
+	verifyInt8At(t, r, offset, VT_ARRAY) // verify array type
+	offset++
+
+	verifyInt16At(t, r, offset, int16(3)) // verify number of params
+	offset += 2
+
+	// verify each float
+	for _, exp := range array {
+		verifyInt8At(t, r, offset, VT_FLOAT)
+		offset++
+		verifyFloatAt(t, r, offset, exp)
+		offset += 8
 	}
 }
 

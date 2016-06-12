@@ -18,6 +18,7 @@ package voltdbclient
 
 import (
 	"bytes"
+	"math"
 )
 
 func readByteAt(r *bytes.Reader, off int64) (byte, error) {
@@ -84,6 +85,16 @@ func readInt64At(r *bytes.Reader, off int64) (int64, error) {
 		return 0, err
 	}
 	return int64(order.Uint64(bs)), nil
+}
+
+func readFloatAt(r *bytes.Reader, off int64) (float64, error) {
+	var b [8]byte
+	bs := b[:8]
+	_, err := r.ReadAt(bs, off)
+	if err != nil {
+		return 0, err
+	}
+	return math.Float64frombits(order.Uint64(bs)), nil
 }
 
 func readStringAt(r *bytes.Reader, off int64) (string, error) {

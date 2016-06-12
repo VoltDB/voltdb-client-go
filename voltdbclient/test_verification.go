@@ -21,7 +21,7 @@ import (
 	"testing"
 )
 
-func verifyInt8(t *testing.T, r *bytes.Reader, off int64, exp int8) {
+func verifyInt8At(t *testing.T, r *bytes.Reader, off int64, exp int8) {
 	act, err := readInt8At(r, off)
 	if err != nil {
 		t.Logf(err.Error())
@@ -33,7 +33,7 @@ func verifyInt8(t *testing.T, r *bytes.Reader, off int64, exp int8) {
 	}
 }
 
-func verifyInt16(t *testing.T, r *bytes.Reader, off int64, exp int16) {
+func verifyInt16At(t *testing.T, r *bytes.Reader, off int64, exp int16) {
 	act, err := readInt16At(r, off)
 	if err != nil {
 		t.Logf(err.Error())
@@ -45,7 +45,7 @@ func verifyInt16(t *testing.T, r *bytes.Reader, off int64, exp int16) {
 	}
 }
 
-func verifyInt32(t *testing.T, r *bytes.Reader, off int64, exp int32) {
+func verifyInt32At(t *testing.T, r *bytes.Reader, off int64, exp int32) {
 	act, err := readInt32At(r, off)
 	if err != nil {
 		t.Logf(err.Error())
@@ -53,6 +53,30 @@ func verifyInt32(t *testing.T, r *bytes.Reader, off int64, exp int32) {
 	}
 	if exp != act {
 		t.Logf("Expected: %d, actual: %d", exp, act)
+		t.FailNow()
+	}
+}
+
+func verifyFloatAt(t *testing.T, r *bytes.Reader, off int64, exp float64) {
+	act, err := readFloatAt(r, off)
+	if err != nil {
+		t.Logf(err.Error())
+		t.FailNow()
+	}
+	if exp != act {
+		t.Logf("Expected: %f, actual: %f", exp, act)
+		t.FailNow()
+	}
+}
+
+func verifyStringAt(t *testing.T, r *bytes.Reader, off int64, exp string) {
+	act, err := readStringAt(r, off)
+	if err != nil {
+		t.Logf(err.Error())
+		t.FailNow()
+	}
+	if exp != act {
+		t.Logf("Expected: %s, actual: %s", exp, act)
 		t.FailNow()
 	}
 }
