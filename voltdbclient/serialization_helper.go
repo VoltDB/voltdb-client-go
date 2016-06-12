@@ -180,6 +180,9 @@ func marshallValue(buf io.Writer, v reflect.Value, t reflect.Type) (err error) {
 		} else {
 			panic("Can't marshal struct-type parameters")
 		}
+	case reflect.Ptr:
+		deref := v.Elem()
+		marshallValue(buf, deref, deref.Type())
 	default:
 		panic(fmt.Sprintf("Can't marshal %v-type parameters", v.Kind()))
 	}

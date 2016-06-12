@@ -73,6 +73,23 @@ func TestInsertDifferentTypes(t *testing.T) {
 	}
 }
 
+func TestPtrParam(t *testing.T) {
+	var f float64 = 451.0
+	var bs []byte
+	buf := bytes.NewBuffer(bs)
+	marshallParam(buf, &f)
+
+	expLen := 9
+	if expLen != buf.Len() {
+		t.Logf("Unexpected buffer length, expected: %d, actual: %d", expLen, buf.Len())
+		t.FailNow()
+	}
+
+	r := bytes.NewReader(buf.Bytes())
+	verifyInt8At(t, r, 0, VT_FLOAT)
+	verifyFloatAt(t, r, 1, f)
+}
+
 func TestIntArrayParam(t *testing.T) {
 	array := []int32{11, 12, 13}
 	var bs []byte
