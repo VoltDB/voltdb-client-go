@@ -26,8 +26,6 @@ import (
 	"time"
 )
 
-const INVALID_ROW_INDEX = -1
-
 var NULL_DECIMAL = [...]byte{128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 var NULL_TIMESTAMP = [...]byte{128, 0, 0, 0, 0, 0, 0, 0}
 
@@ -36,41 +34,20 @@ type VoltRows struct {
 	appStatus            int8
 	appStatusString      string
 	clusterRoundTripTime int32
-	columnCount          int16
-	columnTypes          []int8
-	columnNames          []string
-	columnOffsets        [][]int32
-	rowCount             int32
-	rows                 [][]byte
-	rowIndex             int32
-	readers              []*bytes.Reader
-	cnToCi               map[string]int16
+	numTables            int16
+	tables               []*VoltTable
+	tableIndex           int16
 }
 
-func NewVoltTableRow(clientHandle int64, appStatus int8, appStatusString string, clusterRoundTripTime int32, columnCount int16,
-	columnTypes []int8, columnNames []string, rowCount int32, rows [][]byte) *VoltRows {
+func NewVoltRows(clientHandle int64, appStatus int8, appStatusString string, clusterRoundTripTime int32, numTables int16, tables []*VoltTable) *VoltRows {
 	var vr = new(VoltRows)
 	vr.clientHandle = clientHandle
 	vr.appStatus = appStatus
 	vr.appStatusString = appStatusString
 	vr.clusterRoundTripTime = clusterRoundTripTime
-	vr.columnCount = columnCount
-	vr.columnTypes = columnTypes
-	vr.columnNames = columnNames
-	// rowCount +1 because want to represent the end of the data as an offset
-	// so we can know the ending index of the last column.
-	vr.columnOffsets = make([][]int32, rowCount+1)
-	vr.rowCount = rowCount
-	vr.rows = rows
-	vr.rowIndex = INVALID_ROW_INDEX
-	vr.readers = make([]*bytes.Reader, rowCount)
-
-	// store columnName to columnIndex
-	vr.cnToCi = make(map[string]int16)
-	for ci, cn := range columnNames {
-		vr.cnToCi[cn] = int16(ci)
-	}
-
+	vr.numTables = numTables
+	vr.tables = tables
+	vr.tableIndex = 0
 	return vr
 }
 
@@ -81,7 +58,7 @@ func (vr VoltRows) Close() error {
 
 func (vr VoltRows) Columns() []string {
 	rv := make([]string, 0)
-	rv = append(rv, vr.columnNames...)
+	rv = append(rv, vr.table().columnNames...)
 	return rv
 }
 
@@ -92,15 +69,11 @@ func (vr VoltRows) Next(dest []driver.Value) error {
 // volt api
 
 func (vr *VoltRows) AdvanceRow() bool {
-	return vr.AdvanceToRow(vr.rowIndex + 1)
+	return vr.table().AdvanceRow()
 }
 
 func (vr *VoltRows) AdvanceToRow(rowIndex int32) bool {
-	vr.rowIndex = rowIndex
-	if vr.rowIndex >= vr.rowCount {
-		return false
-	}
-	return true
+	return vr.table().AdvanceToRow(rowIndex)
 }
 
 func (vr *VoltRows) AppStatus() int8 {
@@ -111,22 +84,30 @@ func (vr *VoltRows) AppStatusString() string {
 	return vr.appStatusString
 }
 
+func (vr *VoltRows) AdvanceTable() bool {
+	if vr.tableIndex + 1 >= vr.numTables {
+		return false
+	}
+	vr.tableIndex++
+	return true
+}
+
 func (vr *VoltRows) ClusterRoundTripTime() int32 {
 	return vr.clusterRoundTripTime
 }
 
 func (vr *VoltRows) ColumnCount() int {
-	return int(vr.columnCount)
+	return int(vr.table().columnCount)
 }
 
 func (vr *VoltRows) ColumnTypes() []int8 {
 	rv := make([]int8, 0)
-	rv = append(rv, vr.columnTypes...)
+	rv = append(rv, vr.table().columnTypes...)
 	return rv
 }
 
 func (vr *VoltRows) GetBigInt(colIndex int16) (interface{}, error) {
-	bs, err := vr.getBytes(vr.rowIndex, colIndex)
+	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +122,7 @@ func (vr *VoltRows) GetBigInt(colIndex int16) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetBigIntByName(cn string) (interface{}, error) {
-	ci, ok := vr.cnToCi[strings.ToUpper(cn)]
+	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
@@ -149,7 +130,7 @@ func (vr *VoltRows) GetBigIntByName(cn string) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetDecimal(colIndex int16) (interface{}, error) {
-	bs, err := vr.getBytes(vr.rowIndex, colIndex)
+	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +157,7 @@ func (vr *VoltRows) GetDecimal(colIndex int16) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetDecimalByName(cn string) (interface{}, error) {
-	ci, ok := vr.cnToCi[strings.ToUpper(cn)]
+	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
@@ -184,7 +165,7 @@ func (vr *VoltRows) GetDecimalByName(cn string) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetFloat(colIndex int16) (interface{}, error) {
-	bs, err := vr.getBytes(vr.rowIndex, colIndex)
+	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +180,7 @@ func (vr *VoltRows) GetFloat(colIndex int16) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetFloatByName(cn string) (interface{}, error) {
-	ci, ok := vr.cnToCi[strings.ToUpper(cn)]
+	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
@@ -207,7 +188,7 @@ func (vr *VoltRows) GetFloatByName(cn string) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetInteger(colIndex int16) (interface{}, error) {
-	bs, err := vr.getBytes(vr.rowIndex, colIndex)
+	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +203,7 @@ func (vr *VoltRows) GetInteger(colIndex int16) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetIntegerByName(cn string) (interface{}, error) {
-	ci, ok := vr.cnToCi[strings.ToUpper(cn)]
+	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
@@ -230,7 +211,7 @@ func (vr *VoltRows) GetIntegerByName(cn string) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetSmallInt(colIndex int16) (interface{}, error) {
-	bs, err := vr.getBytes(vr.rowIndex, colIndex)
+	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +226,7 @@ func (vr *VoltRows) GetSmallInt(colIndex int16) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetSmallIntByName(cn string) (interface{}, error) {
-	ci, ok := vr.cnToCi[strings.ToUpper(cn)]
+	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
@@ -253,7 +234,7 @@ func (vr *VoltRows) GetSmallIntByName(cn string) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetString(colIndex int16) (interface{}, error) {
-	bs, err := vr.getBytes(vr.rowIndex, colIndex)
+	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +248,7 @@ func (vr *VoltRows) GetString(colIndex int16) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetStringByName(cn string) (interface{}, error) {
-	ci, ok := vr.cnToCi[strings.ToUpper(cn)]
+	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
@@ -275,7 +256,7 @@ func (vr *VoltRows) GetStringByName(cn string) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetTimestamp(colIndex int16) (interface{}, error) {
-	bs, err := vr.getBytes(vr.rowIndex, colIndex)
+	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +271,7 @@ func (vr *VoltRows) GetTimestamp(colIndex int16) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetTimestampByName(cn string) (interface{}, error) {
-	ci, ok := vr.cnToCi[strings.ToUpper(cn)]
+	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
@@ -298,7 +279,7 @@ func (vr *VoltRows) GetTimestampByName(cn string) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetTinyInt(colIndex int16) (interface{}, error) {
-	bs, err := vr.getBytes(vr.rowIndex, colIndex)
+	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +295,7 @@ func (vr *VoltRows) GetTinyInt(colIndex int16) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetTinyIntByName(cn string) (interface{}, error) {
-	ci, ok := vr.cnToCi[strings.ToUpper(cn)]
+	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
@@ -322,7 +303,7 @@ func (vr *VoltRows) GetTinyIntByName(cn string) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetVarbinary(colIndex int16) (interface{}, error) {
-	bs, err := vr.getBytes(vr.rowIndex, colIndex)
+	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -333,109 +314,15 @@ func (vr *VoltRows) GetVarbinary(colIndex int16) (interface{}, error) {
 }
 
 func (vr *VoltRows) GetVarbinaryByName(cn string) (interface{}, error) {
-	ci, ok := vr.cnToCi[strings.ToUpper(cn)]
+	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
 	return vr.GetVarbinary(ci)
 }
 
-// the common logic for reading a column is here.  Read a column as bytes and
-// the represent it as the correct type.
-func (vr *VoltRows) calcOffsetsForRow(rowIndex int32) ([]int32, error) {
-	// column count + 1, want starting and ending index for every column
-	offsets := make([]int32, vr.columnCount+1)
-	r := vr.getReader(rowIndex)
-	var colIndex int16 = 0
-	var offset int32 = 0
-	offsets[0] = 0
-	for ; colIndex < vr.columnCount; colIndex++ {
-		len, err := vr.colLength(r, offset, vr.columnTypes[colIndex])
-		if err != nil {
-			return nil, err
-		}
-		offset += len
-		offsets[colIndex+1] = offset
-
-	}
-	return offsets, nil
-}
-
-func (vr *VoltRows) colLength(r *bytes.Reader, offset int32, colType int8) (int32, error) {
-	switch colType {
-	case -99: // ARRAY
-		return 0, fmt.Errorf("Not supporting ARRAY")
-	case 1: // NULL
-		return 0, nil
-	case 3: // TINYINT
-		return 1, nil
-	case 4: // SMALLINT
-		return 2, nil
-	case 5: // INTEGER
-		return 4, nil
-	case 6: // BIGINT
-		return 8, nil
-	case 8: // FLOAT
-		return 8, nil
-	case 9: // STRING
-		strlen, err := readInt32At(r, int64(offset))
-		if err != nil {
-			return 0, err
-		}
-		if strlen == -1 { // encoding for null string.
-			return 4, nil
-		}
-		return strlen + 4, nil
-	case 11: // TIMESTAMP
-		return 8, nil
-	case 22: // DECIMAL
-		return 16, nil
-	case 25: // VARBINARY
-		strlen, err := readInt32At(r, int64(offset))
-		if err != nil {
-			return 0, err
-		}
-		if strlen == -1 { // encoding for null.
-			return 4, nil
-		}
-		return strlen + 4, nil
-	case 26: // GEOGRAPHY_POINT
-		return 0, fmt.Errorf("Not supporting GEOGRAPHY_POINT")
-	case 27: // GEOGRAPHY
-		return 0, fmt.Errorf("Not supporting GEOGRAPHY")
-	default:
-		return 0, fmt.Errorf("Unexpected type %d", colType)
-	}
-}
-
-func (vr *VoltRows) getBytes(rowIndex int32, columnIndex int16) ([]byte, error) {
-	offsets, err := vr.getOffsetsForRow(rowIndex)
-	if err != nil {
-		return nil, err
-	}
-	return vr.rows[rowIndex][offsets[columnIndex]:offsets[columnIndex+1]], nil
-}
-
-func (vr *VoltRows) getOffsetsForRow(rowIndex int32) ([]int32, error) {
-	offsets := vr.columnOffsets[rowIndex]
-	if offsets != nil {
-		return offsets, nil
-	}
-	offsets, err := vr.calcOffsetsForRow(rowIndex)
-	if err != nil {
-		return nil, err
-	}
-	vr.columnOffsets[rowIndex] = offsets
-	return offsets, nil
-}
-
-func (vr *VoltRows) getReader(rowIndex int32) *bytes.Reader {
-	r := vr.readers[rowIndex]
-	if r == nil {
-		r = bytes.NewReader(vr.rows[rowIndex])
-		vr.readers[rowIndex] = r
-	}
-	return r
+func (vr *VoltRows) table() *VoltTable {
+	return vr.tables[vr.tableIndex]
 }
 
 // funcs that cast:

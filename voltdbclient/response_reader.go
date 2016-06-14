@@ -111,25 +111,24 @@ func deserializeCallResponse(r io.Reader) (vr *VoltRows, err error) {
 	if err != nil {
 		return nil, err
 	}
-	tableCount, err := readShort(r)
+	numTables, err := readShort(r)
 	if err != nil {
 		return nil, err
 	}
-	if tableCount < 0 {
-		return nil, fmt.Errorf("Bad table count in procudure response %v", tableCount)
+	if numTables < 0 {
+		return nil, fmt.Errorf("Bad table count in procudure response %v", numTables)
 	}
-	tables := make([]*VoltTable, tableCount)
+	tables := make([]*VoltTable, numTables)
 	for idx, _ := range tables {
-		if tables[idx], err = deserializeTable(r, clientHandle, appStatus, appStatusString, clusterRoundTripTime); err != nil {
+		if tables[idx], err = deserializeTable(r); err != nil {
 			return nil, err
 		}
 	}
-	// TODO: if more than one table.
-	rows := tables[0].Rows()
-	return &rows, nil
+
+	return NewVoltRows(clientHandle, appStatus, appStatusString, clusterRoundTripTime, numTables, tables), nil
 }
 
-func deserializeTable(r io.Reader, clientHandle int64, appStatus int8, appStatusString string, clusterRoundTripTime int32) (*VoltTable, error) {
+func deserializeTable(r io.Reader) (*VoltTable, error) {
 	var err error
 	_, err = readInt(r) // ttlLength
 	if err != nil {
@@ -191,6 +190,5 @@ func deserializeTable(r io.Reader, clientHandle int64, appStatus int8, appStatus
 		offset += int64(rowLen + 4)
 	}
 
-	return NewVoltTable(clientHandle, appStatus, appStatusString, clusterRoundTripTime, columnCount,
-		columnTypes, columnNames, rowCount, rows), nil
+	return NewVoltTable(columnCount, columnTypes, columnNames, rowCount, rows), nil
 }
