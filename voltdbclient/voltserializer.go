@@ -48,15 +48,6 @@ var order = binary.BigEndian
 // protoVersion is the implemented VoltDB wireprotocol version.
 const protoVersion = 1
 
-// reads and deserializes a procedure call response from the server.
-func readResponse(r io.Reader) (*Response, error) {
-	buf, err := readMessage(r)
-	if err != nil {
-		return nil, err
-	}
-	return deserializeCallResponse(buf)
-}
-
 // reads a message
 func readMessage(r io.Reader) (*bytes.Buffer, error) {
 	size, err := readMessageHdr(r)
@@ -140,6 +131,16 @@ func readByte(r io.Reader) (int8, error) {
 		return 0, err
 	}
 	return int8(b[0]), nil
+}
+
+func readUint8(r io.Reader) (uint8, error) {
+	var b [1]byte
+	bs := b[:1]
+	_, err := r.Read(bs)
+	if err != nil {
+		return 0, err
+	}
+	return uint8(b[0]), nil
 }
 
 func readByteArray(r io.Reader) ([]byte, error) {

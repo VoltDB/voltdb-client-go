@@ -27,13 +27,13 @@ import (
 // listener puts the response on the channel (calls back).
 type NetworkListener struct {
 	reader    io.Reader
-	callbacks map[int64]chan *Response
+	callbacks map[int64]chan *VoltRows
 }
 
 func NewListener(reader io.Reader) *NetworkListener {
 	var l = new(NetworkListener)
 	l.reader = reader
-	l.callbacks = make(map[int64]chan *Response)
+	l.callbacks = make(map[int64]chan *VoltRows)
 	return l
 }
 
@@ -64,12 +64,12 @@ func (l *NetworkListener) listen() {
 }
 
 // break this out to support testing
-func (l *NetworkListener) readOneMsg(reader io.Reader) (*Response, error) {
+func (l *NetworkListener) readOneMsg(reader io.Reader) (*VoltRows, error) {
 	return readResponse(reader)
 }
 
 func (l *NetworkListener) registerCallback(handle int64) *Callback {
-	c := make(chan *Response)
+	c := make(chan *VoltRows)
 	l.callbacks[handle] = c
 	return NewCallback(c, handle)
 }

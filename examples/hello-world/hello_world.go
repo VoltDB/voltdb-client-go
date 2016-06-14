@@ -34,45 +34,35 @@ func main() {
 	}()
 
 	// rows to insert
-	rows := make([][]string, 5)
-	rows[0] = []string{"Hello", "World", "English"}
-	rows[1] = []string{"Bonjour", "Monde", "French"}
-	rows[2] = []string{"Hola", "Mundo", "Spanish"}
-	rows[3] = []string{"Hej", "Verden", "Danish"}
-	rows[4] = []string{"Ciao", "Mondo", "Italian"}
-	for _, row := range rows {
-		insertData(client, row[0], row[1], row[2])
+	insertRows := make([][]string, 5)
+	insertRows[0] = []string{"Hello", "World", "English"}
+	insertRows[1] = []string{"Bonjour", "Monde", "French"}
+	insertRows[2] = []string{"Hola", "Mundo", "Spanish"}
+	insertRows[3] = []string{"Hej", "Verden", "Danish"}
+	insertRows[4] = []string{"Ciao", "Mondo", "Italian"}
+	for _, insertRow := range insertRows {
+		insertDataRow(client, insertRow[0], insertRow[1], insertRow[2])
 	}
-	response, err := client.Call("HELLOWORLD.select", "French")
+	rows, err := client.Call("HELLOWORLD.select", "French")
 	if err != nil {
 		log.Fatal(err)
 	}
-	if response.TableCount() > 0 {
-		table := response.Table(0)
-		row, err := table.FetchRow(0)
+	if rows.AdvanceRow() {
+		hello, err := rows.GetStringByName("HELLO")
 		if err != nil {
 			log.Fatal(err)
 		}
-		hello, err := row.GetStringByName("HELLO")
-		if err != nil {
-			log.Fatal(err)
-		}
-		world, err := row.GetStringByName("WORLD")
+		world, err := rows.GetStringByName("WORLD")
 		if err != nil {
 			log.Fatal(err)
 		}
 		fmt.Printf("%v, %v!\n", hello, world)
-	} else {
-		log.Fatal("Select statement didn't return any data")
 	}
 }
 
-func insertData(client *voltdbclient.Client, hello, world, dialect string) {
-	response, err := client.Call("HELLOWORLD.insert", hello, world, dialect)
+func insertDataRow(client *voltdbclient.Client, hello, world, dialect string) {
+	_, err := client.Call("HELLOWORLD.insert", hello, world, dialect)
 	if err != nil {
 		log.Fatal(err)
-	}
-	if response.Status() != voltdbclient.SUCCESS {
-		log.Fatal("Insert failed with " + response.StatusString())
 	}
 }

@@ -39,52 +39,79 @@ func TestReadDataTypes(t *testing.T) {
 	check(t, err)
 	r := bytes.NewReader(b)
 	nl := NewListener(r)
-	resp, err := nl.readOneMsg(r)
+	rows, err := nl.readOneMsg(r)
 	check(t, err)
 
-	if resp.tableCount != 1 {
-		t.Fatal("Unexpected table count")
-	}
-	vt := resp.tables[0]
-
-	// expected columns
 	expCols := []string{"ID", "NULLABLE_ID", "NAME", "DATA", "STATUS", "TYPE", "PAN", "BALANCE_OPEN", "BALANCE", "LAST_UPDATED"}
-	if len(expCols) != vt.ColumnCount() {
-		t.Fatal("Unexpected column count")
+	actCols := rows.Columns()
+	if len(expCols) != len(actCols) {
+		t.Logf("Unexpected buffer length, expected: %d, actual: %d", len(expCols), len(actCols))
+		t.FailNow()
 	}
 
-	if vt.rowCount != 3 {
-		t.Fatal("Unexpected row count")
-	}
-
-	for i := 0; i < 3; i++ {
-		vtr, err := vt.FetchRow(int32(i))
-		check(t, err)
-		iId, err := vtr.GetInteger(0)
-		id := iId.(int32)
-		check(t, err)
-		if id == 25 {
-			checkRowData(t, vtr, int32(25), true, 0, true, "", true, "", 0, true, 0, true, 0, true, 0, true, 0,
-				true, 0, true, "")
-		} else if id == 50 {
-			checkRowData(t, vtr, int32(50), false, 50, false, "Beckett", false, "Every word is like", 67,
-				false, int8(36), false, int16(-500), false, int64(1465242120398), false, float64(-2469.1356),
-				false, float64(12345.678900000000), false, "2016-06-06 15:42:00.398 -0400 EDT")
-		} else {
-			checkRowData(t, vtr, int32(100), false, 100, false, "Poe", false, "Once upon a midnight dreary", 246,
-				false, int8(36), false, int16(-1000), false, int64(1465242120384), false, float64(-1234.5678),
-				false, float64(12345.678900000000), false, "2016-06-06 15:42:00.385 -0400 EDT")
+	for i, actCol := range actCols {
+		if actCol != expCols[i] {
+			t.Logf("Unexpected column name, expected: %s, actual: %s", expCols[i], actCol)
+			t.FailNow()
 		}
+	}
+
+	// check three rows
+	if !rows.AdvanceRow() {
+		t.Logf("Didn't see expected row")
+		t.FailNow()
+	}
+	iId, err := rows.GetInteger(0)
+	id := iId.(int32)
+	check(t, err)
+	checkRows(t, rows, id)
+
+	if !rows.AdvanceRow() {
+		t.Logf("Didn't see expected row")
+		t.FailNow()
+	}
+	iId, err = rows.GetInteger(0)
+	id = iId.(int32)
+	check(t, err)
+	checkRows(t, rows, id)
+
+	if !rows.AdvanceRow() {
+		t.Logf("Didn't see expected row")
+		t.FailNow()
+	}
+	iId, err = rows.GetInteger(0)
+	id = iId.(int32)
+	check(t, err)
+	checkRows(t, rows, id)
+
+	if rows.AdvanceRow() {
+		t.Logf("Saw unexpected row")
+		t.FailNow()
 	}
 }
 
-func checkRowData(t *testing.T, row *VoltTableRow, expectedId int32, nIdIsNull bool, expectedNId int32,
+func checkRows(t *testing.T, rows *VoltRows, id int32) {
+	if id == 25 {
+		checkRowData(t, rows, int32(25), true, 0, true, "", true, "", 0, true, 0, true, 0, true, 0, true, 0,
+			true, 0, true, "")
+	} else if id == 50 {
+		checkRowData(t, rows, int32(50), false, 50, false, "Beckett", false, "Every word is like", 67,
+			false, int8(36), false, int16(-500), false, int64(1465242120398), false, float64(-2469.1356),
+			false, float64(12345.678900000000), false, "2016-06-06 15:42:00.398 -0400 EDT")
+	} else {
+		checkRowData(t, rows, int32(100), false, 100, false, "Poe", false, "Once upon a midnight dreary", 246,
+			false, int8(36), false, int16(-1000), false, int64(1465242120384), false, float64(-1234.5678),
+			false, float64(12345.678900000000), false, "2016-06-06 15:42:00.385 -0400 EDT")
+	}
+}
+
+func checkRowData(t *testing.T, rows *VoltRows, expectedId int32, nIdIsNull bool, expectedNId int32,
 	nameIsNull bool, expectedName string, dataIsNull bool, expectedPrefix string, expectedDataLen int,
 	statusIsNull bool, expectedStatus int8, typeIsNull bool, expectedType int16, panIsNull bool, expectedPan int64,
 	boIsNull bool, expectedBo float64, balanceIsNull bool, expectedBalance float64,
 	lastUpdatedIsNull bool, expectedLastUpdated string) {
 	// ID
-	iId, err := row.GetIntegerByName("ID")
+	iId, err := rows.GetIntegerByName("ID")
 	check(t, err)
 	id := iId.(int32)
 	if expectedId != id {
@@ -92,7 +119,7 @@ func checkRowData(t *testing.T, row *VoltTableRow, expectedId int32, nIdIsNull b
 	}
 
 	// NULLABLE_ID
-	iNid, err := row.GetIntegerByName("NULLABLE_ID")
+	iNid, err := rows.GetIntegerByName("NULLABLE_ID")
 	check(t, err)
 	if iNid != nil {
 		nId := iNid.(int32)
@@ -106,12 +133,13 @@ func checkRowData(t *testing.T, row *VoltTableRow, expectedId int32, nIdIsNull b
 	}
 
 	// NAME
-	iName, err := row.GetStringByName("NAME")
+	iName, err := rows.GetStringByName("NAME")
 	check(t, err)
 	if iName != nil {
 		name := iName.(string)
 		if nameIsNull || expectedName != name {
-			t.Error(fmt.Printf("For NAME, expected value %s", expectedName))
+			t.Logf(fmt.Sprintf("For NAME, expected value %v", expectedName))
+			t.FailNow()
 		}
 	} else {
 		if !nameIsNull {
@@ -120,7 +148,7 @@ func checkRowData(t *testing.T, row *VoltTableRow, expectedId int32, nIdIsNull b
 	}
 
 	// DATA
-	iData, err := row.GetVarbinaryByName("DATA")
+	iData, err := rows.GetVarbinaryByName("DATA")
 	check(t, err)
 	if iData != nil {
 		data := iData.([]byte)
@@ -134,7 +162,7 @@ func checkRowData(t *testing.T, row *VoltTableRow, expectedId int32, nIdIsNull b
 	}
 
 	// STATUS
-	iStatus, err := row.GetTinyIntByName("STATUS")
+	iStatus, err := rows.GetTinyIntByName("STATUS")
 	check(t, err)
 	if iStatus != nil {
 		status := iStatus.(int8)
@@ -148,7 +176,7 @@ func checkRowData(t *testing.T, row *VoltTableRow, expectedId int32, nIdIsNull b
 	}
 
 	// TYPE
-	iType, err := row.GetSmallIntByName("TYPE")
+	iType, err := rows.GetSmallIntByName("TYPE")
 	check(t, err)
 	if iType != nil {
 		typ := iType.(int16)
@@ -162,7 +190,7 @@ func checkRowData(t *testing.T, row *VoltTableRow, expectedId int32, nIdIsNull b
 	}
 
 	// PAN
-	iPan, err := row.GetBigIntByName("PAN")
+	iPan, err := rows.GetBigIntByName("PAN")
 	check(t, err)
 	if iPan != nil {
 		pan := iPan.(int64)
@@ -176,7 +204,7 @@ func checkRowData(t *testing.T, row *VoltTableRow, expectedId int32, nIdIsNull b
 	}
 
 	// BALANCE_OPEN
-	iBo, err := row.GetFloatByName("BALANCE_OPEN")
+	iBo, err := rows.GetFloatByName("BALANCE_OPEN")
 	check(t, err)
 	if iBo != nil {
 		bo := iBo.(float64)
@@ -190,7 +218,7 @@ func checkRowData(t *testing.T, row *VoltTableRow, expectedId int32, nIdIsNull b
 	}
 
 	// BALANCE
-	iBalance, err := row.GetDecimalByName("BALANCE")
+	iBalance, err := rows.GetDecimalByName("BALANCE")
 	check(t, err)
 	if iBalance != nil {
 		balance := iBalance.(*big.Float)
@@ -205,7 +233,7 @@ func checkRowData(t *testing.T, row *VoltTableRow, expectedId int32, nIdIsNull b
 	}
 
 	// LAST_UPDATED
-	iLu, err := row.GetTimestampByName("LAST_UPDATED")
+	iLu, err := rows.GetTimestampByName("LAST_UPDATED")
 	check(t, err)
 	if iLu != nil {
 		lu := iLu.(time.Time)

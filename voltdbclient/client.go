@@ -63,7 +63,7 @@ type NullValue struct {
 }
 
 type Callback struct {
-	Channel <-chan *Response
+	Channel <-chan *VoltRows
 	Handle  int64
 }
 
@@ -74,7 +74,7 @@ func NewClient(username string, password string) *Client {
 	return client
 }
 
-func NewCallback(channel <-chan *Response, handle int64) *Callback {
+func NewCallback(channel <-chan *VoltRows, handle int64) *Callback {
 	var callback = new(Callback)
 	callback.Channel = channel
 	callback.Handle = handle
@@ -89,17 +89,18 @@ func NewNullValue(colType int8) *NullValue {
 
 // Call invokes the procedure 'procedure' with parameter values 'params'
 // and returns a pointer to the received Response.
-func (client *Client) Call(procedure string, params ...interface{}) (*Response, error) {
+func (client *Client) Call(procedure string, params ...interface{}) (VoltRows, error) {
 	if client.writer == nil {
-		return nil, fmt.Errorf("Can not call procedure on closed Client.")
+		return VoltRows{}, fmt.Errorf("Can not call procedure on closed Client.")
 	}
 	handle := atomic.AddInt64(&client.clientHandle, 1)
 	cb := client.netListener.registerCallback(handle)
 	if err := client.writeProcedureCall(client.writer, procedure, handle, params); err != nil {
 		client.netListener.removeCallback(handle)
-		return nil, err
+		return VoltRows{}, err
 	}
-	return <-cb.Channel, nil
+	rows := <-cb.Channel
+	return *rows, nil
 }
 
 // CallAsync asynchronously invokes the procedure 'procedure' with parameter values 'params'.
@@ -167,8 +168,8 @@ func (client *Client) GoString() string {
 }
 
 // MultiplexCallbacks 'fans in' callbacks - listens for the given set of callbacks on one channel
-func (client *Client) MultiplexCallbacks(callbacks []*Callback) <-chan *Response {
-	c := make(chan *Response)
+func (client *Client) MultiplexCallbacks(callbacks []*Callback) <-chan *VoltRows {
+	c := make(chan *VoltRows)
 	for _, callback := range callbacks {
 		ch := callback.Channel
 		go func() {
@@ -176,18 +177,6 @@ func (client *Client) MultiplexCallbacks(callbacks []*Callback) <-chan *Response
 		}()
 	}
 	return c
-}
-
-// Ping the database for liveness.
-func (client *Client) PingConnection() bool {
-	if client.writer == nil {
-		return false
-	}
-	rsp, err := client.Call("@Ping")
-	if err != nil {
-		return false
-	}
-	return rsp.Status() == SUCCESS
 }
 
 // functions private to this package.
