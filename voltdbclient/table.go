@@ -23,7 +23,7 @@ type VoltTable struct {
 }
 
 func NewVoltTable(clientHandle int64, appStatus int8, appStatusString string, clusterRoundTripTime int32,
-columnCount int16, columnTypes []int8, columnNames []string, rowCount int32, rows [][]byte) *VoltTable {
+	columnCount int16, columnTypes []int8, columnNames []string, rowCount int32, rows [][]byte) *VoltTable {
 	var vt = new(VoltTable)
 	vt.rows = *NewVoltTableRow(clientHandle, appStatus, appStatusString, clusterRoundTripTime, columnCount, columnTypes, columnNames, rowCount, rows)
 	return vt

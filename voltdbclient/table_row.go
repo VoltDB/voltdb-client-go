@@ -18,15 +18,16 @@ package voltdbclient
 
 import (
 	"bytes"
+	"database/sql/driver"
 	"fmt"
 	"math"
-	"time"
-	"strings"
 	"math/big"
-	"database/sql/driver"
+	"strings"
+	"time"
 )
 
 const INVALID_ROW_INDEX = -1
+
 var NULL_DECIMAL = [...]byte{128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 var NULL_TIMESTAMP = [...]byte{128, 0, 0, 0, 0, 0, 0, 0}
 
@@ -47,7 +48,7 @@ type VoltRows struct {
 }
 
 func NewVoltTableRow(clientHandle int64, appStatus int8, appStatusString string, clusterRoundTripTime int32, columnCount int16,
-columnTypes []int8, columnNames []string, rowCount int32, rows [][]byte) *VoltRows {
+	columnTypes []int8, columnNames []string, rowCount int32, rows [][]byte) *VoltRows {
 	var vr = new(VoltRows)
 	vr.clientHandle = clientHandle
 	vr.appStatus = appStatus
@@ -138,8 +139,6 @@ func (vr *VoltRows) GetBigInt(colIndex int16) (interface{}, error) {
 	}
 	return i, nil
 }
-
-
 
 func (vr *VoltRows) GetBigIntByName(cn string) (interface{}, error) {
 	ci, ok := vr.cnToCi[strings.ToUpper(cn)]

@@ -294,4 +294,3 @@ func marshallSlice(buf io.Writer, v reflect.Value, t reflect.Type, l int) (err e
 	}
 	return
 }
-
