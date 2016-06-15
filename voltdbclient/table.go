@@ -25,13 +25,13 @@ const INVALID_ROW_INDEX = -1
 
 // Table represents a single result set for a stored procedure invocation.
 type VoltTable struct {
-	columnCount   int16
-	columnTypes   []int8
-	columnNames   []string
-	numRows       int32
-	rows          [][]byte
-	rowIndex      int32
-	cnToCi        map[string]int16
+	columnCount int16
+	columnTypes []int8
+	columnNames []string
+	numRows     int32
+	rows        [][]byte
+	rowIndex    int32
+	cnToCi      map[string]int16
 	// offsets for the current rows.
 	columnOffsets []int32
 }
@@ -146,4 +146,3 @@ func (vt *VoltTable) getBytes(rowIndex int32, columnIndex int16) ([]byte, error)
 	}
 	return vt.rows[rowIndex][vt.columnOffsets[columnIndex]:vt.columnOffsets[columnIndex+1]], nil
 }
-

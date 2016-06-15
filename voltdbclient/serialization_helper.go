@@ -19,6 +19,7 @@ package voltdbclient
 import (
 	"bytes"
 	"crypto/sha256"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io"
@@ -26,7 +27,6 @@ import (
 	"reflect"
 	"runtime"
 	"time"
-	"database/sql/driver"
 )
 
 // A helper for protocol-level de/serialization code. For

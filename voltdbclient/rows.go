@@ -85,7 +85,7 @@ func (vr *VoltRows) AppStatusString() string {
 }
 
 func (vr *VoltRows) AdvanceTable() bool {
-	if vr.tableIndex + 1 >= vr.numTables {
+	if vr.tableIndex+1 >= vr.numTables {
 		return false
 	}
 	vr.tableIndex++
