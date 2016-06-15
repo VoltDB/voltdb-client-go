@@ -19,7 +19,9 @@ package voltdbclient
 import (
 	"bytes"
 	"database/sql/driver"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	"strings"
@@ -62,7 +64,76 @@ func (vr VoltRows) Columns() []string {
 	return rv
 }
 
-func (vr VoltRows) Next(dest []driver.Value) error {
+func (vr VoltRows) Next(dest []driver.Value) (err error) {
+	if !vr.table().AdvanceRow() {
+		return io.EOF
+	}
+	if vr.table().getColumnCount() != len(dest) {
+		return errors.New(fmt.Sprintf("Wrong number of values to Rows.Next, expected %d but saw %d", vr.table().getColumnCount(), len(dest)))
+	}
+
+	cts := vr.table().getColumnTypes()
+	for i := 0; i < len(dest); i++ {
+		ct := cts[i]
+		switch ct {
+		case -99: // ARRAY
+			return fmt.Errorf("Not supporting ARRAY")
+		case 1: // NULL
+			dest[i] = nil
+		case 3: // TINYINT
+			v, err := vr.GetTinyInt(int16(i))
+			if err != nil {
+				return fmt.Errorf("Failed to get TINYINT at column index %d %s", i, err)
+			}
+			dest[i] = v
+		case 4: // SMALLINT
+			v, err := vr.GetSmallInt(int16(i))
+			if err != nil {
+				return fmt.Errorf("Failed to get SMALLINT at column index %d %s", i, err)
+			}
+			dest[i] = v
+		case 5: // INTEGER
+			v, err := vr.GetInteger(int16(i))
+			if err != nil {
+				return fmt.Errorf("Failed to get INTEGER at column index %d %s", i, err)
+			}
+			dest[i] = v
+		case 6: // BIGINT
+			v, err := vr.GetBigInt(int16(i))
+			if err != nil {
+				return fmt.Errorf("Failed to get BIGINT at column index %d %s", i, err)
+			}
+			dest[i] = v
+		case 8: // FLOAT
+			v, err := vr.GetFloat(int16(i))
+			if err != nil {
+				return fmt.Errorf("Failed to get FLOAT at column index %d %s", i, err)
+			}
+			dest[i] = v
+		case 9: // STRING
+			v, err := vr.GetVarbinary(int16(i))
+			if err != nil {
+				return fmt.Errorf("Failed to get STRING/VARBINARY at column index %d %s", i, err)
+			}
+			dest[i] = v
+		case 11: // TIMESTAMP
+			return fmt.Errorf("Not supporting TIMESTAMP")
+		case 22: // DECIMAL
+			return fmt.Errorf("Not supporting DECIMAL")
+		case 25: // VARBINARY
+			v, err := vr.GetVarbinary(int16(i))
+			if err != nil {
+				return fmt.Errorf("Failed to get STRING/VARBINARY at column index %d %s", i, err)
+			}
+			dest[i] = v
+		case 26: // GEOGRAPHY_POINT
+			return errors.New("Not supporting GEOGRAPHY_POINT")
+		case 27: // GEOGRAPHY
+			return errors.New("Not supporting GEOGRAPHY")
+		default:
+			return errors.New(fmt.Sprintf("Unexpected type %d", ct))
+		}
+	}
 	return nil
 }
 

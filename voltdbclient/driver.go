@@ -18,6 +18,7 @@
 package voltdbclient
 
 import (
+	"database/sql"
 	"database/sql/driver"
 	"fmt"
 	"net"
@@ -61,4 +62,8 @@ func (vd *VoltDriver) newConnection(hostAndPort string) (driver.Conn, error) {
 	}
 	voltConn := newVoltConn(tcpConn, tcpConn, connData)
 	return *voltConn, nil
+}
+
+func init() {
+	sql.Register("voltdb", &VoltDriver{})
 }

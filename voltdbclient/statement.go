@@ -42,7 +42,6 @@ func newVoltStatement(writer *io.Writer, netListener *NetworkListener, stmt stri
 
 	vs.stmt = stmt
 	vs.closed = false
-	vs.numInput = 0
 	return vs
 }
 
@@ -52,7 +51,7 @@ func (vs *VoltStatement) Close() error {
 }
 
 func (vs *VoltStatement) NumInput() int {
-	return 0
+	return 1
 }
 
 func (vs *VoltStatement) Exec(args []driver.Value) (driver.Result, error) {

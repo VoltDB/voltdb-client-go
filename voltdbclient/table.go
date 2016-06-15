@@ -146,3 +146,11 @@ func (vt *VoltTable) getBytes(rowIndex int32, columnIndex int16) ([]byte, error)
 	}
 	return vt.rows[rowIndex][vt.columnOffsets[columnIndex]:vt.columnOffsets[columnIndex+1]], nil
 }
+
+func (vt *VoltTable) getColumnCount() int {
+	return int(vt.columnCount)
+}
+
+func (vt *VoltTable) getColumnTypes() []int8 {
+	return vt.columnTypes
+}
