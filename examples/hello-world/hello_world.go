@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"github.com/VoltDB/voltdb-client-go/voltdbclient"
 	"log"
+	"database/sql/driver"
 )
 
 func main() {
@@ -43,16 +44,21 @@ func main() {
 	for _, insertRow := range insertRows {
 		insertDataRow(client, insertRow[0], insertRow[1], insertRow[2])
 	}
-	rows, err := client.Call("HELLOWORLD.select", "French")
+
+	stmt := voltdbclient.NewVoltStatement(client.Writer(), client.NetworkListener(), "HELLOWORLD.select")
+	rows, err := stmt.Query([]driver.Value{"French"})
+
+	voltRows := rows.(voltdbclient.VoltRows)
+
 	if err != nil {
 		log.Fatal(err)
 	}
-	if rows.AdvanceRow() {
-		hello, err := rows.GetStringByName("HELLO")
+	if voltRows.AdvanceRow() {
+		hello, err := voltRows.GetStringByName("HELLO")
 		if err != nil {
 			log.Fatal(err)
 		}
-		world, err := rows.GetStringByName("WORLD")
+		world, err := voltRows.GetStringByName("WORLD")
 		if err != nil {
 			log.Fatal(err)
 		}

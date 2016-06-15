@@ -69,6 +69,7 @@ func (l *NetworkListener) readOneMsg(reader io.Reader) (*VoltRows, error) {
 }
 
 func (l *NetworkListener) registerCallback(handle int64) *Callback {
+	// TODO:  I think this needs a lock
 	c := make(chan *VoltRows)
 	l.callbacks[handle] = c
 	return NewCallback(c, handle)

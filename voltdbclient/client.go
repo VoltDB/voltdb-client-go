@@ -179,6 +179,16 @@ func (client *Client) MultiplexCallbacks(callbacks []*Callback) <-chan *VoltRows
 	return c
 }
 
+// TODO: this can be made private once VoltStatement is created by driver.Conn
+func (client *Client) NetworkListener() *NetworkListener {
+	return client.netListener
+}
+
+// TODO: this can be made private once VoltStatement is created by driver.Conn
+func (client *Client) Writer() *io.Writer {
+	return &(client.writer)
+}
+
 // functions private to this package.
 
 // readLoginResponse parses the login response message.
