@@ -21,54 +21,42 @@ import (
 	"fmt"
 	"github.com/VoltDB/voltdb-client-go/voltdbclient"
 	"log"
+	"os"
 )
 
 func main() {
-	client := voltdbclient.NewClient("", "")
-	if err := client.CreateConnection("localhost:21212"); err != nil {
-		log.Fatal("failed to connect to server")
-	}
-	defer func() {
-		if client != nil {
-			client.Close()
-		}
-	}()
-
-	// rows to insert
-	insertRows := make([][]string, 5)
-	insertRows[0] = []string{"Hello", "World", "English"}
-	insertRows[1] = []string{"Bonjour", "Monde", "French"}
-	insertRows[2] = []string{"Hola", "Mundo", "Spanish"}
-	insertRows[3] = []string{"Hej", "Verden", "Danish"}
-	insertRows[4] = []string{"Ciao", "Mondo", "Italian"}
-	for _, insertRow := range insertRows {
-		insertDataRow(client, insertRow[0], insertRow[1], insertRow[2])
-	}
-
-	stmt := voltdbclient.NewVoltStatement(client.Writer(), client.NetworkListener(), "HELLOWORLD.select")
-	rows, err := stmt.Query([]driver.Value{"French"})
-
-	voltRows := rows.(voltdbclient.VoltRows)
-
+	voltDriver := voltdbclient.NewVoltDriver()
+	conn, err := voltDriver.Open("localhost:21212")
 	if err != nil {
 		log.Fatal(err)
+		os.Exit(-1)
 	}
+	defer conn.Close()
+
+	stmt, err := conn.Prepare("HELLOWORLD.select")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+
+	rows, err := stmt.Query([]driver.Value{"French"})
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+
+	voltRows := rows.(voltdbclient.VoltRows)
 	if voltRows.AdvanceRow() {
 		hello, err := voltRows.GetStringByName("HELLO")
 		if err != nil {
 			log.Fatal(err)
+			os.Exit(-1)
 		}
 		world, err := voltRows.GetStringByName("WORLD")
 		if err != nil {
 			log.Fatal(err)
+			os.Exit(-1)
 		}
 		fmt.Printf("%v, %v!\n", hello, world)
-	}
-}
-
-func insertDataRow(client *voltdbclient.Client, hello, world, dialect string) {
-	_, err := client.Call("HELLOWORLD.insert", hello, world, dialect)
-	if err != nil {
-		log.Fatal(err)
 	}
 }

@@ -35,7 +35,7 @@ type VoltStatement struct {
 	writer      *io.Writer
 }
 
-func NewVoltStatement(writer *io.Writer, netListener *NetworkListener, stmt string) *VoltStatement {
+func newVoltStatement(writer *io.Writer, netListener *NetworkListener, stmt string) *VoltStatement {
 	var vs = new(VoltStatement)
 	vs.writer = writer
 	vs.netListener = netListener

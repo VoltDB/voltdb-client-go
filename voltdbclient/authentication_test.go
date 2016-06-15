@@ -29,7 +29,7 @@ func TestLoginRequest(t *testing.T) {
 	client := Client{&config, nil, loginBuf, nil, nil, 0}
 	login, err := serializeLoginMessage(client.config.username, client.config.password)
 	check(t, err)
-	client.writeLoginMessage(&login)
+	writeLoginMessage(client.getWriter(), &login)
 
 	fileBytes, err := ioutil.ReadFile("./test_resources/authentication_request_sha256.msg")
 	check(t, err)
@@ -45,7 +45,7 @@ func TestLoginResponse(t *testing.T) {
 	reader := bytes.NewReader(b)
 	config := ClientConfig{"", ""}
 	client := Client{&config, reader, nil, nil, nil, 0}
-	connData, err := client.readLoginResponse()
+	connData, err := readLoginResponse(client.getReader())
 	check(t, err)
 	// consider as passed if returns non nil connection data
 	if connData == nil {

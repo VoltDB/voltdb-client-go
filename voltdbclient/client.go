@@ -45,14 +45,6 @@ type Client struct {
 	clientHandle int64
 }
 
-// connectionData are the values returned by a successful login.
-type connectionData struct {
-	hostId      int32
-	connId      int64
-	leaderAddr  int32
-	buildString string
-}
-
 type ClientConfig struct {
 	username string
 	password string
@@ -133,8 +125,8 @@ func (client *Client) CreateConnection(hostAndPort string) error {
 	if err != nil {
 		return err
 	}
-	client.writeLoginMessage(&login)
-	if client.connData, err = client.readLoginResponse(); err != nil {
+	writeLoginMessage(client.writer, &login)
+	if client.connData, err = readLoginResponse(client.reader); err != nil {
 		return err
 	}
 	client.clientHandle = 0
@@ -179,21 +171,23 @@ func (client *Client) MultiplexCallbacks(callbacks []*Callback) <-chan *VoltRows
 	return c
 }
 
-// TODO: this can be made private once VoltStatement is created by driver.Conn
-func (client *Client) NetworkListener() *NetworkListener {
+func (client *Client) getNetworkListener() *NetworkListener {
 	return client.netListener
 }
 
-// TODO: this can be made private once VoltStatement is created by driver.Conn
-func (client *Client) Writer() *io.Writer {
-	return &(client.writer)
+func (client *Client) getReader() io.Reader {
+	return client.reader
+}
+
+func (client *Client) getWriter() io.Writer {
+	return client.writer
 }
 
 // functions private to this package.
 
 // readLoginResponse parses the login response message.
-func (client *Client) readLoginResponse() (*connectionData, error) {
-	buf, err := readMessage(client.reader)
+func readLoginResponse(reader io.Reader) (*connectionData, error) {
+	buf, err := readMessage(reader)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +196,7 @@ func (client *Client) readLoginResponse() (*connectionData, error) {
 }
 
 // writeLoginMessage writes a login message to the connection.
-func (client *Client) writeLoginMessage(buf *bytes.Buffer) {
+func writeLoginMessage(writer io.Writer, buf *bytes.Buffer) {
 	// length includes protocol version.
 	length := buf.Len() + 2
 	var netmsg bytes.Buffer
@@ -211,7 +205,7 @@ func (client *Client) writeLoginMessage(buf *bytes.Buffer) {
 	writePasswordHashVersion(&netmsg)
 	// 1 copy + 1 n/w write benchmarks faster than 2 n/w writes.
 	io.Copy(&netmsg, buf)
-	io.Copy(client.writer, &netmsg)
+	io.Copy(writer, &netmsg)
 }
 
 // writeProcedureCall serializes a procedure call and writes it to a tcp connection.
