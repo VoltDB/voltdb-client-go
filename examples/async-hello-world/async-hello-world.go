@@ -26,38 +26,72 @@ import (
 )
 
 func main() {
-	conn, err := voltdbclient.OpenConn("localhost:21212")
+	conn1, err := voltdbclient.OpenConn("localhost:21212")
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
 	}
-	defer conn.Close()
+	defer conn1.Close()
 
-	stmt, err := conn.Prepare("HELLOWORLD.select")
+	conn2, err := voltdbclient.OpenConn("localhost:21212")
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
 	}
-	vs := stmt.(voltdbclient.VoltStatement)
+	defer conn2.Close()
+
+	stmt1, err := conn1.Prepare("HELLOWORLD.select")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+	vs1 := stmt1.(voltdbclient.VoltStatement)
+
+	stmt2, err := conn2.Prepare("HELLOWORLD.select")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+	vs2 := stmt2.(voltdbclient.VoltStatement)
 
 	keys := []string{"English", "French", "Spanish", "Danish", "Italian"}
-	// The numbers returned from rand are deterministic based on the seed.
-	// This code will always produce the same result.
-	rand.Seed(11)
-	for _, key := range keys {
-		err := vs.QueryAsync([]driver.Value{key})
+	for i := 0; i < 10000; i++ {
+		key := keys[rand.Intn(5)]
+		err := vs1.QueryAsync([]driver.Value{key})
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(-1)
+		}
+
+		err = vs2.QueryAsync([]driver.Value{key})
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(-1)
 		}
 	}
-	for conn.HasExecutingStatements() {
-		rows, err := conn.StatementResult()
-		if err != nil {
-			log.Fatal(err)
-			os.Exit(-1)
+
+	for {
+		if !conn1.HasExecutingStatements() && !conn2.HasExecutingStatements() {
+			break;
 		}
-		handleRows(rows)
+
+		if conn1.HasExecutingStatements() {
+			rows1, err := conn1.StatementResult()
+			if err != nil {
+				log.Fatal(err)
+				os.Exit(-1)
+			}
+			handleRows(rows1)
+		}
+
+		if conn2.HasExecutingStatements() {
+			rows2, err := conn2.StatementResult()
+			if err != nil {
+				log.Fatal(err)
+				os.Exit(-1)
+			}
+			handleRows(rows2)
+		}
 	}
 }
 
