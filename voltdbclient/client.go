@@ -32,7 +32,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"sync/atomic"
 )
 
 // Client is a single connection to a single node of a VoltDB database
@@ -77,37 +76,6 @@ func NewNullValue(colType int8) *NullValue {
 	var nv = new(NullValue)
 	nv.colType = colType
 	return nv
-}
-
-// Call invokes the procedure 'procedure' with parameter values 'params'
-// and returns a pointer to the received Response.
-func (client *Client) Call(procedure string, params ...interface{}) (VoltRows, error) {
-	if client.writer == nil {
-		return VoltRows{}, fmt.Errorf("Can not call procedure on closed Client.")
-	}
-	handle := atomic.AddInt64(&client.clientHandle, 1)
-	cb := client.netListener.registerCallback(handle)
-	if err := client.writeProcedureCall(client.writer, procedure, handle, params); err != nil {
-		client.netListener.removeCallback(handle)
-		return VoltRows{}, err
-	}
-	rows := <-cb.Channel
-	return *rows, nil
-}
-
-// CallAsync asynchronously invokes the procedure 'procedure' with parameter values 'params'.
-// A pointer to the Response from the server will be put on the returned channel.
-func (client *Client) CallAsync(procedure string, params ...interface{}) (*Callback, error) {
-	if client.writer == nil {
-		return nil, fmt.Errorf("Can not call procedure on closed Client.")
-	}
-	handle := atomic.AddInt64(&client.clientHandle, 1)
-	cb := client.netListener.registerCallback(handle)
-	if err := client.writeProcedureCall(client.writer, procedure, handle, params); err != nil {
-		client.netListener.removeCallback(handle)
-		return nil, err
-	}
-	return cb, nil
 }
 
 func (client *Client) CreateConnection(hostAndPort string) error {

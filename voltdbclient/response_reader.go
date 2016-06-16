@@ -17,6 +17,7 @@
 package voltdbclient
 
 import (
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io"
@@ -52,7 +53,7 @@ func (s Status) String() string {
 }
 
 // reads and deserializes a procedure call response from the server.
-func readResponse(r io.Reader) (*VoltRows, error) {
+func readResponse(r io.Reader) (driver.Rows, error) {
 	buf, err := readMessage(r)
 	if err != nil {
 		return nil, err
@@ -61,7 +62,7 @@ func readResponse(r io.Reader) (*VoltRows, error) {
 }
 
 // readCallResponse reads a stored procedure invocation response.
-func deserializeCallResponse(r io.Reader) (vr *VoltRows, err error) {
+func deserializeCallResponse(r io.Reader) (rs driver.Rows, err error) {
 	clientHandle, err := readLong(r)
 	if err != nil {
 		return nil, err
@@ -125,7 +126,8 @@ func deserializeCallResponse(r io.Reader) (vr *VoltRows, err error) {
 		}
 	}
 
-	return NewVoltRows(clientHandle, appStatus, appStatusString, clusterRoundTripTime, numTables, tables), nil
+	vr := NewVoltRows(clientHandle, appStatus, appStatusString, clusterRoundTripTime, numTables, tables)
+	return *vr, nil
 }
 
 func deserializeTable(r io.Reader) (*VoltTable, error) {

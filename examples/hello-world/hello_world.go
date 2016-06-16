@@ -25,8 +25,7 @@ import (
 )
 
 func main() {
-	voltDriver := voltdbclient.NewVoltDriver()
-	conn, err := voltDriver.Open("localhost:21212")
+	conn, err := voltdbclient.OpenConn("localhost:21212")
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)

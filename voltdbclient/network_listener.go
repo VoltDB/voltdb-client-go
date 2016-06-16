@@ -17,6 +17,7 @@
 package voltdbclient
 
 import (
+	"database/sql/driver"
 	"fmt"
 	"io"
 	"time"
@@ -26,14 +27,16 @@ import (
 // the server.  If a callback (channel) is registered for the procedure, the
 // listener puts the response on the channel (calls back).
 type NetworkListener struct {
-	reader    io.Reader
-	callbacks map[int64]chan *VoltRows
+	reader  io.Reader
+	execs   map[int64]chan driver.Result
+	queries map[int64]chan driver.Rows
 }
 
 func NewListener(reader io.Reader) *NetworkListener {
 	var l = new(NetworkListener)
 	l.reader = reader
-	l.callbacks = make(map[int64]chan *VoltRows)
+	l.execs = make(map[int64]chan driver.Result)
+	l.queries = make(map[int64]chan driver.Rows)
 	return l
 }
 
@@ -41,15 +44,16 @@ func NewListener(reader io.Reader) *NetworkListener {
 // listen blocks on input from the server and should be run as a go routine.
 func (l *NetworkListener) listen() {
 	for {
-		resp, err := l.readOneMsg(l.reader)
+		rows, err := l.readOneMsg(l.reader)
 		if err == nil {
-			handle := resp.clientHandle
-			c, ok := l.callbacks[handle]
+			voltRows := rows.(VoltRows)
+			handle := voltRows.clientHandle
+			c, ok := l.queries[handle]
 			if ok {
-				l.removeCallback(handle)
+				l.removeQuery(handle)
 				select {
-				case c <- resp:
-				case <-time.After(10 * time.Millisecond):
+				case c <- rows:
+				case <-time.After(10 * time.Second):
 					fmt.Printf("Client failed to read response from server on handle %v\n", handle)
 				}
 			} else {
@@ -64,19 +68,28 @@ func (l *NetworkListener) listen() {
 }
 
 // break this out to support testing
-func (l *NetworkListener) readOneMsg(reader io.Reader) (*VoltRows, error) {
+func (l *NetworkListener) readOneMsg(reader io.Reader) (driver.Rows, error) {
 	return readResponse(reader)
 }
 
-func (l *NetworkListener) registerCallback(handle int64) *Callback {
-	// TODO:  I think this needs a lock
-	c := make(chan *VoltRows)
-	l.callbacks[handle] = c
-	return NewCallback(c, handle)
+func (l *NetworkListener) registerExec(handle int64) <-chan driver.Result {
+	c := make(chan driver.Result)
+	l.execs[handle] = c
+	return c
 }
 
-func (l *NetworkListener) removeCallback(handle int64) {
-	delete(l.callbacks, handle)
+func (l *NetworkListener) registerQuery(handle int64) <-chan driver.Rows {
+	c := make(chan driver.Rows)
+	l.queries[handle] = c
+	return c
+}
+
+func (l *NetworkListener) removeExec(handle int64) {
+	delete(l.execs, handle)
+}
+
+func (l *NetworkListener) removeQuery(handle int64) {
+	delete(l.queries, handle)
 }
 
 func (l *NetworkListener) start() {

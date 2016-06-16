@@ -19,7 +19,7 @@ package voltdbclient
 import (
 	"bytes"
 	"database/sql/driver"
-	"fmt"
+	"errors"
 	"io"
 	"sync/atomic"
 )
@@ -31,12 +31,14 @@ type VoltStatement struct {
 	numInput int
 	stmt     string
 
+	conn        *VoltConn // the connection thot owns this statement.
 	netListener *NetworkListener
 	writer      *io.Writer
 }
 
-func newVoltStatement(writer *io.Writer, netListener *NetworkListener, stmt string) *VoltStatement {
+func newVoltStatement(conn *VoltConn, writer *io.Writer, netListener *NetworkListener, stmt string) *VoltStatement {
 	var vs = new(VoltStatement)
+	vs.conn = conn
 	vs.writer = writer
 	vs.netListener = netListener
 
@@ -45,39 +47,55 @@ func newVoltStatement(writer *io.Writer, netListener *NetworkListener, stmt stri
 	return vs
 }
 
-func (vs *VoltStatement) Close() error {
+func (vs VoltStatement) Close() error {
+	if vs.closed {
+		return errors.New("Statement is already closed")
+	}
 	vs.closed = true
 	return nil
 }
 
-func (vs *VoltStatement) NumInput() int {
+func (vs VoltStatement) NumInput() int {
 	return 1
 }
 
-func (vs *VoltStatement) Exec(args []driver.Value) (driver.Result, error) {
+func (vs VoltStatement) Exec(args []driver.Value) (driver.Result, error) {
+	if vs.closed {
+		return nil, errors.New("Can't Exec, statement is closed")
+	}
 	return NewVoltResult(), nil
 }
 
-func (vs *VoltStatement) Query(args []driver.Value) (driver.Rows, error) {
-	// TODO: need to lock client for this stuff...
-
-	if vs.writer == nil {
-		return VoltRows{}, fmt.Errorf("Can not execute statement on closed Client.")
+func (vs VoltStatement) Query(args []driver.Value) (driver.Rows, error) {
+	if vs.closed {
+		return nil, errors.New("Can't invoke Query, statement is closed")
 	}
 	stHandle := atomic.AddInt64(&handle, 1)
-	cb := vs.netListener.registerCallback(handle)
+	c := vs.netListener.registerQuery(handle)
 	if err := vs.serializeStatement(vs.writer, vs.stmt, stHandle, args); err != nil {
-		vs.netListener.removeCallback(handle)
+		vs.netListener.removeQuery(handle)
 		return VoltRows{}, err
 	}
-	rows := <-cb.Channel
-	return *rows, nil
+	return <-c, nil
+}
+
+func (vs VoltStatement) QueryAsync(args []driver.Value) error {
+	if vs.closed {
+		return errors.New("Can't invoke QueryAsync, statement is closed")
+	}
+	stHandle := atomic.AddInt64(&handle, 1)
+	c := vs.netListener.registerQuery(handle)
+	vs.conn.registerQuery(stHandle, c)
+	if err := vs.serializeStatement(vs.writer, vs.stmt, stHandle, args); err != nil {
+		vs.netListener.removeQuery(handle)
+		return err
+	}
+	return nil
 }
 
 // I have two methods with this name, one top scope and one here.
 // I want to make this one top scope so that the async methods can call it.
-// TODO: the asyncs should implement an interface so we can multiplex over them.
-func (vs *VoltStatement) serializeStatement(writer *io.Writer, procedure string, handle int64, args []driver.Value) error {
+func (vs VoltStatement) serializeStatement(writer *io.Writer, procedure string, handle int64, args []driver.Value) error {
 
 	var call bytes.Buffer
 	var err error
@@ -88,7 +106,6 @@ func (vs *VoltStatement) serializeStatement(writer *io.Writer, procedure string,
 		return err
 	}
 
-	// todo: should prefer byte[] in all cases.
 	var netmsg bytes.Buffer
 	writeInt(&netmsg, int32(call.Len()))
 	io.Copy(&netmsg, &call)
