@@ -65,13 +65,6 @@ func NewClient(username string, password string) *Client {
 	return client
 }
 
-func NewCallback(channel <-chan *VoltRows, handle int64) *Callback {
-	var callback = new(Callback)
-	callback.Channel = channel
-	callback.Handle = handle
-	return callback
-}
-
 func NewNullValue(colType int8) *NullValue {
 	var nv = new(NullValue)
 	nv.colType = colType

@@ -27,8 +27,8 @@ import (
 )
 
 func TestCallOnClosedConn(t *testing.T) {
-	client := Client{nil, nil, nil, nil, nil, 0}
-	_, err := client.Call("bad", 1, 2)
+	conn := VoltConn{nil, nil, nil, nil, nil, nil, false}
+	_, err := conn.Prepare("bad")
 	if err == nil {
 		t.Errorf("Expected error calling procedure on closed Conn")
 	}
@@ -57,40 +57,41 @@ func TestReadDataTypes(t *testing.T) {
 	}
 
 	// check three rows
-	if !rows.AdvanceRow() {
+	vrows := rows.(VoltRows)
+	if !vrows.AdvanceRow() {
 		t.Logf("Didn't see expected row")
 		t.FailNow()
 	}
-	iId, err := rows.GetInteger(0)
+	iId, err := vrows.GetInteger(0)
 	id := iId.(int32)
 	check(t, err)
-	checkRows(t, rows, id)
+	checkRows(t, vrows, id)
 
-	if !rows.AdvanceRow() {
+	if !vrows.AdvanceRow() {
 		t.Logf("Didn't see expected row")
 		t.FailNow()
 	}
-	iId, err = rows.GetInteger(0)
+	iId, err = vrows.GetInteger(0)
 	id = iId.(int32)
 	check(t, err)
-	checkRows(t, rows, id)
+	checkRows(t, vrows, id)
 
-	if !rows.AdvanceRow() {
+	if !vrows.AdvanceRow() {
 		t.Logf("Didn't see expected row")
 		t.FailNow()
 	}
-	iId, err = rows.GetInteger(0)
+	iId, err = vrows.GetInteger(0)
 	id = iId.(int32)
 	check(t, err)
-	checkRows(t, rows, id)
+	checkRows(t, vrows, id)
 
-	if rows.AdvanceRow() {
+	if vrows.AdvanceRow() {
 		t.Logf("Saw unexpected row")
 		t.FailNow()
 	}
 }
 
-func checkRows(t *testing.T, rows *VoltRows, id int32) {
+func checkRows(t *testing.T, rows VoltRows, id int32) {
 	if id == 25 {
 		checkRowData(t, rows, int32(25), true, 0, true, "", true, "", 0, true, 0, true, 0, true, 0, true, 0,
 			true, 0, true, "")
@@ -105,7 +106,7 @@ func checkRows(t *testing.T, rows *VoltRows, id int32) {
 	}
 }
 
-func checkRowData(t *testing.T, rows *VoltRows, expectedId int32, nIdIsNull bool, expectedNId int32,
+func checkRowData(t *testing.T, rows VoltRows, expectedId int32, nIdIsNull bool, expectedNId int32,
 	nameIsNull bool, expectedName string, dataIsNull bool, expectedPrefix string, expectedDataLen int,
 	statusIsNull bool, expectedStatus int8, typeIsNull bool, expectedType int16, panIsNull bool, expectedPan int64,
 	boIsNull bool, expectedBo float64, balanceIsNull bool, expectedBalance float64,

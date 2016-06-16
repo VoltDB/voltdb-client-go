@@ -41,6 +41,7 @@ type VoltConn struct {
 	execs       map[int64]<-chan driver.Result
 	queries     map[int64]<-chan driver.Rows
 	netListener *NetworkListener
+	isOpen      bool
 }
 
 func newVoltConn(reader io.Reader, writer io.Writer, connData *connectionData) *VoltConn {
@@ -51,6 +52,7 @@ func newVoltConn(reader io.Reader, writer io.Writer, connData *connectionData) *
 	vc.queries = make(map[int64]<-chan driver.Rows)
 	vc.netListener = NewListener(reader)
 	vc.netListener.start()
+	vc.isOpen = true
 	return vc
 }
 
@@ -58,8 +60,50 @@ func (vc VoltConn) Begin() (driver.Tx, error) {
 	return nil, errors.New("VoltDB does not support transactions, VoltDB autocommits")
 }
 
-func (vc VoltConn) Close() error {
-	return nil
+func (vc VoltConn) Close() (err error) {
+	if vc.reader != nil {
+		tcpConn := vc.reader.(*net.TCPConn)
+		err = tcpConn.Close()
+	}
+	vc.reader = nil
+	vc.writer = nil
+	vc.connData = nil
+	vc.isOpen = false
+	return err
+}
+
+func OpenConn(connInfo string) (*VoltConn, error) {
+	// for now, at least, connInfo is host and port.
+	raddr, err := net.ResolveTCPAddr("tcp", connInfo)
+	if err != nil {
+		return nil, fmt.Errorf("Error resolving %v.", connInfo)
+	}
+	var tcpConn *net.TCPConn
+	if tcpConn, err = net.DialTCP("tcp", nil, raddr); err != nil {
+		return nil, err
+	}
+	login, err := serializeLoginMessage("", "")
+	if err != nil {
+		return nil, err
+	}
+	writeLoginMessage(tcpConn, &login)
+	connData, err := readLoginResponse(tcpConn)
+	if err != nil {
+		return nil, err
+	}
+	return newVoltConn(tcpConn, tcpConn, connData), nil
+}
+
+func (vc VoltConn) Prepare(query string) (driver.Stmt, error) {
+	if !vc.isOpen {
+		return nil, errors.New("Connection is closed")
+	}
+	vs := newVoltStatement(&vc, &vc.writer, vc.netListener, query)
+	return *vs, nil
+}
+
+func (vc VoltConn) HasExecutingStatements() bool {
+	return len(vc.execs) != 0 || len(vc.queries) != 0
 }
 
 func (vc VoltConn) StatementResult() (driver.Rows, error) {
@@ -92,37 +136,6 @@ func (vc VoltConn) StatementResult() (driver.Rows, error) {
 		return nil, errors.New("unexpected return type, not driver.Rows")
 	}
 	return rows, nil
-}
-
-func (vc VoltConn) HasExecutingStatements() bool {
-	return len(vc.execs) != 0 || len(vc.queries) != 0
-}
-
-func OpenConn(connInfo string) (*VoltConn, error) {
-	// for now, at least, connInfo is host and port.
-	raddr, err := net.ResolveTCPAddr("tcp", connInfo)
-	if err != nil {
-		return nil, fmt.Errorf("Error resolving %v.", connInfo)
-	}
-	var tcpConn *net.TCPConn
-	if tcpConn, err = net.DialTCP("tcp", nil, raddr); err != nil {
-		return nil, err
-	}
-	login, err := serializeLoginMessage("", "")
-	if err != nil {
-		return nil, err
-	}
-	writeLoginMessage(tcpConn, &login)
-	connData, err := readLoginResponse(tcpConn)
-	if err != nil {
-		return nil, err
-	}
-	return newVoltConn(tcpConn, tcpConn, connData), nil
-}
-
-func (vc VoltConn) Prepare(query string) (driver.Stmt, error) {
-	vs := newVoltStatement(&vc, &vc.writer, vc.netListener, query)
-	return *vs, nil
 }
 
 func (vc VoltConn) registerExec(handle int64, c <-chan driver.Result) {
