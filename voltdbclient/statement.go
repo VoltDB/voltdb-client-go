@@ -85,7 +85,7 @@ func (vs VoltStatement) QueryAsync(args []driver.Value) (*VoltQueryResult, error
 	}
 	stHandle := atomic.AddInt64(&handle, 1)
 	c := vs.netListener.registerQuery(handle)
-	vqr := newVoltQueryResult(c)
+	vqr := newVoltQueryResult(vs.conn, stHandle, c)
 	vs.conn.registerQuery(stHandle, vqr)
 	if err := vs.serializeStatement(vs.writer, vs.stmt, stHandle, args); err != nil {
 		vs.netListener.removeQuery(handle)
@@ -113,19 +113,42 @@ func (vs VoltStatement) serializeStatement(writer *io.Writer, procedure string, 
 }
 
 type VoltQueryResult struct {
+	conn *VoltConn
+	han int64
 	ch <-chan driver.Rows
+	rows driver.Rows
 }
 
-func newVoltQueryResult(ch <-chan driver.Rows) *VoltQueryResult {
+func newVoltQueryResult(conn *VoltConn, han int64, ch <-chan driver.Rows) *VoltQueryResult {
 	var vqr = new(VoltQueryResult)
+	vqr.conn = conn
+	vqr.han = han
 	vqr.ch = ch
+	vqr.rows = nil
 	return vqr
 }
 
+// The channel can be retrieved so that it can be selected over.
+// If rows are retrieved in this way, be certain to set them by
+// calling 'SetRows'.  This makes the data available, but more
+// importantly it cleans up resources associated with an open query result.
 func (vqr VoltQueryResult) Channel() <-chan driver.Rows {
 	return vqr.ch
 }
 
 func (vqr VoltQueryResult) Rows() driver.Rows {
-	return <-vqr.ch
+	if vqr.rows == nil {
+		vqr.rows = <-vqr.ch
+	}
+	vqr.conn.removeQuery(vqr.han)
+	return vqr.rows
+}
+
+func (vqr VoltQueryResult) SetRows(rows driver.Rows) {
+	vqr.rows = rows
+	vqr.conn.removeQuery(vqr.han)
+}
+
+func (vqr VoltQueryResult) handle() int64 {
+	return vqr.han
 }

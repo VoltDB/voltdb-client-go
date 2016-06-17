@@ -107,25 +107,24 @@ func (vc VoltConn) HasExecutingStatements() bool {
 }
 
 func (vc VoltConn) StatementResult() (driver.Rows, error) {
-	handles := []int64{}
-	chs := []<-chan driver.Rows{}
+	handles := make([]int64, len(vc.queries))
+	cases := make([]reflect.SelectCase, len(vc.queries))
+	var i int = 0
 	for handle, vqr := range vc.queries {
-		handles = append(handles, handle)
-		chs = append(chs, vqr.Channel())
-	}
-
-	cases := make([]reflect.SelectCase, len(chs))
-	for i, ch := range chs {
-		cases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ch)}
+		handles[i] = handle
+		cases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(vqr.Channel())}
+		i++
 	}
 	chosen, val, ok := reflect.Select(cases)
-	handle := handles[chosen]
-	delete(vc.queries, handle)
 
 	// if not ok, the channel was closed
 	if !ok {
 		return nil, errors.New("Result was not available, channel was closed")
 	}
+
+	handle := handles[chosen]
+	chosenQuery := vc.queries[handle]
+	vc.removeQuery(handle)
 
 	// check the returned value
 	if val.Kind() != reflect.Interface {
@@ -135,6 +134,8 @@ func (vc VoltConn) StatementResult() (driver.Rows, error) {
 	if !ok {
 		return nil, errors.New("unexpected return type, not driver.Rows")
 	}
+
+	chosenQuery.SetRows(rows)
 	return rows, nil
 }
 
@@ -144,4 +145,8 @@ func (vc VoltConn) registerExec(handle int64, c <-chan driver.Result) {
 
 func (vc VoltConn) registerQuery(handle int64, vcr *VoltQueryResult) {
 	vc.queries[handle] = vcr
+}
+
+func (vc VoltConn) removeQuery(han int64) {
+	delete(vc.queries, han)
 }
