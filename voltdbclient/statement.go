@@ -128,9 +128,7 @@ func newVoltQueryResult(conn *VoltConn, han int64, ch <-chan driver.Rows) *VoltQ
 	return vqr
 }
 
-// The channel is exposed so that it can be selected over.
-//
-func (vqr *VoltQueryResult) Channel() <-chan driver.Rows {
+func (vqr *VoltQueryResult) channel() <-chan driver.Rows {
 	return vqr.ch
 }
 
@@ -139,19 +137,24 @@ func (vqr *VoltQueryResult) Result() (driver.Rows, error) {
 		return nil, vqr.err
 	}
 	if vqr.rows == nil {
-		vqr.rows = <-vqr.ch
-		vqr.conn.removeQuery(vqr.han)
+		rows := <-vqr.ch
+		vqr.setRows(rows)
 	}
 	return vqr.rows, nil
 }
 
-// either rows or error is set, should never be both.
-func (vqr *VoltQueryResult) SetError(err error) {
+func (vqr *VoltQueryResult) setError(err error) {
+	if vqr.rows != nil || vqr.err != nil {
+		panic("query result tried to set both rows and error")
+	}
 	vqr.err = err
 	vqr.conn.removeQuery(vqr.han)
 }
 
-func (vqr *VoltQueryResult) SetRows(rows driver.Rows) {
+func (vqr *VoltQueryResult) setRows(rows driver.Rows) {
+	if vqr.rows != nil || vqr.err != nil {
+		panic("query result tried to set both rows and error")
+	}
 	vqr.rows = rows
 	vqr.conn.removeQuery(vqr.han)
 }

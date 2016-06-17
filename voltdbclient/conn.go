@@ -111,7 +111,7 @@ func (vc VoltConn) DrainAll() []*VoltQueryResult {
 	var i int = 0
 	for handle, vqr := range vc.queries {
 		handles[i] = handle
-		cases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(vqr.Channel())}
+		cases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(vqr.channel())}
 		i++
 	}
 
@@ -127,21 +127,20 @@ func (vc VoltConn) DrainAll() []*VoltQueryResult {
 		cases = cases[:len(cases)-1]
 
 		chosenQuery := vc.queries[handle]
-		vc.removeQuery(handle)
 
 		// if not ok, the channel was closed
 		if !ok {
-			chosenQuery.SetError(errors.New("Result was not available, channel was closed"))
+			chosenQuery.setError(errors.New("Result was not available, channel was closed"))
 		} else {
 			// check the returned value
 			if val.Kind() != reflect.Interface {
-				chosenQuery.SetError(errors.New("unexpected return type, not an interface"))
+				chosenQuery.setError(errors.New("unexpected return type, not an interface"))
 			} else {
 				rows, ok := val.Interface().(driver.Rows)
 				if !ok {
-					chosenQuery.SetError(errors.New("unexpected return type, not driver.Rows"))
+					chosenQuery.setError(errors.New("unexpected return type, not driver.Rows"))
 				}
-				chosenQuery.SetRows(rows)
+				chosenQuery.setRows(rows)
 			}
 		}
 		finishedQueries = append(finishedQueries, chosenQuery)
