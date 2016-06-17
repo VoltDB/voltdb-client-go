@@ -148,6 +148,17 @@ func (vc VoltConn) DrainAll() []*VoltQueryResult {
 	return finishedQueries
 }
 
+func (vc VoltConn) ExecutingQueries() []*VoltQueryResult {
+	// don't copy the queries themselves, but copy the list
+	eqs := make([]*VoltQueryResult, len(vc.queries))
+	i := 0
+	for _, eq := range vc.queries {
+		eqs[i] = eq
+		i++
+	}
+	return eqs
+}
+
 func (vc VoltConn) registerExec(handle int64, c <-chan driver.Result) {
 	vc.execs[handle] = c
 }

@@ -89,6 +89,7 @@ func (vs VoltStatement) QueryAsync(args []driver.Value) (*VoltQueryResult, error
 	vs.conn.registerQuery(stHandle, vqr)
 	if err := vs.serializeStatement(vs.writer, vs.stmt, stHandle, args); err != nil {
 		vs.netListener.removeQuery(handle)
+		vs.conn.removeQuery(handle)
 		return nil, err
 	}
 	return vqr, nil
@@ -118,6 +119,7 @@ type VoltQueryResult struct {
 	ch <-chan driver.Rows
 	rows driver.Rows
 	err error
+	isActive bool
 }
 
 func newVoltQueryResult(conn *VoltConn, han int64, ch <-chan driver.Rows) *VoltQueryResult {
@@ -125,6 +127,7 @@ func newVoltQueryResult(conn *VoltConn, han int64, ch <-chan driver.Rows) *VoltQ
 	vqr.conn = conn
 	vqr.han = han
 	vqr.ch = ch
+	vqr.isActive = true
 	return vqr
 }
 
@@ -133,32 +136,33 @@ func (vqr *VoltQueryResult) channel() <-chan driver.Rows {
 }
 
 func (vqr *VoltQueryResult) Result() (driver.Rows, error) {
-	if vqr.err != nil {
-		return nil, vqr.err
-	}
-	if vqr.rows == nil {
+	if !vqr.isActive {
+		return vqr.rows, vqr.err
+	} else {
 		rows := <-vqr.ch
 		vqr.setRows(rows)
+		return vqr.rows, nil
 	}
-	return vqr.rows, nil
-}
-
-func (vqr *VoltQueryResult) setError(err error) {
-	if vqr.rows != nil || vqr.err != nil {
-		panic("query result tried to set both rows and error")
-	}
-	vqr.err = err
-	vqr.conn.removeQuery(vqr.han)
-}
-
-func (vqr *VoltQueryResult) setRows(rows driver.Rows) {
-	if vqr.rows != nil || vqr.err != nil {
-		panic("query result tried to set both rows and error")
-	}
-	vqr.rows = rows
-	vqr.conn.removeQuery(vqr.han)
 }
 
 func (vqr *VoltQueryResult) handle() int64 {
 	return vqr.han
+}
+
+func (vqr *VoltQueryResult) setError(err error) {
+	if !vqr.isActive {
+		panic("Tried to set error on inactive query result")
+	}
+	vqr.err = err
+	vqr.conn.removeQuery(vqr.han)
+	vqr.isActive = false
+}
+
+func (vqr *VoltQueryResult) setRows(rows driver.Rows) {
+	if !vqr.isActive {
+		panic("Tried to set rows on inactive query result")
+	}
+	vqr.rows = rows
+	vqr.conn.removeQuery(vqr.han)
+	vqr.isActive = false
 }
