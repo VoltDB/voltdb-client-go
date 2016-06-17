@@ -26,19 +26,14 @@ import (
 )
 
 func main() {
+
+	// create one connection, save the async results and wait on them explicitly.
 	conn1, err := voltdbclient.OpenConn("localhost:21212")
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
 	}
 	defer conn1.Close()
-
-	conn2, err := voltdbclient.OpenConn("localhost:21212")
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(-1)
-	}
-	defer conn2.Close()
 
 	stmt1, err := conn1.Prepare("HELLOWORLD.select")
 	if err != nil {
@@ -47,6 +42,40 @@ func main() {
 	}
 	vs1 := stmt1.(voltdbclient.VoltStatement)
 
+	keys := []string{"English", "French", "Spanish", "Danish", "Italian"}
+
+	cbs := make([]*voltdbclient.VoltQueryResult, 100)
+	for i := 0; i < 100; i++ {
+		key := keys[rand.Intn(5)]
+		cb, err := vs1.QueryAsync([]driver.Value{key})
+		cbs[i] = cb
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(-1)
+		}
+	}
+
+	// process the callbacks
+	for _, cb := range cbs {
+		rows := cb.Rows()
+		handleRows(rows)
+	}
+
+	// create two connections and have them query continuously, then drain the results.
+	conn2, err := voltdbclient.OpenConn("localhost:21212")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+	defer conn2.Close()
+
+	conn3, err := voltdbclient.OpenConn("localhost:21212")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+	defer conn3.Close()
+
 	stmt2, err := conn2.Prepare("HELLOWORLD.select")
 	if err != nil {
 		log.Fatal(err)
@@ -54,16 +83,22 @@ func main() {
 	}
 	vs2 := stmt2.(voltdbclient.VoltStatement)
 
-	keys := []string{"English", "French", "Spanish", "Danish", "Italian"}
-	for i := 0; i < 10000; i++ {
+	stmt3, err := conn3.Prepare("HELLOWORLD.select")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+	vs3 := stmt3.(voltdbclient.VoltStatement)
+
+	for i := 0; i < 2000; i++ {
 		key := keys[rand.Intn(5)]
-		err := vs1.QueryAsync([]driver.Value{key})
+		_, err := vs2.QueryAsync([]driver.Value{key})
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(-1)
 		}
 
-		err = vs2.QueryAsync([]driver.Value{key})
+		_, err = vs3.QueryAsync([]driver.Value{key})
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(-1)
@@ -71,17 +106,8 @@ func main() {
 	}
 
 	for {
-		if !conn1.HasExecutingStatements() && !conn2.HasExecutingStatements() {
+		if !conn2.HasExecutingStatements() && !conn3.HasExecutingStatements() {
 			break;
-		}
-
-		if conn1.HasExecutingStatements() {
-			rows1, err := conn1.StatementResult()
-			if err != nil {
-				log.Fatal(err)
-				os.Exit(-1)
-			}
-			handleRows(rows1)
 		}
 
 		if conn2.HasExecutingStatements() {
@@ -91,6 +117,15 @@ func main() {
 				os.Exit(-1)
 			}
 			handleRows(rows2)
+		}
+
+		if conn3.HasExecutingStatements() {
+			rows3, err := conn3.StatementResult()
+			if err != nil {
+				log.Fatal(err)
+				os.Exit(-1)
+			}
+			handleRows(rows3)
 		}
 	}
 }

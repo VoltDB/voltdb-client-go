@@ -39,7 +39,7 @@ type VoltConn struct {
 	writer      io.Writer
 	connData    *connectionData
 	execs       map[int64]<-chan driver.Result
-	queries     map[int64]<-chan driver.Rows
+	queries     map[int64]*VoltQueryResult
 	netListener *NetworkListener
 	isOpen      bool
 }
@@ -49,7 +49,7 @@ func newVoltConn(reader io.Reader, writer io.Writer, connData *connectionData) *
 	vc.reader = reader
 	vc.writer = writer
 	vc.execs = make(map[int64]<-chan driver.Result)
-	vc.queries = make(map[int64]<-chan driver.Rows)
+	vc.queries = make(map[int64]*VoltQueryResult)
 	vc.netListener = NewListener(reader)
 	vc.netListener.start()
 	vc.isOpen = true
@@ -109,9 +109,9 @@ func (vc VoltConn) HasExecutingStatements() bool {
 func (vc VoltConn) StatementResult() (driver.Rows, error) {
 	handles := []int64{}
 	chs := []<-chan driver.Rows{}
-	for handle, ch := range vc.queries {
+	for handle, vqr := range vc.queries {
 		handles = append(handles, handle)
-		chs = append(chs, ch)
+		chs = append(chs, vqr.Channel())
 	}
 
 	cases := make([]reflect.SelectCase, len(chs))
@@ -142,6 +142,6 @@ func (vc VoltConn) registerExec(handle int64, c <-chan driver.Result) {
 	vc.execs[handle] = c
 }
 
-func (vc VoltConn) registerQuery(handle int64, c <-chan driver.Rows) {
-	vc.queries[handle] = c
+func (vc VoltConn) registerQuery(handle int64, vcr *VoltQueryResult) {
+	vc.queries[handle] = vcr
 }

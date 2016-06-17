@@ -20,7 +20,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"io"
-	"time"
+	"sync"
 )
 
 // NetworkListener listens for responses for asynchronous procedure calls from
@@ -29,14 +29,18 @@ import (
 type NetworkListener struct {
 	reader  io.Reader
 	execs   map[int64]chan driver.Result
+	execsMutex sync.Mutex
 	queries map[int64]chan driver.Rows
+	queriesMutex sync.Mutex
 }
 
 func NewListener(reader io.Reader) *NetworkListener {
 	var l = new(NetworkListener)
 	l.reader = reader
 	l.execs = make(map[int64]chan driver.Result)
+	l.execsMutex = sync.Mutex{}
 	l.queries = make(map[int64]chan driver.Rows)
+	l.queriesMutex = sync.Mutex{}
 	return l
 }
 
@@ -48,20 +52,19 @@ func (l *NetworkListener) listen() {
 		if err == nil {
 			voltRows := rows.(VoltRows)
 			handle := voltRows.clientHandle
+
+			l.queriesMutex.Lock()
 			c, ok := l.queries[handle]
 			if ok {
 				l.removeQuery(handle)
-				select {
-				case c <- rows:
-				case <-time.After(10 * time.Second):
-					fmt.Printf("Client failed to read response from server on handle %v\n", handle)
-				}
-			} else {
-				// todo: should log?
-				fmt.Println("listener doesn't have callback for server response on client handle %v.", handle)
+			}
+			l.queriesMutex.Unlock()
+
+			if ok {
+				c <- rows
 			}
 		} else {
-			// todo: should log?
+			// TODO:  The error needs to go on the channel
 			fmt.Println("error reading from server %v", err.Error())
 		}
 	}
@@ -73,21 +76,25 @@ func (l *NetworkListener) readOneMsg(reader io.Reader) (driver.Rows, error) {
 }
 
 func (l *NetworkListener) registerExec(handle int64) <-chan driver.Result {
-	c := make(chan driver.Result)
+	c := make(chan driver.Result, 1)
 	l.execs[handle] = c
 	return c
 }
 
 func (l *NetworkListener) registerQuery(handle int64) <-chan driver.Rows {
-	c := make(chan driver.Rows)
+	c := make(chan driver.Rows, 1)
+	l.queriesMutex.Lock()
 	l.queries[handle] = c
+	l.queriesMutex.Unlock()
 	return c
 }
 
+// need to have a lock on the map when this is invoked.
 func (l *NetworkListener) removeExec(handle int64) {
 	delete(l.execs, handle)
 }
 
+// need to have a lock on the map when this is invoked.
 func (l *NetworkListener) removeQuery(handle int64) {
 	delete(l.queries, handle)
 }

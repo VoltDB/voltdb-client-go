@@ -79,22 +79,21 @@ func (vs VoltStatement) Query(args []driver.Value) (driver.Rows, error) {
 	return <-c, nil
 }
 
-func (vs VoltStatement) QueryAsync(args []driver.Value) error {
+func (vs VoltStatement) QueryAsync(args []driver.Value) (*VoltQueryResult, error) {
 	if vs.closed {
-		return errors.New("Can't invoke QueryAsync, statement is closed")
+		return nil, errors.New("Can't invoke QueryAsync, statement is closed")
 	}
 	stHandle := atomic.AddInt64(&handle, 1)
 	c := vs.netListener.registerQuery(handle)
-	vs.conn.registerQuery(stHandle, c)
+	vqr := newVoltQueryResult(c)
+	vs.conn.registerQuery(stHandle, vqr)
 	if err := vs.serializeStatement(vs.writer, vs.stmt, stHandle, args); err != nil {
 		vs.netListener.removeQuery(handle)
-		return err
+		return nil, err
 	}
-	return nil
+	return vqr, nil
 }
 
-// I have two methods with this name, one top scope and one here.
-// I want to make this one top scope so that the async methods can call it.
 func (vs VoltStatement) serializeStatement(writer *io.Writer, procedure string, handle int64, args []driver.Value) error {
 
 	var call bytes.Buffer
@@ -111,4 +110,22 @@ func (vs VoltStatement) serializeStatement(writer *io.Writer, procedure string, 
 	io.Copy(&netmsg, &call)
 	io.Copy(*writer, &netmsg)
 	return nil
+}
+
+type VoltQueryResult struct {
+	ch <-chan driver.Rows
+}
+
+func newVoltQueryResult(ch <-chan driver.Rows) *VoltQueryResult {
+	var vqr = new(VoltQueryResult)
+	vqr.ch = ch
+	return vqr
+}
+
+func (vqr VoltQueryResult) Channel() <-chan driver.Rows {
+	return vqr.ch
+}
+
+func (vqr VoltQueryResult) Rows() driver.Rows {
+	return <-vqr.ch
 }
