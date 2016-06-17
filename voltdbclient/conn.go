@@ -102,41 +102,51 @@ func (vc VoltConn) Prepare(query string) (driver.Stmt, error) {
 	return *vs, nil
 }
 
-func (vc VoltConn) HasExecutingStatements() bool {
-	return len(vc.execs) != 0 || len(vc.queries) != 0
-}
+func (vc VoltConn) DrainAll() []*VoltQueryResult {
+	numQueries := len(vc.queries)
+	finishedQueries := []*VoltQueryResult{}
+	handles := make([]int64, numQueries)
+	cases := make([]reflect.SelectCase, numQueries)
 
-func (vc VoltConn) StatementResult() (driver.Rows, error) {
-	handles := make([]int64, len(vc.queries))
-	cases := make([]reflect.SelectCase, len(vc.queries))
 	var i int = 0
 	for handle, vqr := range vc.queries {
 		handles[i] = handle
 		cases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(vqr.Channel())}
 		i++
 	}
-	chosen, val, ok := reflect.Select(cases)
 
-	// if not ok, the channel was closed
-	if !ok {
-		return nil, errors.New("Result was not available, channel was closed")
+	for len(handles) > 0 {
+		chosen, val, ok := reflect.Select(cases)
+
+		// idiom for removing from the middle of a slice
+		handle := handles[chosen]
+		handles[chosen] = handles[len(handles)-1]
+		handles = handles[:len(handles)-1]
+
+		cases[chosen] = cases[len(cases)-1]
+		cases = cases[:len(cases)-1]
+
+		chosenQuery := vc.queries[handle]
+		vc.removeQuery(handle)
+
+		// if not ok, the channel was closed
+		if !ok {
+			chosenQuery.SetError(errors.New("Result was not available, channel was closed"))
+		} else {
+			// check the returned value
+			if val.Kind() != reflect.Interface {
+				chosenQuery.SetError(errors.New("unexpected return type, not an interface"))
+			} else {
+				rows, ok := val.Interface().(driver.Rows)
+				if !ok {
+					chosenQuery.SetError(errors.New("unexpected return type, not driver.Rows"))
+				}
+				chosenQuery.SetRows(rows)
+			}
+		}
+		finishedQueries = append(finishedQueries, chosenQuery)
 	}
-
-	handle := handles[chosen]
-	chosenQuery := vc.queries[handle]
-	vc.removeQuery(handle)
-
-	// check the returned value
-	if val.Kind() != reflect.Interface {
-		return nil, errors.New("unexpected return type, not an interface")
-	}
-	rows, ok := val.Interface().(driver.Rows)
-	if !ok {
-		return nil, errors.New("unexpected return type, not driver.Rows")
-	}
-
-	chosenQuery.SetRows(rows)
-	return rows, nil
+	return finishedQueries
 }
 
 func (vc VoltConn) registerExec(handle int64, c <-chan driver.Result) {

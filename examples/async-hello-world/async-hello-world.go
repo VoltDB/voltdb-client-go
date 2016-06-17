@@ -57,8 +57,12 @@ func main() {
 
 	// process the callbacks
 	for _, cb := range cbs {
-		rows := cb.Rows()
-		handleRows(rows)
+		rows, err := cb.Result()
+		if err != nil {
+			fmt.Println(err)
+		} else {
+			handleRows(rows)
+		}
 	}
 
 	// create two connections and have them query continuously, then drain the results.
@@ -105,27 +109,23 @@ func main() {
 		}
 	}
 
-	for {
-		if !conn2.HasExecutingStatements() && !conn3.HasExecutingStatements() {
-			break;
-		}
+	results2 := conn2.DrainAll()
+	results3 := conn3.DrainAll()
 
-		if conn2.HasExecutingStatements() {
-			rows2, err := conn2.StatementResult()
-			if err != nil {
-				log.Fatal(err)
-				os.Exit(-1)
-			}
-			handleRows(rows2)
+	for _, result2 := range results2 {
+		rows, err := result2.Result()
+		if err != nil {
+			fmt.Println(err)
+		} else {
+			handleRows(rows)
 		}
-
-		if conn3.HasExecutingStatements() {
-			rows3, err := conn3.StatementResult()
-			if err != nil {
-				log.Fatal(err)
-				os.Exit(-1)
-			}
-			handleRows(rows3)
+	}
+	for _, result3 := range results3 {
+		rows, err := result3.Result()
+		if err != nil {
+			fmt.Println(err)
+		} else {
+			handleRows(rows)
 		}
 	}
 }

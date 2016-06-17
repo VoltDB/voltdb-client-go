@@ -117,6 +117,7 @@ type VoltQueryResult struct {
 	han int64
 	ch <-chan driver.Rows
 	rows driver.Rows
+	err error
 }
 
 func newVoltQueryResult(conn *VoltConn, han int64, ch <-chan driver.Rows) *VoltQueryResult {
@@ -124,31 +125,37 @@ func newVoltQueryResult(conn *VoltConn, han int64, ch <-chan driver.Rows) *VoltQ
 	vqr.conn = conn
 	vqr.han = han
 	vqr.ch = ch
-	vqr.rows = nil
 	return vqr
 }
 
-// The channel can be retrieved so that it can be selected over.
-// If rows are retrieved in this way, be certain to set them by
-// calling 'SetRows'.  This makes the data available, but more
-// importantly it cleans up resources associated with an open query result.
-func (vqr VoltQueryResult) Channel() <-chan driver.Rows {
+// The channel is exposed so that it can be selected over.
+//
+func (vqr *VoltQueryResult) Channel() <-chan driver.Rows {
 	return vqr.ch
 }
 
-func (vqr VoltQueryResult) Rows() driver.Rows {
+func (vqr *VoltQueryResult) Result() (driver.Rows, error) {
+	if vqr.err != nil {
+		return nil, vqr.err
+	}
 	if vqr.rows == nil {
 		vqr.rows = <-vqr.ch
+		vqr.conn.removeQuery(vqr.han)
 	}
-	vqr.conn.removeQuery(vqr.han)
-	return vqr.rows
+	return vqr.rows, nil
 }
 
-func (vqr VoltQueryResult) SetRows(rows driver.Rows) {
+// either rows or error is set, should never be both.
+func (vqr *VoltQueryResult) SetError(err error) {
+	vqr.err = err
+	vqr.conn.removeQuery(vqr.han)
+}
+
+func (vqr *VoltQueryResult) SetRows(rows driver.Rows) {
 	vqr.rows = rows
 	vqr.conn.removeQuery(vqr.han)
 }
 
-func (vqr VoltQueryResult) handle() int64 {
+func (vqr *VoltQueryResult) handle() int64 {
 	return vqr.han
 }
