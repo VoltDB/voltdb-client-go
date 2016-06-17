@@ -119,7 +119,7 @@ type VoltQueryResult struct {
 	ch <-chan driver.Rows
 	rows driver.Rows
 	err error
-	isActive bool
+	active bool
 }
 
 func newVoltQueryResult(conn *VoltConn, han int64, ch <-chan driver.Rows) *VoltQueryResult {
@@ -127,16 +127,12 @@ func newVoltQueryResult(conn *VoltConn, han int64, ch <-chan driver.Rows) *VoltQ
 	vqr.conn = conn
 	vqr.han = han
 	vqr.ch = ch
-	vqr.isActive = true
+	vqr.active = true
 	return vqr
 }
 
-func (vqr *VoltQueryResult) channel() <-chan driver.Rows {
-	return vqr.ch
-}
-
 func (vqr *VoltQueryResult) Result() (driver.Rows, error) {
-	if !vqr.isActive {
+	if !vqr.active {
 		return vqr.rows, vqr.err
 	} else {
 		rows := <-vqr.ch
@@ -145,24 +141,32 @@ func (vqr *VoltQueryResult) Result() (driver.Rows, error) {
 	}
 }
 
+func (vqr *VoltQueryResult) channel() <-chan driver.Rows {
+	return vqr.ch
+}
+
 func (vqr *VoltQueryResult) handle() int64 {
 	return vqr.han
 }
 
+func (vqr *VoltQueryResult) isActive() bool {
+	return vqr.active
+}
+
 func (vqr *VoltQueryResult) setError(err error) {
-	if !vqr.isActive {
+	if !vqr.active {
 		panic("Tried to set error on inactive query result")
 	}
 	vqr.err = err
 	vqr.conn.removeQuery(vqr.han)
-	vqr.isActive = false
+	vqr.active = false
 }
 
 func (vqr *VoltQueryResult) setRows(rows driver.Rows) {
-	if !vqr.isActive {
+	if !vqr.active {
 		panic("Tried to set rows on inactive query result")
 	}
 	vqr.rows = rows
 	vqr.conn.removeQuery(vqr.han)
-	vqr.isActive = false
+	vqr.active = false
 }

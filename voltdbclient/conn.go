@@ -102,32 +102,28 @@ func (vc VoltConn) Prepare(query string) (driver.Stmt, error) {
 	return *vs, nil
 }
 
-func (vc VoltConn) DrainAll() []*VoltQueryResult {
-	numQueries := len(vc.queries)
-	finishedQueries := []*VoltQueryResult{}
-	handles := make([]int64, numQueries)
-	cases := make([]reflect.SelectCase, numQueries)
-
-	var i int = 0
-	for handle, vqr := range vc.queries {
-		handles[i] = handle
-		cases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(vqr.channel())}
-		i++
+func (vc VoltConn) Drain(vqrs []*VoltQueryResult) {
+	idxs := []int{}  // index into the given slice
+	cases := []reflect.SelectCase{}
+	for idx, vqr := range vqrs {
+		if vqr.isActive() {
+			idxs = append(idxs, idx)
+			cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(vqr.channel())})
+		}
 	}
 
-	for len(handles) > 0 {
+	for len(idxs) > 0 {
 		chosen, val, ok := reflect.Select(cases)
 
 		// idiom for removing from the middle of a slice
-		handle := handles[chosen]
-		handles[chosen] = handles[len(handles)-1]
-		handles = handles[:len(handles)-1]
+		idx := idxs[chosen]
+		idxs[chosen] = idxs[len(idxs)-1]
+		idxs = idxs[:len(idxs)-1]
 
 		cases[chosen] = cases[len(cases)-1]
 		cases = cases[:len(cases)-1]
 
-		chosenQuery := vc.queries[handle]
-
+		chosenQuery := vqrs[idx]
 		// if not ok, the channel was closed
 		if !ok {
 			chosenQuery.setError(errors.New("Result was not available, channel was closed"))
@@ -143,9 +139,18 @@ func (vc VoltConn) DrainAll() []*VoltQueryResult {
 				chosenQuery.setRows(rows)
 			}
 		}
-		finishedQueries = append(finishedQueries, chosenQuery)
 	}
-	return finishedQueries
+}
+
+func (vc VoltConn) DrainAll() []*VoltQueryResult {
+	result := make([]*VoltQueryResult, len(vc.queries))
+	i := 0
+	for _, vcr := range vc.queries {
+		result[i] = vcr
+		i++
+	}
+	vc.Drain(result)
+	return result
 }
 
 func (vc VoltConn) ExecutingQueries() []*VoltQueryResult {
