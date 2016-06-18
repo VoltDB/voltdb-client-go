@@ -35,19 +35,12 @@ func main() {
 	}
 	defer conn1.Close()
 
-	stmt1, err := conn1.Prepare("HELLOWORLD.select")
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(-1)
-	}
-	vs1 := stmt1.(voltdbclient.VoltStatement)
-
 	keys := []string{"English", "French", "Spanish", "Danish", "Italian"}
 
 	cbs := make([]*voltdbclient.VoltQueryResult, 100)
 	for i := 0; i < 100; i++ {
 		key := keys[rand.Intn(5)]
-		cb, err := vs1.QueryAsync([]driver.Value{key})
+		cb, err := conn1.QueryAsync("HELLOWORLD.select", []driver.Value{key})
 		cbs[i] = cb
 		if err != nil {
 			log.Fatal(err)
@@ -80,29 +73,15 @@ func main() {
 	}
 	defer conn3.Close()
 
-	stmt2, err := conn2.Prepare("HELLOWORLD.select")
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(-1)
-	}
-	vs2 := stmt2.(voltdbclient.VoltStatement)
-
-	stmt3, err := conn3.Prepare("HELLOWORLD.select")
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(-1)
-	}
-	vs3 := stmt3.(voltdbclient.VoltStatement)
-
 	for i := 0; i < 2000; i++ {
 		key := keys[rand.Intn(5)]
-		_, err := vs2.QueryAsync([]driver.Value{key})
+		_, err := conn2.QueryAsync("HELLOWORLD.select", []driver.Value{key})
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(-1)
 		}
 
-		_, err = vs3.QueryAsync([]driver.Value{key})
+		_, err = conn3.QueryAsync("HELLOWORLD.select", []driver.Value{key})
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(-1)

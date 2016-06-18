@@ -38,12 +38,7 @@ func main() {
 		log.Fatal(err)
 		os.Exit(-1)
 	}
-	stmt, err := db.Prepare("HELLOWORLD.select")
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(-1)
-	}
-	rows, err := stmt.Query("French")
+	rows, err := db.Query("HELLOWORLD.select", "French")
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)

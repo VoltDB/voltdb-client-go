@@ -32,13 +32,7 @@ func main() {
 	}
 	defer conn.Close()
 
-	stmt, err := conn.Prepare("HELLOWORLD.select")
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(-1)
-	}
-
-	rows, err := stmt.Query([]driver.Value{"French"})
+	rows, err := conn.Query("HELLOWORLD.select", []driver.Value{"French"})
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
