@@ -35,6 +35,14 @@ func main() {
 	}
 	defer conn1.Close()
 
+	conn1.Exec("DELETE FROM HELLOWORLD;", []driver.Value{})
+
+	conn1.Exec("HELLOWORLD.insert", []driver.Value{"Bonjour", "Monde", "French"})
+	conn1.Exec("HELLOWORLD.insert", []driver.Value{"Hello", "World", "English"})
+	conn1.Exec("HELLOWORLD.insert", []driver.Value{"Hola", "Mundo", "Spanish"})
+	conn1.Exec("HELLOWORLD.insert", []driver.Value{"Hej", "Verden", "Danish"})
+	conn1.Exec("HELLOWORLD.insert", []driver.Value{"Ciao", "Mondo", "Italian"})
+
 	keys := []string{"English", "French", "Spanish", "Danish", "Italian"}
 
 	cbs := make([]*voltdbclient.VoltQueryResult, 100)

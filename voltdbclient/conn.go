@@ -103,7 +103,16 @@ func (vc VoltConn) Prepare(query string) (driver.Stmt, error) {
 }
 
 func (vc VoltConn) Exec(query string, args []driver.Value) (driver.Result, error) {
-	return nil, nil
+	if !vc.isOpen {
+		return nil, errors.New("Connection is closed")
+	}
+	handle := atomic.AddInt64(&qHandle, 1)
+	c := vc.netListener.registerExec(handle)
+	if err := vc.serializeQuery(&vc.writer, query, handle, args); err != nil {
+		vc.netListener.removeExec(handle)
+		return VoltResult{}, err
+	}
+	return <-c, nil
 }
 
 func (vc VoltConn) Query(query string, args []driver.Value) (driver.Rows, error) {

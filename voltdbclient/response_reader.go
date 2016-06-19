@@ -53,7 +53,52 @@ func (s Status) String() string {
 }
 
 func deserializeResult(r io.Reader, handle int64) (res driver.Result, err error) {
-	return nil, nil
+	// Some fields are optionally included in the response.  Which of these optional
+	// fields are included is indicated by this byte, 'fieldsPresent'.  The set
+	// of optional fields includes 'statusString', 'appStatusString', and 'exceptionLength'.
+	fieldsPresent, err := readUint8(r)
+	if err != nil {
+		return nil, err
+	}
+
+	statusB, err := readByte(r)
+	if err != nil {
+		return nil, err
+	}
+	status := Status(statusB)
+	if status != SUCCESS {
+		if fieldsPresent&(1<<5) != 0 {
+			statusString, err := readString(r)
+			if err != nil {
+				return nil, err
+			}
+			if statusString != "" {
+				return nil, errors.New(fmt.Sprintf("Unexpected status in response %d, %s\n", status.String(), statusString))
+			} else {
+				return nil, errors.New(fmt.Sprintf("Unexpected status in response %d\n", status.String()))
+
+			}
+		}
+	}
+
+	appStatus, err := readByte(r)
+	if err != nil {
+		return nil, err
+	}
+	var appStatusString string
+	if fieldsPresent&(1<<7) != 0 {
+		appStatusString, err = readString(r)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	clusterRoundTripTime, err := readInt(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewVoltResult(handle, appStatus, appStatusString, clusterRoundTripTime), nil
 }
 
 // readCallResponse reads a stored procedure invocation response.

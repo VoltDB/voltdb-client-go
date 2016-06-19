@@ -17,17 +17,25 @@
 package voltdbclient
 
 type VoltResult struct {
+	clientHandle         int64
+	appStatus            int8
+	appStatusString      string
+	clusterRoundTripTime int32
 }
 
-func NewVoltResult() *VoltResult {
-	var vr = new(VoltResult)
-	return vr
+func NewVoltResult(clientHandle int64, appStatus int8, appStatusString string, clusterRoundTripTime int32) *VoltResult {
+	var vres = new(VoltResult)
+	vres.clientHandle = clientHandle
+	vres.appStatus = appStatus
+	vres.appStatusString = appStatusString
+	vres.clusterRoundTripTime = clusterRoundTripTime
+	return vres
 }
 
-func (vr *VoltResult) LastInsertId() (int64, error) {
+func (vres VoltResult) LastInsertId() (int64, error) {
 	return 0, nil
 }
 
-func (vr *VoltResult) RowsAffected() (int64, error) {
+func (vres VoltResult) RowsAffected() (int64, error) {
 	return 0, nil
 }
