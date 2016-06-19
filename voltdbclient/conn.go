@@ -18,17 +18,17 @@
 package voltdbclient
 
 import (
+	"bytes"
 	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"reflect"
-	"bytes"
 	"sync/atomic"
 )
 
-var qHandle int64 = 0  // each query has a unique handle.
+var qHandle int64 = 0 // each query has a unique handle.
 
 // connectionData are the values returned by a successful login.
 type connectionData struct {
@@ -102,6 +102,10 @@ func (vc VoltConn) Prepare(query string) (driver.Stmt, error) {
 	panic("Prepare is not supported by a Volt Connection")
 }
 
+func (vc VoltConn) Exec(query string, args []driver.Value) (driver.Result, error) {
+	return nil, nil
+}
+
 func (vc VoltConn) Query(query string, args []driver.Value) (driver.Rows, error) {
 	if !vc.isOpen {
 		return nil, errors.New("Connection is closed")
@@ -131,7 +135,7 @@ func (vc VoltConn) QueryAsync(query string, args []driver.Value) (*VoltQueryResu
 }
 
 func (vc VoltConn) Drain(vqrs []*VoltQueryResult) {
-	idxs := []int{}  // index into the given slice
+	idxs := []int{} // index into the given slice
 	cases := []reflect.SelectCase{}
 	for idx, vqr := range vqrs {
 		if vqr.isActive() {
@@ -205,11 +209,11 @@ func (vc VoltConn) removeQuery(han int64) {
 }
 
 type VoltQueryResult struct {
-	conn *VoltConn
-	han int64
-	ch <-chan driver.Rows
-	rows driver.Rows
-	err error
+	conn   *VoltConn
+	han    int64
+	ch     <-chan driver.Rows
+	rows   driver.Rows
+	err    error
 	active bool
 }
 
@@ -261,7 +265,6 @@ func (vqr *VoltQueryResult) setRows(rows driver.Rows) {
 	vqr.conn.removeQuery(vqr.han)
 	vqr.active = false
 }
-
 
 func (vc VoltConn) serializeQuery(writer *io.Writer, procedure string, handle int64, args []driver.Value) error {
 

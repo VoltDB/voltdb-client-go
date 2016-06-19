@@ -27,10 +27,10 @@ import (
 // the server.  If a callback (channel) is registered for the procedure, the
 // listener puts the response on the channel (calls back).
 type NetworkListener struct {
-	reader  io.Reader
-	execs   map[int64]chan driver.Result
-	execsMutex sync.Mutex
-	queries map[int64]chan driver.Rows
+	reader       io.Reader
+	execs        map[int64]chan driver.Result
+	execsMutex   sync.Mutex
+	queries      map[int64]chan driver.Rows
 	queriesMutex sync.Mutex
 }
 
@@ -48,36 +48,75 @@ func NewListener(reader io.Reader) *NetworkListener {
 // listen blocks on input from the server and should be run as a go routine.
 func (l *NetworkListener) listen() {
 	for {
-		rows, err := l.readOneMsg(l.reader)
-		if err == nil {
-			voltRows := rows.(VoltRows)
-			handle := voltRows.clientHandle
-
-			l.queriesMutex.Lock()
-			c, ok := l.queries[handle]
-			if ok {
-				l.removeQuery(handle)
-			}
-			l.queriesMutex.Unlock()
-
-			if ok {
-				c <- rows
-			}
-		} else {
-			// TODO:  The error needs to go on the channel
-			fmt.Println("error reading from server %v", err.Error())
-		}
+		l.readResponse(l.reader)
 	}
 }
 
-// break this out to support testing
-func (l *NetworkListener) readOneMsg(reader io.Reader) (driver.Rows, error) {
-	return readResponse(reader)
+// read the client handle
+func (l *NetworkListener) readHandle(r io.Reader) (handle int64, err error) {
+	handle, err = readLong(r)
+	if err != nil {
+		return 0, err
+	}
+	return handle, nil
+}
+
+// reads and deserializes a response from the server.
+func (l *NetworkListener) readResponse(r io.Reader) {
+	buf, err := readMessage(r)
+	if err != nil {
+		fmt.Println("Failed to read response from server")
+		return
+	}
+
+	handle, err := l.readHandle(buf)
+	if err != nil {
+		fmt.Println("Failed to read handle on response from server")
+		return
+	}
+	var isQuery bool
+	var isExec bool = false
+	var queryChan chan driver.Rows
+	var execChan chan driver.Result
+
+	l.queriesMutex.Lock()
+	queryChan, isQuery = l.queries[handle]
+	if isQuery {
+		l.removeQuery(handle)
+	}
+	l.queriesMutex.Unlock()
+
+	if !isQuery {
+		l.execsMutex.Lock()
+		execChan, isExec = l.execs[handle]
+		if isExec {
+			l.removeExec(handle)
+		}
+		l.execsMutex.Unlock()
+	}
+
+	if isQuery {
+		rows, err := deserializeRows(buf, handle)
+		if err != nil {
+			// TODO: put the error on the response
+		}
+		queryChan <- rows
+	} else if isExec {
+		result, err := deserializeResult(buf, handle)
+		if err != nil {
+			// TODO: put the error on the response
+		}
+		execChan <- result
+	} else {
+		fmt.Printf("Unexpected response from server, not Query or Exec\n")
+	}
 }
 
 func (l *NetworkListener) registerExec(handle int64) <-chan driver.Result {
 	c := make(chan driver.Result, 1)
+	l.execsMutex.Lock()
 	l.execs[handle] = c
+	l.execsMutex.Unlock()
 	return c
 }
 

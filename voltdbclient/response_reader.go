@@ -52,22 +52,12 @@ func (s Status) String() string {
 	return "unreachable"
 }
 
-// reads and deserializes a procedure call response from the server.
-func readResponse(r io.Reader) (driver.Rows, error) {
-	buf, err := readMessage(r)
-	if err != nil {
-		return nil, err
-	}
-	return deserializeCallResponse(buf)
+func deserializeResult(r io.Reader, handle int64) (res driver.Result, err error) {
+	return nil, nil
 }
 
 // readCallResponse reads a stored procedure invocation response.
-func deserializeCallResponse(r io.Reader) (rs driver.Rows, err error) {
-	clientHandle, err := readLong(r)
-	if err != nil {
-		return nil, err
-	}
-
+func deserializeRows(r io.Reader, handle int64) (rows driver.Rows, err error) {
 	// Some fields are optionally included in the response.  Which of these optional
 	// fields are included is indicated by this byte, 'fieldsPresent'.  The set
 	// of optional fields includes 'statusString', 'appStatusString', and 'exceptionLength'.
@@ -126,7 +116,7 @@ func deserializeCallResponse(r io.Reader) (rs driver.Rows, err error) {
 		}
 	}
 
-	vr := NewVoltRows(clientHandle, appStatus, appStatusString, clusterRoundTripTime, numTables, tables)
+	vr := NewVoltRows(handle, appStatus, appStatusString, clusterRoundTripTime, numTables, tables)
 	return *vr, nil
 }
 
