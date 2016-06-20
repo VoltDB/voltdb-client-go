@@ -37,11 +37,12 @@ func main() {
 
 	conn1.Exec("DELETE FROM HELLOWORLD;", []driver.Value{})
 
-	conn1.Exec("HELLOWORLD.insert", []driver.Value{"Bonjour", "Monde", "French"})
-	conn1.Exec("HELLOWORLD.insert", []driver.Value{"Hello", "World", "English"})
-	conn1.Exec("HELLOWORLD.insert", []driver.Value{"Hola", "Mundo", "Spanish"})
-	conn1.Exec("HELLOWORLD.insert", []driver.Value{"Hej", "Verden", "Danish"})
-	conn1.Exec("HELLOWORLD.insert", []driver.Value{"Ciao", "Mondo", "Italian"})
+	conn1.ExecAsync("HELLOWORLD.insert", []driver.Value{"Bonjour", "Monde", "French"})
+	conn1.ExecAsync("HELLOWORLD.insert", []driver.Value{"Hello", "World", "English"})
+	conn1.ExecAsync("HELLOWORLD.insert", []driver.Value{"Hola", "Mundo", "Spanish"})
+	conn1.ExecAsync("HELLOWORLD.insert", []driver.Value{"Hej", "Verden", "Danish"})
+	conn1.ExecAsync("HELLOWORLD.insert", []driver.Value{"Ciao", "Mondo", "Italian"})
+	conn1.DrainAll()
 
 	keys := []string{"English", "French", "Spanish", "Danish", "Italian"}
 
@@ -58,7 +59,7 @@ func main() {
 
 	// process the callbacks
 	for _, cb := range cbs {
-		rows, err := cb.Result()
+		rows, err := cb.Rows()
 		if err != nil {
 			fmt.Println(err)
 		} else {
@@ -100,7 +101,7 @@ func main() {
 	results3 := conn3.DrainAll()
 
 	for _, result2 := range results2 {
-		rows, err := result2.Result()
+		rows, err := result2.Rows()
 		if err != nil {
 			fmt.Println(err)
 		} else {
@@ -108,7 +109,7 @@ func main() {
 		}
 	}
 	for _, result3 := range results3 {
-		rows, err := result3.Result()
+		rows, err := result3.Rows()
 		if err != nil {
 			fmt.Println(err)
 		} else {

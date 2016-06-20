@@ -42,7 +42,7 @@ type VoltConn struct {
 	reader      io.Reader
 	writer      io.Writer
 	connData    *connectionData
-	execs       map[int64]<-chan driver.Result
+	execs       map[int64]*VoltExecResult
 	queries     map[int64]*VoltQueryResult
 	netListener *NetworkListener
 	isOpen      bool
@@ -52,7 +52,7 @@ func newVoltConn(reader io.Reader, writer io.Writer, connData *connectionData) *
 	var vc = new(VoltConn)
 	vc.reader = reader
 	vc.writer = writer
-	vc.execs = make(map[int64]<-chan driver.Result)
+	vc.execs = make(map[int64]*VoltExecResult)
 	vc.queries = make(map[int64]*VoltQueryResult)
 	vc.netListener = NewListener(reader)
 	vc.netListener.start()
@@ -113,6 +113,21 @@ func (vc VoltConn) Exec(query string, args []driver.Value) (driver.Result, error
 		return VoltResult{}, err
 	}
 	return <-c, nil
+}
+
+func (vc VoltConn) ExecAsync(query string, args []driver.Value) (*VoltExecResult, error) {
+	if !vc.isOpen {
+		return nil, errors.New("Connection is closed")
+	}
+	handle := atomic.AddInt64(&qHandle, 1)
+	c := vc.netListener.registerExec(handle)
+	ver := newVoltExecResult(&vc, handle, c)
+	vc.registerExec(handle, ver)
+	if err := vc.serializeQuery(&vc.writer, query, handle, args); err != nil {
+		vc.netListener.removeExec(handle)
+		return nil, err
+	}
+	return ver, nil
 }
 
 func (vc VoltConn) Query(query string, args []driver.Value) (driver.Rows, error) {
@@ -205,12 +220,16 @@ func (vc VoltConn) ExecutingQueries() []*VoltQueryResult {
 	return eqs
 }
 
-func (vc VoltConn) registerExec(handle int64, c <-chan driver.Result) {
-	vc.execs[handle] = c
+func (vc VoltConn) registerExec(handle int64, ver *VoltExecResult) {
+	vc.execs[handle] = ver
 }
 
 func (vc VoltConn) registerQuery(handle int64, vcr *VoltQueryResult) {
 	vc.queries[handle] = vcr
+}
+
+func (vc VoltConn) removeExec(han int64) {
+	delete(vc.execs, han)
 }
 
 func (vc VoltConn) removeQuery(han int64) {
@@ -235,7 +254,7 @@ func newVoltQueryResult(conn *VoltConn, han int64, ch <-chan driver.Rows) *VoltQ
 	return vqr
 }
 
-func (vqr *VoltQueryResult) Result() (driver.Rows, error) {
+func (vqr *VoltQueryResult) Rows() (driver.Rows, error) {
 	if !vqr.active {
 		return vqr.rows, vqr.err
 	} else {
@@ -273,6 +292,64 @@ func (vqr *VoltQueryResult) setRows(rows driver.Rows) {
 	vqr.rows = rows
 	vqr.conn.removeQuery(vqr.han)
 	vqr.active = false
+}
+
+type VoltExecResult struct {
+	conn   *VoltConn
+	han    int64
+	ch     <-chan driver.Result
+	result driver.Result
+	err    error
+	active bool
+}
+
+func newVoltExecResult(conn *VoltConn, han int64, ch <-chan driver.Result) *VoltExecResult {
+	var ver = new(VoltExecResult)
+	ver.conn = conn
+	ver.han = han
+	ver.ch = ch
+	ver.active = true
+	return ver
+}
+
+func (ver *VoltExecResult) Result() (driver.Result, error) {
+	if !ver.active {
+		return ver.result, ver.err
+	} else {
+		result := <-ver.ch
+		ver.setResult(result)
+		return ver.result, nil
+	}
+}
+
+func (ver *VoltExecResult) channel() <-chan driver.Result {
+	return ver.ch
+}
+
+func (ver *VoltExecResult) handle() int64 {
+	return ver.han
+}
+
+func (ver *VoltExecResult) isActive() bool {
+	return ver.active
+}
+
+func (ver *VoltExecResult) setError(err error) {
+	if !ver.active {
+		panic("Tried to set error on inactive exec result")
+	}
+	ver.err = err
+	ver.conn.removeExec(ver.han)
+	ver.active = false
+}
+
+func (ver *VoltExecResult) setResult(result driver.Result) {
+	if !ver.active {
+		panic("Tried to set result on inactive exec result")
+	}
+	ver.result = result
+	ver.conn.removeExec(ver.han)
+	ver.active = false
 }
 
 func (vc VoltConn) serializeQuery(writer *io.Writer, procedure string, handle int64, args []driver.Value) error {
