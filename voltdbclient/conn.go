@@ -25,6 +25,7 @@ import (
 	"io"
 	"net"
 	"reflect"
+	"sync"
 	"sync/atomic"
 )
 
@@ -45,6 +46,7 @@ type VoltConn struct {
 	execs       map[int64]*VoltExecResult
 	queries     map[int64]*VoltQueryResult
 	netListener *NetworkListener
+	nlwg        sync.WaitGroup
 	isOpen      bool
 }
 
@@ -54,7 +56,8 @@ func newVoltConn(reader io.Reader, writer io.Writer, connData *connectionData) *
 	vc.writer = writer
 	vc.execs = make(map[int64]*VoltExecResult)
 	vc.queries = make(map[int64]*VoltQueryResult)
-	vc.netListener = NewListener(reader)
+	vc.nlwg = sync.WaitGroup{}
+	vc.netListener = NewListener(reader, vc.nlwg)
 	vc.netListener.start()
 	vc.isOpen = true
 	return vc
@@ -65,6 +68,9 @@ func (vc VoltConn) Begin() (driver.Tx, error) {
 }
 
 func (vc VoltConn) Close() (err error) {
+	// stop the network listener, wait for it to stop.
+	vc.netListener.stop()
+	vc.nlwg.Wait()
 	if vc.reader != nil {
 		tcpConn := vc.reader.(*net.TCPConn)
 		err = tcpConn.Close()

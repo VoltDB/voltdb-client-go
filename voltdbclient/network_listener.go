@@ -21,26 +21,31 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 )
 
 // NetworkListener listens for responses for asynchronous procedure calls from
 // the server.  If a callback (channel) is registered for the procedure, the
 // listener puts the response on the channel (calls back).
 type NetworkListener struct {
-	reader       io.Reader
-	execs        map[int64]chan driver.Result
-	execsMutex   sync.Mutex
-	queries      map[int64]chan driver.Rows
-	queriesMutex sync.Mutex
+	reader         io.Reader
+	execs          map[int64]chan driver.Result
+	execsMutex     sync.Mutex
+	queries        map[int64]chan driver.Rows
+	queriesMutex   sync.Mutex
+	wg             sync.WaitGroup
+	hasBeenStopped int32
 }
 
-func NewListener(reader io.Reader) *NetworkListener {
+func NewListener(reader io.Reader, wg sync.WaitGroup) *NetworkListener {
 	var l = new(NetworkListener)
 	l.reader = reader
 	l.execs = make(map[int64]chan driver.Result)
 	l.execsMutex = sync.Mutex{}
 	l.queries = make(map[int64]chan driver.Rows)
 	l.queriesMutex = sync.Mutex{}
+	l.wg = wg
+	l.hasBeenStopped = 0
 	return l
 }
 
@@ -48,6 +53,10 @@ func NewListener(reader io.Reader) *NetworkListener {
 // listen blocks on input from the server and should be run as a go routine.
 func (l *NetworkListener) listen() {
 	for {
+		if !atomic.CompareAndSwapInt32(&l.hasBeenStopped, 0, 0) {
+			l.wg.Done()
+			break
+		}
 		l.readResponse(l.reader)
 	}
 }
@@ -139,5 +148,14 @@ func (l *NetworkListener) removeQuery(handle int64) {
 }
 
 func (l *NetworkListener) start() {
+	l.wg.Add(1)
 	go l.listen()
+}
+
+func (l *NetworkListener) stop() {
+	for {
+		if atomic.CompareAndSwapInt32(&l.hasBeenStopped, 0, 1) {
+			break
+		}
+	}
 }
