@@ -40,7 +40,7 @@ func TestReadDataTypes(t *testing.T) {
 	check(t, err)
 	r := bytes.NewReader(b)
 
-	nl := NewListener(r)
+	nl := newListener(r)
 	var handle int64 = 1
 	ch := nl.registerQuery(handle)
 

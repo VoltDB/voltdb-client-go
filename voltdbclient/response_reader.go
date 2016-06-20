@@ -102,67 +102,64 @@ func deserializeResult(r io.Reader, handle int64) (res driver.Result, err error)
 }
 
 // readCallResponse reads a stored procedure invocation response.
-func deserializeRows(r io.Reader, handle int64) (rows driver.Rows, err error) {
+func deserializeRows(r io.Reader, handle int64) (rows driver.Rows) {
 	// Some fields are optionally included in the response.  Which of these optional
 	// fields are included is indicated by this byte, 'fieldsPresent'.  The set
 	// of optional fields includes 'statusString', 'appStatusString', and 'exceptionLength'.
 	fieldsPresent, err := readUint8(r)
 	if err != nil {
-		return nil, err
+		return *(newVoltRows(handle, 0, "", 0, "", 0, 0, nil, err))
 	}
 
-	statusB, err := readByte(r)
+	status, err := readByte(r)
 	if err != nil {
-		return nil, err
+		return *(newVoltRows(handle, 0, "", 0, "", 0, 0, nil, err))
 	}
-	status := Status(statusB)
-	if status != SUCCESS {
+	var statusString string
+	if Status(status) != SUCCESS {
 		if fieldsPresent&(1<<5) != 0 {
-			statusString, err := readString(r)
+			statusString, err = readString(r)
 			if err != nil {
-				return nil, err
-			}
-			if statusString != "" {
-				return nil, errors.New(fmt.Sprintf("Unexpected status in response %d, %s\n", status.String(), statusString))
-			} else {
-				return nil, errors.New(fmt.Sprintf("Unexpected status in response %d\n", status.String()))
-
+				return *(newVoltRows(handle, status, "", 0, "", 0, 0, nil, err))
 			}
 		}
+		return *(newVoltRows(handle, status, statusString, 0, "", 0, 0, nil, nil))
 	}
 
 	appStatus, err := readByte(r)
 	if err != nil {
-		return nil, err
+		return *(newVoltRows(handle, status, statusString, 0, "", 0, 0, nil, err))
 	}
 	var appStatusString string
 	if fieldsPresent&(1<<7) != 0 {
 		appStatusString, err = readString(r)
 		if err != nil {
-			return nil, err
+			return *(newVoltRows(handle, status, statusString, appStatus, "" , 0, 0, nil, err))
 		}
 	}
 
 	clusterRoundTripTime, err := readInt(r)
 	if err != nil {
-		return nil, err
+		return *(newVoltRows(handle, status, statusString, appStatus, appStatusString , 0, 0, nil, err))
 	}
+
 	numTables, err := readShort(r)
 	if err != nil {
-		return nil, err
+		return *(newVoltRows(handle, status, statusString, appStatus, appStatusString , clusterRoundTripTime, 0, nil, err))
 	}
 	if numTables < 0 {
-		return nil, fmt.Errorf("Bad table count in procudure response %v", numTables)
+		err := errors.New("Negative value for numTables")
+		return *(newVoltRows(handle, status, statusString, appStatus, appStatusString , clusterRoundTripTime, 0, nil, err))
 	}
 	tables := make([]*VoltTable, numTables)
 	for idx, _ := range tables {
 		if tables[idx], err = deserializeTable(r); err != nil {
-			return nil, err
+			return *(newVoltRows(handle, status, statusString, appStatus, appStatusString , clusterRoundTripTime, numTables, nil, err))
 		}
 	}
 
-	vr := NewVoltRows(handle, appStatus, appStatusString, clusterRoundTripTime, numTables, tables)
-	return *vr, nil
+	vr := newVoltRows(handle, status, statusString, appStatus, appStatusString, clusterRoundTripTime, numTables, tables, nil)
+	return *vr
 }
 
 func deserializeTable(r io.Reader) (*VoltTable, error) {

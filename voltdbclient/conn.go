@@ -57,7 +57,7 @@ func newVoltConn(reader io.Reader, writer io.Writer, connData *connectionData) *
 	vc.execs = make(map[int64]*VoltExecResult)
 	vc.queries = make(map[int64]*VoltQueryResult)
 	vc.nlwg = sync.WaitGroup{}
-	vc.netListener = NewListener(reader, vc.nlwg)
+	vc.netListener = newListener(reader, vc.nlwg)
 	vc.netListener.start()
 	vc.isOpen = true
 	return vc
@@ -197,8 +197,14 @@ func (vc VoltConn) Drain(vqrs []*VoltQueryResult) {
 				rows, ok := val.Interface().(driver.Rows)
 				if !ok {
 					chosenQuery.setError(errors.New("unexpected return type, not driver.Rows"))
+				} else {
+					vrows := rows.(VoltRows)
+					if vrows.error() != nil {
+						chosenQuery.setError(vrows.error())
+					} else {
+						chosenQuery.setRows(rows)
+					}
 				}
-				chosenQuery.setRows(rows)
 			}
 		}
 	}
@@ -283,9 +289,17 @@ func newVoltQueryResult(conn *VoltConn, han int64, ch <-chan driver.Rows) *VoltQ
 
 func (vqr *VoltQueryResult) Rows() (driver.Rows, error) {
 	if !vqr.active {
-		return vqr.rows, vqr.err
+		if vqr.err != nil {
+			return nil, vqr.err
+		}
+		return vqr.rows, nil
 	} else {
 		rows := <-vqr.ch
+		vrows := rows.(VoltRows)
+		if err := vrows.error(); err != nil {
+			vqr.setError(err)
+			return nil, err
+		}
 		vqr.setRows(rows)
 		return vqr.rows, nil
 	}
@@ -304,21 +318,15 @@ func (vqr *VoltQueryResult) isActive() bool {
 }
 
 func (vqr *VoltQueryResult) setError(err error) {
-	if !vqr.active {
-		panic("Tried to set error on inactive query result")
-	}
 	vqr.err = err
-	vqr.conn.removeQuery(vqr.han)
 	vqr.active = false
+	vqr.conn.removeQuery(vqr.han)
 }
 
 func (vqr *VoltQueryResult) setRows(rows driver.Rows) {
-	if !vqr.active {
-		panic("Tried to set rows on inactive query result")
-	}
 	vqr.rows = rows
-	vqr.conn.removeQuery(vqr.han)
 	vqr.active = false
+	vqr.conn.removeQuery(vqr.han)
 }
 
 type VoltExecResult struct {
@@ -362,9 +370,6 @@ func (ver *VoltExecResult) isActive() bool {
 }
 
 func (ver *VoltExecResult) setError(err error) {
-	if !ver.active {
-		panic("Tried to set error on inactive exec result")
-	}
 	ver.err = err
 	ver.conn.removeExec(ver.han)
 	ver.active = false

@@ -37,7 +37,7 @@ type NetworkListener struct {
 	hasBeenStopped int32
 }
 
-func NewListener(reader io.Reader, wg sync.WaitGroup) *NetworkListener {
+func newListener(reader io.Reader, wg sync.WaitGroup) *NetworkListener {
 	var l = new(NetworkListener)
 	l.reader = reader
 	l.execs = make(map[int64]chan driver.Result)
@@ -105,10 +105,7 @@ func (l *NetworkListener) readResponse(r io.Reader) {
 	}
 
 	if isQuery {
-		rows, err := deserializeRows(buf, handle)
-		if err != nil {
-			// TODO: put the error on the response
-		}
+		rows := deserializeRows(buf, handle)
 		queryChan <- rows
 	} else if isExec {
 		result, err := deserializeResult(buf, handle)

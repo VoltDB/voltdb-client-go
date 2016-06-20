@@ -33,22 +33,28 @@ var NULL_TIMESTAMP = [...]byte{128, 0, 0, 0, 0, 0, 0, 0}
 
 type VoltRows struct {
 	clientHandle         int64
+	status               int8
+	statusString         string
 	appStatus            int8
 	appStatusString      string
 	clusterRoundTripTime int32
 	numTables            int16
 	tables               []*VoltTable
+	err                  error
 	tableIndex           int16
 }
 
-func NewVoltRows(clientHandle int64, appStatus int8, appStatusString string, clusterRoundTripTime int32, numTables int16, tables []*VoltTable) *VoltRows {
+func newVoltRows(clientHandle int64, status int8, statusString string, appStatus int8, appStatusString string, clusterRoundTripTime int32, numTables int16, tables []*VoltTable, err error) *VoltRows {
 	var vr = new(VoltRows)
 	vr.clientHandle = clientHandle
+	vr.status = status
+	vr.statusString = statusString
 	vr.appStatus = appStatus
 	vr.appStatusString = appStatusString
 	vr.clusterRoundTripTime = clusterRoundTripTime
 	vr.numTables = numTables
 	vr.tables = tables
+	vr.err = err
 	vr.tableIndex = 0
 	return vr
 }
@@ -64,7 +70,14 @@ func (vr VoltRows) Columns() []string {
 	return rv
 }
 
+func (vr VoltRows) error() error {
+	return vr.err
+}
+
 func (vr VoltRows) Next(dest []driver.Value) (err error) {
+	if vr.err != nil {
+		return err
+	}
 	if !vr.table().AdvanceRow() {
 		return io.EOF
 	}
@@ -140,10 +153,16 @@ func (vr VoltRows) Next(dest []driver.Value) (err error) {
 // volt api
 
 func (vr *VoltRows) AdvanceRow() bool {
+	if vr.err != nil {
+		panic("Check error with Error() before calling AdvanceRow()")
+	}
 	return vr.table().AdvanceRow()
 }
 
 func (vr *VoltRows) AdvanceToRow(rowIndex int32) bool {
+	if vr.err != nil {
+		panic("Check error with Error() before calling AdvanceToRow()")
+	}
 	return vr.table().AdvanceToRow(rowIndex)
 }
 
@@ -177,6 +196,15 @@ func (vr *VoltRows) ColumnTypes() []int8 {
 	return rv
 }
 
+func (vr *VoltRows) Status() int8 {
+	return vr.status
+}
+
+func (vr *VoltRows) StatusString() string {
+	return vr.statusString
+}
+
+// accessors by type
 func (vr *VoltRows) GetBigInt(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
