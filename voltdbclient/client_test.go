@@ -18,6 +18,7 @@ package voltdbclient
 
 import (
 	"bytes"
+	"database/sql/driver"
 	"fmt"
 	"io/ioutil"
 	"math/big"
@@ -28,7 +29,7 @@ import (
 
 func TestCallOnClosedConn(t *testing.T) {
 	conn := VoltConn{nil, nil, nil, nil, nil, nil, false}
-	_, err := conn.Prepare("bad")
+	_, err := conn.Query("bad", []driver.Value{})
 	if err == nil {
 		t.Errorf("Expected error calling procedure on closed Conn")
 	}
@@ -38,9 +39,13 @@ func TestReadDataTypes(t *testing.T) {
 	b, err := ioutil.ReadFile("./test_resources/examples_of_types.msg")
 	check(t, err)
 	r := bytes.NewReader(b)
+
 	nl := NewListener(r)
-	rows, err := nl.readOneMsg(r)
-	check(t, err)
+	var handle int64 = 1
+	ch := nl.registerQuery(handle)
+
+	nl.readResponse(r)
+	rows := <-ch
 
 	expCols := []string{"ID", "NULLABLE_ID", "NAME", "DATA", "STATUS", "TYPE", "PAN", "BALANCE_OPEN", "BALANCE", "LAST_UPDATED"}
 	actCols := rows.Columns()

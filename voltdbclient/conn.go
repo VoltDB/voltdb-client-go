@@ -108,7 +108,7 @@ func (vc VoltConn) Exec(query string, args []driver.Value) (driver.Result, error
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
 	c := vc.netListener.registerExec(handle)
-	if err := vc.serializeQuery(&vc.writer, query, handle, args); err != nil {
+	if err := vc.serializeQuery(vc.writer, query, handle, args); err != nil {
 		vc.netListener.removeExec(handle)
 		return VoltResult{}, err
 	}
@@ -123,7 +123,7 @@ func (vc VoltConn) ExecAsync(query string, args []driver.Value) (*VoltExecResult
 	c := vc.netListener.registerExec(handle)
 	ver := newVoltExecResult(&vc, handle, c)
 	vc.registerExec(handle, ver)
-	if err := vc.serializeQuery(&vc.writer, query, handle, args); err != nil {
+	if err := vc.serializeQuery(vc.writer, query, handle, args); err != nil {
 		vc.netListener.removeExec(handle)
 		return nil, err
 	}
@@ -136,7 +136,7 @@ func (vc VoltConn) Query(query string, args []driver.Value) (driver.Rows, error)
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
 	c := vc.netListener.registerQuery(handle)
-	if err := vc.serializeQuery(&vc.writer, query, handle, args); err != nil {
+	if err := vc.serializeQuery(vc.writer, query, handle, args); err != nil {
 		vc.netListener.removeQuery(handle)
 		return VoltRows{}, err
 	}
@@ -151,7 +151,7 @@ func (vc VoltConn) QueryAsync(query string, args []driver.Value) (*VoltQueryResu
 	c := vc.netListener.registerQuery(handle)
 	vqr := newVoltQueryResult(&vc, handle, c)
 	vc.registerQuery(handle, vqr)
-	if err := vc.serializeQuery(&vc.writer, query, handle, args); err != nil {
+	if err := vc.serializeQuery(vc.writer, query, handle, args); err != nil {
 		vc.netListener.removeQuery(handle)
 		return nil, err
 	}
@@ -234,6 +234,27 @@ func (vc VoltConn) removeExec(han int64) {
 
 func (vc VoltConn) removeQuery(han int64) {
 	delete(vc.queries, han)
+}
+
+func writeLoginMessage(writer io.Writer, buf *bytes.Buffer) {
+	// length includes protocol version.
+	length := buf.Len() + 2
+	var netmsg bytes.Buffer
+	writeInt(&netmsg, int32(length))
+	writeProtoVersion(&netmsg)
+	writePasswordHashVersion(&netmsg)
+	// 1 copy + 1 n/w write benchmarks faster than 2 n/w writes.
+	io.Copy(&netmsg, buf)
+	io.Copy(writer, &netmsg)
+}
+
+func readLoginResponse(reader io.Reader) (*connectionData, error) {
+	buf, err := readMessage(reader)
+	if err != nil {
+		return nil, err
+	}
+	connData, err := deserializeLoginResponse(buf)
+	return connData, err
 }
 
 type VoltQueryResult struct {
@@ -352,7 +373,7 @@ func (ver *VoltExecResult) setResult(result driver.Result) {
 	ver.active = false
 }
 
-func (vc VoltConn) serializeQuery(writer *io.Writer, procedure string, handle int64, args []driver.Value) error {
+func (vc VoltConn) serializeQuery(writer io.Writer, procedure string, handle int64, args []driver.Value) error {
 
 	var call bytes.Buffer
 	var err error
@@ -366,6 +387,21 @@ func (vc VoltConn) serializeQuery(writer *io.Writer, procedure string, handle in
 	var netmsg bytes.Buffer
 	writeInt(&netmsg, int32(call.Len()))
 	io.Copy(&netmsg, &call)
-	io.Copy(*writer, &netmsg)
+	io.Copy(writer, &netmsg)
 	return nil
+}
+
+// Null Value type
+type NullValue struct {
+	colType int8
+}
+
+func NewNullValue(colType int8) *NullValue {
+	var nv = new(NullValue)
+	nv.colType = colType
+	return nv
+}
+
+func (nv *NullValue) ColType() int8 {
+	return nv.colType
 }
