@@ -115,7 +115,7 @@ func (vc VoltConn) Exec(query string, args []driver.Value) (driver.Result, error
 	handle := atomic.AddInt64(&qHandle, 1)
 	c := vc.netListener.registerExec(handle)
 	if err := vc.serializeQuery(vc.writer, query, handle, args); err != nil {
-		vc.netListener.removeExec(handle)
+		vc.netListener.removeRequest(handle)
 		return VoltResult{}, err
 	}
 	return <-c, nil
@@ -130,7 +130,7 @@ func (vc VoltConn) ExecAsync(query string, args []driver.Value) (*VoltExecResult
 	ver := newVoltExecResult(&vc, handle, c)
 	vc.registerExec(handle, ver)
 	if err := vc.serializeQuery(vc.writer, query, handle, args); err != nil {
-		vc.netListener.removeExec(handle)
+		vc.netListener.removeRequest(handle)
 		return nil, err
 	}
 	return ver, nil
@@ -143,7 +143,7 @@ func (vc VoltConn) Query(query string, args []driver.Value) (driver.Rows, error)
 	handle := atomic.AddInt64(&qHandle, 1)
 	c := vc.netListener.registerQuery(handle)
 	if err := vc.serializeQuery(vc.writer, query, handle, args); err != nil {
-		vc.netListener.removeQuery(handle)
+		vc.netListener.removeRequest(handle)
 		return VoltRows{}, err
 	}
 	return <-c, nil
@@ -158,7 +158,7 @@ func (vc VoltConn) QueryAsync(query string, args []driver.Value) (*VoltQueryResu
 	vqr := newVoltQueryResult(&vc, handle, c)
 	vc.registerQuery(handle, vqr)
 	if err := vc.serializeQuery(vc.writer, query, handle, args); err != nil {
-		vc.netListener.removeQuery(handle)
+		vc.netListener.removeRequest(handle)
 		return nil, err
 	}
 	return vqr, nil

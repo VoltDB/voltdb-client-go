@@ -29,10 +29,8 @@ import (
 // listener puts the response on the channel (calls back).
 type NetworkListener struct {
 	reader         io.Reader
-	execs          map[int64]chan driver.Result
-	execsMutex     sync.Mutex
-	queries        map[int64]chan driver.Rows
-	queriesMutex   sync.Mutex
+	requests       map[int64]*NetworkRequest
+	requestMutex   sync.Mutex
 	wg             sync.WaitGroup
 	hasBeenStopped int32
 }
@@ -40,10 +38,8 @@ type NetworkListener struct {
 func newListener(reader io.Reader, wg sync.WaitGroup) *NetworkListener {
 	var l = new(NetworkListener)
 	l.reader = reader
-	l.execs = make(map[int64]chan driver.Result)
-	l.execsMutex = sync.Mutex{}
-	l.queries = make(map[int64]chan driver.Rows)
-	l.queriesMutex = sync.Mutex{}
+	l.requests = make(map[int64]*NetworkRequest)
+	l.requestMutex = sync.Mutex{}
 	l.wg = wg
 	l.hasBeenStopped = 0
 	return l
@@ -80,62 +76,41 @@ func (l *NetworkListener) readResponse(r io.Reader, handle int64) {
 
 	rsp := deserializeResponse(r, handle)
 
-	var isQuery bool
-	var isExec bool = false
-	var queryChan chan driver.Rows
-	var execChan chan driver.Result
+	l.requestMutex.Lock()
+	req := l.requests[handle]
+	l.removeRequest(handle)
+	l.requestMutex.Unlock()
 
-	l.queriesMutex.Lock()
-	queryChan, isQuery = l.queries[handle]
-	if isQuery {
-		l.removeQuery(handle)
-	}
-	l.queriesMutex.Unlock()
-
-	if !isQuery {
-		l.execsMutex.Lock()
-		execChan, isExec = l.execs[handle]
-		if isExec {
-			l.removeExec(handle)
-		}
-		l.execsMutex.Unlock()
-	}
-
-	if isQuery {
+	if req.isQuery() {
 		rows := deserializeRows(r, rsp)
-		queryChan <- rows
-	} else if isExec {
-		result := newVoltResult(rsp)
-		execChan <- result
+		req.getQueryChan() <- rows
 	} else {
-		fmt.Printf("Unexpected response from server, not Query or Exec\n")
+		result := newVoltResult(rsp)
+		req.getExecChan() <- result
 	}
 }
 
 func (l *NetworkListener) registerExec(handle int64) <-chan driver.Result {
 	c := make(chan driver.Result, 1)
-	l.execsMutex.Lock()
-	l.execs[handle] = c
-	l.execsMutex.Unlock()
+	nr := newNetworkRequestForExec(c)
+	l.requestMutex.Lock()
+	l.requests[handle] = nr
+	l.requestMutex.Unlock()
 	return c
 }
 
 func (l *NetworkListener) registerQuery(handle int64) <-chan driver.Rows {
 	c := make(chan driver.Rows, 1)
-	l.queriesMutex.Lock()
-	l.queries[handle] = c
-	l.queriesMutex.Unlock()
+	nr := newNetworkRequestForQuery(c)
+	l.requestMutex.Lock()
+	l.requests[handle] = nr
+	l.requestMutex.Unlock()
 	return c
 }
 
 // need to have a lock on the map when this is invoked.
-func (l *NetworkListener) removeExec(handle int64) {
-	delete(l.execs, handle)
-}
-
-// need to have a lock on the map when this is invoked.
-func (l *NetworkListener) removeQuery(handle int64) {
-	delete(l.queries, handle)
+func (l *NetworkListener) removeRequest(handle int64) {
+	delete(l.requests, handle)
 }
 
 func (l *NetworkListener) start() {
@@ -149,4 +124,36 @@ func (l *NetworkListener) stop() {
 			break
 		}
 	}
+}
+
+type NetworkRequest struct {
+	query     bool
+	execChan  chan driver.Result
+	queryChan chan driver.Rows
+}
+
+func newNetworkRequestForExec(execChan chan driver.Result) *NetworkRequest {
+	var nr = new(NetworkRequest)
+	nr.query = false
+	nr.execChan = execChan
+	return nr
+}
+
+func newNetworkRequestForQuery(queryChan chan driver.Rows) *NetworkRequest {
+	var nr = new(NetworkRequest)
+	nr.query = true
+	nr.queryChan = queryChan
+	return nr
+}
+
+func (nr NetworkRequest) isQuery() bool {
+	return nr.query
+}
+
+func (nr NetworkRequest) getExecChan() chan driver.Result {
+	return nr.execChan
+}
+
+func (nr NetworkRequest) getQueryChan() chan driver.Rows {
+	return nr.queryChan
 }
