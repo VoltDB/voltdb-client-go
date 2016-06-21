@@ -67,7 +67,7 @@ func deserializeResult(r io.Reader, handle int64) (res driver.Result) {
 	}
 	var statusString string
 	if Status(status) != SUCCESS {
-		if fieldsPresent & (1 << 5) != 0 {
+		if fieldsPresent&(1<<5) != 0 {
 			statusString, err = readString(r)
 			if err != nil {
 				return *(newVoltResult(handle, status, "", 0, "", 0, err))
@@ -83,7 +83,7 @@ func deserializeResult(r io.Reader, handle int64) (res driver.Result) {
 	}
 	var appStatusString string
 	if appStatus != 0 && appStatus != math.MinInt8 {
-		if fieldsPresent & (1 << 7) != 0 {
+		if fieldsPresent&(1<<7) != 0 {
 			appStatusString, err = readString(r)
 			if err != nil {
 				return *(newVoltResult(handle, status, statusString, appStatus, "", 0, err))
@@ -95,7 +95,7 @@ func deserializeResult(r io.Reader, handle int64) (res driver.Result) {
 
 	clusterRoundTripTime, err := readInt(r)
 	if err != nil {
-		return *(newVoltResult(handle, status, statusString, appStatus, appStatusString , 0, err))
+		return *(newVoltResult(handle, status, statusString, appStatus, appStatusString, 0, err))
 	}
 
 	return *(newVoltResult(handle, status, statusString, appStatus, appStatusString, clusterRoundTripTime, nil))

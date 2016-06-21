@@ -33,9 +33,9 @@ var NULL_TIMESTAMP = [...]byte{128, 0, 0, 0, 0, 0, 0, 0}
 
 type VoltRows struct {
 	VoltResult
-	numTables            int16
-	tables               []*VoltTable
-	tableIndex           int16
+	numTables  int16
+	tables     []*VoltTable
+	tableIndex int16
 }
 
 func newVoltRows(result VoltResult, numTables int16, tables []*VoltTable) *VoltRows {

@@ -73,4 +73,3 @@ func (vres VoltResult) Status() int8 {
 func (vres VoltResult) StatusString() string {
 	return vres.statusString
 }
-
