@@ -17,15 +17,25 @@
 package voltdbclient
 
 import (
-	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 )
 
+type VoltResponse interface {
+	AppStatus() int8
+	AppStatusString() string
+	ClusterRoundTripTime() int32
+	Status() int8
+	StatusString() string
+
+	getError() error
+	setError(err error)
+}
+
 // helds a processed response, either a VoltResult or a VoltRows
-type VoltResponse struct {
+type VoltResponseInfo struct {
 	clientHandle         int64
 	status               int8
 	statusString         string
@@ -35,8 +45,8 @@ type VoltResponse struct {
 	err                  error
 }
 
-func newVoltResponse(clientHandle int64, status int8, statusString string, appStatus int8, appStatusString string, clusterRoundTripTime int32, err error) *VoltResponse {
-	var vrsp = new(VoltResponse)
+func newVoltResponseInfo(clientHandle int64, status int8, statusString string, appStatus int8, appStatusString string, clusterRoundTripTime int32, err error) *VoltResponseInfo {
+	var vrsp = new(VoltResponseInfo)
 	vrsp.clientHandle = clientHandle
 	vrsp.status = status
 	vrsp.statusString = statusString
@@ -47,31 +57,31 @@ func newVoltResponse(clientHandle int64, status int8, statusString string, appSt
 	return vrsp
 }
 
-func (vrsp VoltResponse) AppStatus() int8 {
+func (vrsp VoltResponseInfo) AppStatus() int8 {
 	return vrsp.appStatus
 }
 
-func (vrsp VoltResponse) AppStatusString() string {
+func (vrsp VoltResponseInfo) AppStatusString() string {
 	return vrsp.appStatusString
 }
 
-func (vrsp VoltResponse) ClusterRoundTripTime() int32 {
+func (vrsp VoltResponseInfo) ClusterRoundTripTime() int32 {
 	return vrsp.clusterRoundTripTime
 }
 
-func (vrsp VoltResponse) error() error {
+func (vrsp VoltResponseInfo) getError() error {
 	return vrsp.err
 }
 
-func (vrsp VoltResponse) setError(err error) {
+func (vrsp VoltResponseInfo) setError(err error) {
 	vrsp.err = err
 }
 
-func (vrsp VoltResponse) Status() int8 {
+func (vrsp VoltResponseInfo) Status() int8 {
 	return vrsp.status
 }
 
-func (vrsp VoltResponse) StatusString() string {
+func (vrsp VoltResponseInfo) StatusString() string {
 	return vrsp.statusString
 }
 
@@ -109,52 +119,52 @@ func deserializeResponse(r io.Reader, handle int64) (rsp VoltResponse) {
 	// of optional fields includes 'statusString', 'appStatusString', and 'exceptionLength'.
 	fieldsPresent, err := readUint8(r)
 	if err != nil {
-		return *(newVoltResponse(handle, 0, "", 0, "", 0, err))
+		return *(newVoltResponseInfo(handle, 0, "", 0, "", 0, err))
 	}
 
 	status, err := readByte(r)
 	if err != nil {
-		return *(newVoltResponse(handle, 0, "", 0, "", 0, err))
+		return *(newVoltResponseInfo(handle, 0, "", 0, "", 0, err))
 	}
 	var statusString string
 	if Status(status) != SUCCESS {
 		if fieldsPresent&(1<<5) != 0 {
 			statusString, err = readString(r)
 			if err != nil {
-				return *(newVoltResponse(handle, status, "", 0, "", 0, err))
+				return *(newVoltResponseInfo(handle, status, "", 0, "", 0, err))
 			}
 		}
 		errString := fmt.Sprintf("Bad status %s %s\n", Status(status).String(), statusString)
-		return *(newVoltResponse(handle, status, statusString, 0, "", 0, errors.New(errString)))
+		return *(newVoltResponseInfo(handle, status, statusString, 0, "", 0, errors.New(errString)))
 	}
 
 	appStatus, err := readByte(r)
 	if err != nil {
-		return *(newVoltResponse(handle, status, statusString, 0, "", 0, err))
+		return *(newVoltResponseInfo(handle, status, statusString, 0, "", 0, err))
 	}
 	var appStatusString string
 	if appStatus != 0 && appStatus != math.MinInt8 {
 		if fieldsPresent&(1<<7) != 0 {
 			appStatusString, err = readString(r)
 			if err != nil {
-				return *(newVoltResponse(handle, status, statusString, appStatus, "", 0, err))
+				return *(newVoltResponseInfo(handle, status, statusString, appStatus, "", 0, err))
 			}
 		}
 		errString := fmt.Sprintf("Bad app status %d %s\n", appStatus, appStatusString)
-		return *(newVoltResponse(handle, status, statusString, 0, "", 0, errors.New(errString)))
+		return *(newVoltResponseInfo(handle, status, statusString, 0, "", 0, errors.New(errString)))
 	}
 
 	clusterRoundTripTime, err := readInt(r)
 	if err != nil {
-		return *(newVoltResponse(handle, status, statusString, appStatus, appStatusString, 0, err))
+		return *(newVoltResponseInfo(handle, status, statusString, appStatus, appStatusString, 0, err))
 	}
 
-	return *(newVoltResponse(handle, status, statusString, appStatus, appStatusString, clusterRoundTripTime, nil))
+	return *(newVoltResponseInfo(handle, status, statusString, appStatus, appStatusString, clusterRoundTripTime, nil))
 }
 
-func deserializeRows(r io.Reader, rsp VoltResponse) (rows driver.Rows) {
-	if rsp.error() != nil {
-		return newVoltRows(rsp, 0, nil)
+func deserializeRows(r io.Reader, rsp VoltResponse) (rows VoltRows) {
+	if rsp.getError() != nil {
+		return *(newVoltRows(rsp, 0, nil))
 	}
 	numTables, err := readShort(r)
 	if err != nil {

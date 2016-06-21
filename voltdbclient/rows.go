@@ -59,7 +59,7 @@ func (vr VoltRows) Columns() []string {
 }
 
 func (vr VoltRows) Next(dest []driver.Value) (err error) {
-	if vr.err != nil {
+	if vr.getError() != nil {
 		return err
 	}
 	if !vr.table().AdvanceRow() {
@@ -137,14 +137,14 @@ func (vr VoltRows) Next(dest []driver.Value) (err error) {
 // volt api
 
 func (vr VoltRows) AdvanceRow() bool {
-	if vr.err != nil {
+	if vr.getError() != nil {
 		panic("Check error with Error() before calling AdvanceRow()")
 	}
 	return vr.table().AdvanceRow()
 }
 
 func (vr VoltRows) AdvanceToRow(rowIndex int32) bool {
-	if vr.err != nil {
+	if vr.getError() != nil {
 		panic("Check error with Error() before calling AdvanceToRow()")
 	}
 	return vr.table().AdvanceToRow(rowIndex)

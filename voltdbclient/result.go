@@ -22,6 +22,7 @@ type VoltResult struct {
 
 func newVoltResult(resp VoltResponse) *VoltResult {
 	var vrslt = new(VoltResult)
+	vrslt.VoltResponse = resp
 	return vrslt
 }
 

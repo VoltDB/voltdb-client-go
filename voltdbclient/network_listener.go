@@ -17,7 +17,6 @@
 package voltdbclient
 
 import (
-	"database/sql/driver"
 	"fmt"
 	"io"
 	"sync"
@@ -83,25 +82,16 @@ func (l *NetworkListener) readResponse(r io.Reader, handle int64) {
 
 	if req.isQuery() {
 		rows := deserializeRows(r, rsp)
-		req.getQueryChan() <- rows
+		req.getChan() <- rows
 	} else {
 		result := newVoltResult(rsp)
-		req.getExecChan() <- result
+		req.getChan() <- *result
 	}
 }
 
-func (l *NetworkListener) registerExec(handle int64) <-chan driver.Result {
-	c := make(chan driver.Result, 1)
-	nr := newNetworkRequestForExec(c)
-	l.requestMutex.Lock()
-	l.requests[handle] = nr
-	l.requestMutex.Unlock()
-	return c
-}
-
-func (l *NetworkListener) registerQuery(handle int64) <-chan driver.Rows {
-	c := make(chan driver.Rows, 1)
-	nr := newNetworkRequestForQuery(c)
+func (l *NetworkListener) registerRequest(handle int64, isQuery bool) <-chan VoltResponse {
+	c := make(chan VoltResponse, 1)
+	nr := newNetworkRequest(c, isQuery)
 	l.requestMutex.Lock()
 	l.requests[handle] = nr
 	l.requestMutex.Unlock()
@@ -127,22 +117,14 @@ func (l *NetworkListener) stop() {
 }
 
 type NetworkRequest struct {
-	query     bool
-	execChan  chan driver.Result
-	queryChan chan driver.Rows
+	query bool
+	ch    chan VoltResponse
 }
 
-func newNetworkRequestForExec(execChan chan driver.Result) *NetworkRequest {
+func newNetworkRequest(ch chan VoltResponse, isQuery bool) *NetworkRequest {
 	var nr = new(NetworkRequest)
-	nr.query = false
-	nr.execChan = execChan
-	return nr
-}
-
-func newNetworkRequestForQuery(queryChan chan driver.Rows) *NetworkRequest {
-	var nr = new(NetworkRequest)
-	nr.query = true
-	nr.queryChan = queryChan
+	nr.query = isQuery
+	nr.ch = ch
 	return nr
 }
 
@@ -150,10 +132,6 @@ func (nr NetworkRequest) isQuery() bool {
 	return nr.query
 }
 
-func (nr NetworkRequest) getExecChan() chan driver.Result {
-	return nr.execChan
-}
-
-func (nr NetworkRequest) getQueryChan() chan driver.Rows {
-	return nr.queryChan
+func (nr NetworkRequest) getChan() chan VoltResponse {
+	return nr.ch
 }
