@@ -32,29 +32,17 @@ var NULL_DECIMAL = [...]byte{128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 var NULL_TIMESTAMP = [...]byte{128, 0, 0, 0, 0, 0, 0, 0}
 
 type VoltRows struct {
-	clientHandle         int64
-	status               int8
-	statusString         string
-	appStatus            int8
-	appStatusString      string
-	clusterRoundTripTime int32
+	VoltResult
 	numTables            int16
 	tables               []*VoltTable
-	err                  error
 	tableIndex           int16
 }
 
-func newVoltRows(clientHandle int64, status int8, statusString string, appStatus int8, appStatusString string, clusterRoundTripTime int32, numTables int16, tables []*VoltTable, err error) *VoltRows {
+func newVoltRows(result VoltResult, numTables int16, tables []*VoltTable) *VoltRows {
 	var vr = new(VoltRows)
-	vr.clientHandle = clientHandle
-	vr.status = status
-	vr.statusString = statusString
-	vr.appStatus = appStatus
-	vr.appStatusString = appStatusString
-	vr.clusterRoundTripTime = clusterRoundTripTime
+	vr.VoltResult = result
 	vr.numTables = numTables
 	vr.tables = tables
-	vr.err = err
 	vr.tableIndex = 0
 	return vr
 }
@@ -68,10 +56,6 @@ func (vr VoltRows) Columns() []string {
 	rv := make([]string, 0)
 	rv = append(rv, vr.table().columnNames...)
 	return rv
-}
-
-func (vr VoltRows) error() error {
-	return vr.err
 }
 
 func (vr VoltRows) Next(dest []driver.Value) (err error) {
@@ -152,29 +136,21 @@ func (vr VoltRows) Next(dest []driver.Value) (err error) {
 
 // volt api
 
-func (vr *VoltRows) AdvanceRow() bool {
+func (vr VoltRows) AdvanceRow() bool {
 	if vr.err != nil {
 		panic("Check error with Error() before calling AdvanceRow()")
 	}
 	return vr.table().AdvanceRow()
 }
 
-func (vr *VoltRows) AdvanceToRow(rowIndex int32) bool {
+func (vr VoltRows) AdvanceToRow(rowIndex int32) bool {
 	if vr.err != nil {
 		panic("Check error with Error() before calling AdvanceToRow()")
 	}
 	return vr.table().AdvanceToRow(rowIndex)
 }
 
-func (vr *VoltRows) AppStatus() int8 {
-	return vr.appStatus
-}
-
-func (vr *VoltRows) AppStatusString() string {
-	return vr.appStatusString
-}
-
-func (vr *VoltRows) AdvanceTable() bool {
+func (vr VoltRows) AdvanceTable() bool {
 	if vr.tableIndex+1 >= vr.numTables {
 		return false
 	}
@@ -182,30 +158,18 @@ func (vr *VoltRows) AdvanceTable() bool {
 	return true
 }
 
-func (vr *VoltRows) ClusterRoundTripTime() int32 {
-	return vr.clusterRoundTripTime
-}
-
-func (vr *VoltRows) ColumnCount() int {
+func (vr VoltRows) ColumnCount() int {
 	return int(vr.table().columnCount)
 }
 
-func (vr *VoltRows) ColumnTypes() []int8 {
+func (vr VoltRows) ColumnTypes() []int8 {
 	rv := make([]int8, 0)
 	rv = append(rv, vr.table().columnTypes...)
 	return rv
 }
 
-func (vr *VoltRows) Status() int8 {
-	return vr.status
-}
-
-func (vr *VoltRows) StatusString() string {
-	return vr.statusString
-}
-
 // accessors by type
-func (vr *VoltRows) GetBigInt(colIndex int16) (interface{}, error) {
+func (vr VoltRows) GetBigInt(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
@@ -220,7 +184,7 @@ func (vr *VoltRows) GetBigInt(colIndex int16) (interface{}, error) {
 	return i, nil
 }
 
-func (vr *VoltRows) GetBigIntByName(cn string) (interface{}, error) {
+func (vr VoltRows) GetBigIntByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
@@ -228,7 +192,7 @@ func (vr *VoltRows) GetBigIntByName(cn string) (interface{}, error) {
 	return vr.GetBigInt(ci)
 }
 
-func (vr *VoltRows) GetDecimal(colIndex int16) (interface{}, error) {
+func (vr VoltRows) GetDecimal(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
@@ -255,7 +219,7 @@ func (vr *VoltRows) GetDecimal(colIndex int16) (interface{}, error) {
 	return dec, nil
 }
 
-func (vr *VoltRows) GetDecimalByName(cn string) (interface{}, error) {
+func (vr VoltRows) GetDecimalByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
@@ -263,7 +227,7 @@ func (vr *VoltRows) GetDecimalByName(cn string) (interface{}, error) {
 	return vr.GetDecimal(ci)
 }
 
-func (vr *VoltRows) GetFloat(colIndex int16) (interface{}, error) {
+func (vr VoltRows) GetFloat(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
@@ -278,7 +242,7 @@ func (vr *VoltRows) GetFloat(colIndex int16) (interface{}, error) {
 	return f, nil
 }
 
-func (vr *VoltRows) GetFloatByName(cn string) (interface{}, error) {
+func (vr VoltRows) GetFloatByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
@@ -286,7 +250,7 @@ func (vr *VoltRows) GetFloatByName(cn string) (interface{}, error) {
 	return vr.GetFloat(ci)
 }
 
-func (vr *VoltRows) GetInteger(colIndex int16) (interface{}, error) {
+func (vr VoltRows) GetInteger(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
@@ -301,7 +265,7 @@ func (vr *VoltRows) GetInteger(colIndex int16) (interface{}, error) {
 	return i, nil
 }
 
-func (vr *VoltRows) GetIntegerByName(cn string) (interface{}, error) {
+func (vr VoltRows) GetIntegerByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
@@ -309,7 +273,7 @@ func (vr *VoltRows) GetIntegerByName(cn string) (interface{}, error) {
 	return vr.GetInteger(ci)
 }
 
-func (vr *VoltRows) GetSmallInt(colIndex int16) (interface{}, error) {
+func (vr VoltRows) GetSmallInt(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
@@ -324,7 +288,7 @@ func (vr *VoltRows) GetSmallInt(colIndex int16) (interface{}, error) {
 	return i, nil
 }
 
-func (vr *VoltRows) GetSmallIntByName(cn string) (interface{}, error) {
+func (vr VoltRows) GetSmallIntByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
@@ -332,7 +296,7 @@ func (vr *VoltRows) GetSmallIntByName(cn string) (interface{}, error) {
 	return vr.GetSmallInt(ci)
 }
 
-func (vr *VoltRows) GetString(colIndex int16) (interface{}, error) {
+func (vr VoltRows) GetString(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
@@ -346,7 +310,7 @@ func (vr *VoltRows) GetString(colIndex int16) (interface{}, error) {
 	return string(bs[4:]), nil
 }
 
-func (vr *VoltRows) GetStringByName(cn string) (interface{}, error) {
+func (vr VoltRows) GetStringByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
@@ -354,7 +318,7 @@ func (vr *VoltRows) GetStringByName(cn string) (interface{}, error) {
 	return vr.GetString(ci)
 }
 
-func (vr *VoltRows) GetTimestamp(colIndex int16) (interface{}, error) {
+func (vr VoltRows) GetTimestamp(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
@@ -369,7 +333,7 @@ func (vr *VoltRows) GetTimestamp(colIndex int16) (interface{}, error) {
 	return t, nil
 }
 
-func (vr *VoltRows) GetTimestampByName(cn string) (interface{}, error) {
+func (vr VoltRows) GetTimestampByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
@@ -377,7 +341,7 @@ func (vr *VoltRows) GetTimestampByName(cn string) (interface{}, error) {
 	return vr.GetTimestamp(ci)
 }
 
-func (vr *VoltRows) GetTinyInt(colIndex int16) (interface{}, error) {
+func (vr VoltRows) GetTinyInt(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
@@ -393,7 +357,7 @@ func (vr *VoltRows) GetTinyInt(colIndex int16) (interface{}, error) {
 
 }
 
-func (vr *VoltRows) GetTinyIntByName(cn string) (interface{}, error) {
+func (vr VoltRows) GetTinyIntByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
@@ -401,7 +365,7 @@ func (vr *VoltRows) GetTinyIntByName(cn string) (interface{}, error) {
 	return vr.GetTinyInt(ci)
 }
 
-func (vr *VoltRows) GetVarbinary(colIndex int16) (interface{}, error) {
+func (vr VoltRows) GetVarbinary(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
 		return nil, err
@@ -412,7 +376,7 @@ func (vr *VoltRows) GetVarbinary(colIndex int16) (interface{}, error) {
 	return bs[4:], nil
 }
 
-func (vr *VoltRows) GetVarbinaryByName(cn string) (interface{}, error) {
+func (vr VoltRows) GetVarbinaryByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
 		return nil, fmt.Errorf("column name %v was not found", cn)
@@ -420,7 +384,7 @@ func (vr *VoltRows) GetVarbinaryByName(cn string) (interface{}, error) {
 	return vr.GetVarbinary(ci)
 }
 
-func (vr *VoltRows) table() *VoltTable {
+func (vr VoltRows) table() *VoltTable {
 	return vr.tables[vr.tableIndex]
 }
 

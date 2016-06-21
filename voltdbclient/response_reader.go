@@ -52,113 +52,81 @@ func (s Status) String() string {
 	return "unreachable"
 }
 
-func deserializeResult(r io.Reader, handle int64) (res driver.Result, err error) {
+func deserializeResult(r io.Reader, handle int64) (res driver.Result) {
 	// Some fields are optionally included in the response.  Which of these optional
 	// fields are included is indicated by this byte, 'fieldsPresent'.  The set
 	// of optional fields includes 'statusString', 'appStatusString', and 'exceptionLength'.
 	fieldsPresent, err := readUint8(r)
 	if err != nil {
-		return nil, err
-	}
-
-	statusB, err := readByte(r)
-	if err != nil {
-		return nil, err
-	}
-	status := Status(statusB)
-	if status != SUCCESS {
-		if fieldsPresent&(1<<5) != 0 {
-			statusString, err := readString(r)
-			if err != nil {
-				return nil, err
-			}
-			if statusString != "" {
-				return nil, errors.New(fmt.Sprintf("Unexpected status in response %d, %s\n", status.String(), statusString))
-			} else {
-				return nil, errors.New(fmt.Sprintf("Unexpected status in response %d\n", status.String()))
-
-			}
-		}
-	}
-
-	appStatus, err := readByte(r)
-	if err != nil {
-		return nil, err
-	}
-	var appStatusString string
-	if fieldsPresent&(1<<7) != 0 {
-		appStatusString, err = readString(r)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	clusterRoundTripTime, err := readInt(r)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewVoltResult(handle, appStatus, appStatusString, clusterRoundTripTime), nil
-}
-
-// readCallResponse reads a stored procedure invocation response.
-func deserializeRows(r io.Reader, handle int64) (rows driver.Rows) {
-	// Some fields are optionally included in the response.  Which of these optional
-	// fields are included is indicated by this byte, 'fieldsPresent'.  The set
-	// of optional fields includes 'statusString', 'appStatusString', and 'exceptionLength'.
-	fieldsPresent, err := readUint8(r)
-	if err != nil {
-		return *(newVoltRows(handle, 0, "", 0, "", 0, 0, nil, err))
+		return *(newVoltResult(handle, 0, "", 0, "", 0, err))
 	}
 
 	status, err := readByte(r)
 	if err != nil {
-		return *(newVoltRows(handle, 0, "", 0, "", 0, 0, nil, err))
+		return *(newVoltResult(handle, 0, "", 0, "", 0, err))
 	}
 	var statusString string
 	if Status(status) != SUCCESS {
-		if fieldsPresent&(1<<5) != 0 {
+		if fieldsPresent & (1 << 5) != 0 {
 			statusString, err = readString(r)
 			if err != nil {
-				return *(newVoltRows(handle, status, "", 0, "", 0, 0, nil, err))
+				return *(newVoltResult(handle, status, "", 0, "", 0, err))
 			}
 		}
-		return *(newVoltRows(handle, status, statusString, 0, "", 0, 0, nil, nil))
+		errString := fmt.Sprintf("Bad status %s %s\n", Status(status).String(), statusString)
+		return *(newVoltResult(handle, status, statusString, 0, "", 0, errors.New(errString)))
 	}
 
 	appStatus, err := readByte(r)
 	if err != nil {
-		return *(newVoltRows(handle, status, statusString, 0, "", 0, 0, nil, err))
+		return *(newVoltResult(handle, status, statusString, 0, "", 0, err))
 	}
 	var appStatusString string
-	if fieldsPresent&(1<<7) != 0 {
-		appStatusString, err = readString(r)
-		if err != nil {
-			return *(newVoltRows(handle, status, statusString, appStatus, "" , 0, 0, nil, err))
+	if appStatus != 0 && appStatus != math.MinInt8 {
+		if fieldsPresent & (1 << 7) != 0 {
+			appStatusString, err = readString(r)
+			if err != nil {
+				return *(newVoltResult(handle, status, statusString, appStatus, "", 0, err))
+			}
 		}
+		errString := fmt.Sprintf("Bad app status %d %s\n", appStatus, appStatusString)
+		return *(newVoltResult(handle, status, statusString, 0, "", 0, errors.New(errString)))
 	}
 
 	clusterRoundTripTime, err := readInt(r)
 	if err != nil {
-		return *(newVoltRows(handle, status, statusString, appStatus, appStatusString , 0, 0, nil, err))
+		return *(newVoltResult(handle, status, statusString, appStatus, appStatusString , 0, err))
 	}
 
+	return *(newVoltResult(handle, status, statusString, appStatus, appStatusString, clusterRoundTripTime, nil))
+}
+
+// readCallResponse reads a stored procedure invocation response.
+func deserializeRows(r io.Reader, handle int64) (rows driver.Rows) {
+	res := deserializeResult(r, handle)
+	vres := res.(VoltResult)
+	if vres.error() != nil {
+		return newVoltRows(vres, 0, nil)
+	}
 	numTables, err := readShort(r)
 	if err != nil {
-		return *(newVoltRows(handle, status, statusString, appStatus, appStatusString , clusterRoundTripTime, 0, nil, err))
+		vres.setError(err)
+		return *(newVoltRows(vres, 0, nil))
 	}
 	if numTables < 0 {
 		err := errors.New("Negative value for numTables")
-		return *(newVoltRows(handle, status, statusString, appStatus, appStatusString , clusterRoundTripTime, 0, nil, err))
+		vres.setError(err)
+		return *(newVoltRows(vres, 0, nil))
 	}
 	tables := make([]*VoltTable, numTables)
 	for idx, _ := range tables {
 		if tables[idx], err = deserializeTable(r); err != nil {
-			return *(newVoltRows(handle, status, statusString, appStatus, appStatusString , clusterRoundTripTime, numTables, nil, err))
+			vres.setError(err)
+			return *(newVoltRows(vres, numTables, nil))
 		}
 	}
 
-	vr := newVoltRows(handle, status, statusString, appStatus, appStatusString, clusterRoundTripTime, numTables, tables, nil)
+	vr := newVoltRows(vres, numTables, tables)
 	return *vr
 }
 

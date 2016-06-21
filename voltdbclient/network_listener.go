@@ -108,7 +108,7 @@ func (l *NetworkListener) readResponse(r io.Reader) {
 		rows := deserializeRows(buf, handle)
 		queryChan <- rows
 	} else if isExec {
-		result, err := deserializeResult(buf, handle)
+		result := deserializeResult(buf, handle)
 		if err != nil {
 			// TODO: put the error on the response
 		}
