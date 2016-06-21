@@ -57,32 +57,29 @@ func (l *NetworkListener) listen() {
 			l.wg.Done()
 			break
 		}
-		l.readResponse(l.reader)
+		// can't do anything without a handle.  If reading the handle fails,
+		// then log and drop the message.
+		buf, err := readMessage(l.reader)
+		if err != nil {
+			// TODO: log
+			fmt.Printf("Error reading response %v\n", err)
+			return
+		}
+		handle, err := readLong(buf)
+		if err != nil {
+			// TODO: log
+			fmt.Printf("Error reading handle %v\n", err)
+			continue
+		}
+		l.readResponse(buf, handle)
 	}
-}
-
-// read the client handle
-func (l *NetworkListener) readHandle(r io.Reader) (handle int64, err error) {
-	handle, err = readLong(r)
-	if err != nil {
-		return 0, err
-	}
-	return handle, nil
 }
 
 // reads and deserializes a response from the server.
-func (l *NetworkListener) readResponse(r io.Reader) {
-	buf, err := readMessage(r)
-	if err != nil {
-		fmt.Println("Failed to read response from server")
-		return
-	}
+func (l *NetworkListener) readResponse(r io.Reader, handle int64) {
 
-	handle, err := l.readHandle(buf)
-	if err != nil {
-		fmt.Println("Failed to read handle on response from server")
-		return
-	}
+	rsp := deserializeResponse(r, handle)
+
 	var isQuery bool
 	var isExec bool = false
 	var queryChan chan driver.Rows
@@ -105,13 +102,10 @@ func (l *NetworkListener) readResponse(r io.Reader) {
 	}
 
 	if isQuery {
-		rows := deserializeRows(buf, handle)
+		rows := deserializeRows(r, rsp)
 		queryChan <- rows
 	} else if isExec {
-		result := deserializeResult(buf, handle)
-		if err != nil {
-			// TODO: put the error on the response
-		}
+		result := newVoltResult(rsp)
 		execChan <- result
 	} else {
 		fmt.Printf("Unexpected response from server, not Query or Exec\n")

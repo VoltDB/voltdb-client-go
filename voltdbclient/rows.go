@@ -32,15 +32,15 @@ var NULL_DECIMAL = [...]byte{128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 var NULL_TIMESTAMP = [...]byte{128, 0, 0, 0, 0, 0, 0, 0}
 
 type VoltRows struct {
-	VoltResult
+	VoltResponse
 	numTables  int16
 	tables     []*VoltTable
 	tableIndex int16
 }
 
-func newVoltRows(result VoltResult, numTables int16, tables []*VoltTable) *VoltRows {
+func newVoltRows(resp VoltResponse, numTables int16, tables []*VoltTable) *VoltRows {
 	var vr = new(VoltRows)
-	vr.VoltResult = result
+	vr.VoltResponse = resp
 	vr.numTables = numTables
 	vr.tables = tables
 	vr.tableIndex = 0

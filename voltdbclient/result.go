@@ -17,59 +17,18 @@
 package voltdbclient
 
 type VoltResult struct {
-	clientHandle         int64
-	status               int8
-	statusString         string
-	appStatus            int8
-	appStatusString      string
-	clusterRoundTripTime int32
-	err                  error
+	VoltResponse
 }
 
-func newVoltResult(clientHandle int64, status int8, statusString string, appStatus int8, appStatusString string, clusterRoundTripTime int32, err error) *VoltResult {
-	var vres = new(VoltResult)
-	vres.clientHandle = clientHandle
-	vres.status = status
-	vres.statusString = statusString
-	vres.appStatus = appStatus
-	vres.appStatusString = appStatusString
-	vres.clusterRoundTripTime = clusterRoundTripTime
-	vres.err = err
-	return vres
+func newVoltResult(resp VoltResponse) *VoltResult {
+	var vrslt = new(VoltResult)
+	return vrslt
 }
 
-func (vres VoltResult) LastInsertId() (int64, error) {
+func (vrslt VoltResult) LastInsertId() (int64, error) {
 	return 0, nil
 }
 
-func (vres VoltResult) RowsAffected() (int64, error) {
+func (vrslt VoltResult) RowsAffected() (int64, error) {
 	return 0, nil
-}
-
-func (vres VoltResult) AppStatus() int8 {
-	return vres.appStatus
-}
-
-func (vres VoltResult) AppStatusString() string {
-	return vres.appStatusString
-}
-
-func (vres VoltResult) ClusterRoundTripTime() int32 {
-	return vres.clusterRoundTripTime
-}
-
-func (vres VoltResult) error() error {
-	return vres.err
-}
-
-func (vres VoltResult) setError(err error) {
-	vres.err = err
-}
-
-func (vres VoltResult) Status() int8 {
-	return vres.status
-}
-
-func (vres VoltResult) StatusString() string {
-	return vres.statusString
 }
