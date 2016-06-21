@@ -103,7 +103,8 @@ func OpenConn(connInfo string) (*VoltConn, error) {
 }
 
 func (vc VoltConn) Prepare(query string) (driver.Stmt, error) {
-	panic("Prepare is not supported by a Volt Connection")
+	stmt := newVoltStatement(&vc, query)
+	return *stmt, nil
 }
 
 func (vc VoltConn) Exec(query string, args []driver.Value) (driver.Result, error) {
@@ -116,7 +117,7 @@ func (vc VoltConn) Exec(query string, args []driver.Value) (driver.Result, error
 		vc.netListener.removeRequest(handle)
 		return VoltResult{}, err
 	}
-	resp := <- c
+	resp := <-c
 	rslt := resp.(VoltResult)
 	if err := rslt.getError(); err != nil {
 		return nil, err
@@ -149,7 +150,7 @@ func (vc VoltConn) Query(query string, args []driver.Value) (driver.Rows, error)
 		vc.netListener.removeRequest(handle)
 		return VoltRows{}, err
 	}
-	resp := <- c
+	resp := <-c
 	rows := resp.(VoltRows)
 	if err := rows.getError(); err != nil {
 		return nil, err
@@ -356,7 +357,7 @@ func (vasr *VoltAsyncResponse) IsActive() bool {
 	return vasr.active
 }
 
-func (vasr *VoltAsyncResponse) IsQuery () bool {
+func (vasr *VoltAsyncResponse) IsQuery() bool {
 	return vasr.isQuery
 }
 

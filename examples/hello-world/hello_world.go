@@ -37,7 +37,24 @@ func main() {
 		log.Fatal(err)
 		os.Exit(-1)
 	}
+	printRow(rows)
 
+	// with prepared statement
+	stmt, err := conn.Prepare("HELLOWORLD.select")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+
+	rows, err = stmt.Query([]driver.Value{"French"})
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+	printRow(rows)
+}
+
+func printRow(rows driver.Rows) {
 	voltRows := rows.(voltdbclient.VoltRows)
 	if voltRows.AdvanceRow() {
 		hello, err := voltRows.GetStringByName("HELLO")

@@ -43,12 +43,30 @@ func main() {
 		log.Fatal(err)
 		os.Exit(-1)
 	}
+	printRows(rows)
 
+	// with prepared statement
+	stmt, err := db.Prepare("HELLOWORLD.select")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+
+	rows, err = stmt.Query("French")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+	printRows(rows)
+
+}
+
+func printRows(rows *sql.Rows) {
 	for rows.Next() {
 		var hello string
 		var world string
 		var dialect string
-		err = rows.Scan(&hello, &world, &dialect)
+		err := rows.Scan(&hello, &world, &dialect)
 		if err != nil {
 			fmt.Println(err)
 			break
