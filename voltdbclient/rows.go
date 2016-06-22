@@ -33,6 +33,7 @@ var NULL_TIMESTAMP = [...]byte{128, 0, 0, 0, 0, 0, 0, 0}
 
 type VoltRows struct {
 	VoltResponse
+	closed     bool
 	numTables  int16
 	tables     []*VoltTable
 	tableIndex int16
@@ -41,28 +42,41 @@ type VoltRows struct {
 func newVoltRows(resp VoltResponse, numTables int16, tables []*VoltTable) *VoltRows {
 	var vr = new(VoltRows)
 	vr.VoltResponse = resp
+	vr.closed = false
 	vr.numTables = numTables
 	vr.tables = tables
-	vr.tableIndex = 0
+	if len(tables) == 0 {
+		vr.tableIndex = -1
+	} else {
+		vr.tableIndex = 0
+	}
 	return vr
 }
 
 // interface for database/sql/driver.Rows
 func (vr VoltRows) Close() error {
+	vr.closed = true
 	return nil
 }
 
 func (vr VoltRows) Columns() []string {
 	rv := make([]string, 0)
-	rv = append(rv, vr.table().columnNames...)
+	if vr.isValidTable() {
+		rv = append(rv, vr.table().columnNames...)
+	}
 	return rv
 }
 
 func (vr VoltRows) Next(dest []driver.Value) (err error) {
-	if vr.getError() != nil {
-		return err
+	if vr.closed {
+		return errors.New("Rows are closed")
+	}
+	if !vr.isValidTable() {
+		return errors.New("No valid table")
 	}
 	if !vr.table().AdvanceRow() {
+		// the go doc says to set rows closed when 'Next' return false.  we won't do that
+		// because there can be more than one table.
 		return io.EOF
 	}
 	if vr.table().getColumnCount() != len(dest) {
@@ -137,15 +151,12 @@ func (vr VoltRows) Next(dest []driver.Value) (err error) {
 // volt api
 
 func (vr VoltRows) AdvanceRow() bool {
-	if vr.getError() != nil {
-		panic("Check error with Error() before calling AdvanceRow()")
-	}
 	return vr.table().AdvanceRow()
 }
 
 func (vr VoltRows) AdvanceToRow(rowIndex int32) bool {
-	if vr.getError() != nil {
-		panic("Check error with Error() before calling AdvanceToRow()")
+	if vr.closed || !vr.isValidTable() {
+		return false
 	}
 	return vr.table().AdvanceToRow(rowIndex)
 }
@@ -159,12 +170,17 @@ func (vr VoltRows) AdvanceTable() bool {
 }
 
 func (vr VoltRows) ColumnCount() int {
+	if !vr.isValidTable() {
+		return 0
+	}
 	return int(vr.table().columnCount)
 }
 
 func (vr VoltRows) ColumnTypes() []int8 {
 	rv := make([]int8, 0)
-	rv = append(rv, vr.table().columnTypes...)
+	if vr.isValidTable() {
+		rv = append(rv, vr.table().columnTypes...)
+	}
 	return rv
 }
 
@@ -382,6 +398,10 @@ func (vr VoltRows) GetVarbinaryByName(cn string) (interface{}, error) {
 		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
 	return vr.GetVarbinary(ci)
+}
+
+func (vr VoltRows) isValidTable() bool {
+	return vr.tableIndex != -1
 }
 
 func (vr VoltRows) table() *VoltTable {
