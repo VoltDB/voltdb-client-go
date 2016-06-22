@@ -66,13 +66,19 @@ func (vc VoltConn) Begin() (driver.Tx, error) {
 }
 
 func (vc VoltConn) Close() (err error) {
-	// stop the network listener, wait for it to stop.
+
+	// stop the network listener
 	vc.netListener.stop()
-	vc.nlwg.Wait()
+
+	// close the tcp conn, will unblock the listener.
 	if vc.reader != nil {
 		tcpConn := vc.reader.(*net.TCPConn)
 		err = tcpConn.Close()
 	}
+
+	// network thread should return.
+	vc.nlwg.Wait()
+
 	vc.reader = nil
 	vc.writer = nil
 	vc.connData = nil

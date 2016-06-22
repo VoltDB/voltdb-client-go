@@ -56,13 +56,16 @@ func (l *NetworkListener) listen() {
 		// then log and drop the message.
 		buf, err := readMessage(l.reader)
 		if err != nil {
-			// TODO: log
-			fmt.Printf("Error reading response %v\n", err)
+			// Closing the TCPConn will
+			// come there.  Check if the listener is closed
+			if !(l.hasBeenStopped == 1) {
+				fmt.Println("Network listener lost connection to server")
+			}
+			l.wg.Done()
 			return
 		}
 		handle, err := readLong(buf)
 		if err != nil {
-			// TODO: log
 			fmt.Printf("Error reading handle %v\n", err)
 			continue
 		}
