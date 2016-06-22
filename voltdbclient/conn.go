@@ -45,7 +45,7 @@ type VoltConn struct {
 	connData    *connectionData
 	asyncs      map[int64]*VoltAsyncResponse
 	netListener *NetworkListener
-	nlwg        sync.WaitGroup
+	nlwg        *sync.WaitGroup
 	isOpen      bool
 }
 
@@ -54,7 +54,7 @@ func newVoltConn(reader io.Reader, writer io.Writer, connData *connectionData) *
 	vc.reader = reader
 	vc.writer = writer
 	vc.asyncs = make(map[int64]*VoltAsyncResponse)
-	vc.nlwg = sync.WaitGroup{}
+	vc.nlwg = &(sync.WaitGroup{})
 	vc.netListener = newListener(reader, vc.nlwg)
 	vc.netListener.start()
 	vc.isOpen = true

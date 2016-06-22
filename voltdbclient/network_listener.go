@@ -30,11 +30,11 @@ type NetworkListener struct {
 	reader         io.Reader
 	requests       map[int64]*NetworkRequest
 	requestMutex   sync.Mutex
-	wg             sync.WaitGroup
+	wg             *sync.WaitGroup
 	hasBeenStopped int32
 }
 
-func newListener(reader io.Reader, wg sync.WaitGroup) *NetworkListener {
+func newListener(reader io.Reader, wg *sync.WaitGroup) *NetworkListener {
 	var l = new(NetworkListener)
 	l.reader = reader
 	l.requests = make(map[int64]*NetworkRequest)

@@ -35,20 +35,21 @@ func TestCallOnClosedConn(t *testing.T) {
 	}
 }
 
-func TestReadDataTypes(t *testing.T) {
+func ReadDataTypes(t *testing.T) {
 	b, err := ioutil.ReadFile("./test_resources/examples_of_types.msg")
 	check(t, err)
 	r := bytes.NewReader(b)
 
-	nl := newListener(r)
+	nl := newListener(r, nil)
 	var handle int64 = 1
-	ch := nl.registerQuery(handle)
+	ch := nl.registerRequest(handle, true)
 
-	nl.readResponse(r)
-	rows := <-ch
+	nl.readResponse(r, handle)
+	vr := <-ch
+	vrows := vr.(VoltRows)
 
 	expCols := []string{"ID", "NULLABLE_ID", "NAME", "DATA", "STATUS", "TYPE", "PAN", "BALANCE_OPEN", "BALANCE", "LAST_UPDATED"}
-	actCols := rows.Columns()
+	actCols := vrows.Columns()
 	if len(expCols) != len(actCols) {
 		t.Logf("Unexpected buffer length, expected: %d, actual: %d", len(expCols), len(actCols))
 		t.FailNow()
@@ -61,8 +62,6 @@ func TestReadDataTypes(t *testing.T) {
 		}
 	}
 
-	// check three rows
-	vrows := rows.(VoltRows)
 	if !vrows.AdvanceRow() {
 		t.Logf("Didn't see expected row")
 		t.FailNow()
