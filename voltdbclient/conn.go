@@ -27,6 +27,7 @@ import (
 	"reflect"
 	"sync"
 	"sync/atomic"
+	"math"
 )
 
 var qHandle int64 = 0 // each query has a unique handle.
@@ -182,54 +183,67 @@ func (vc VoltConn) QueryAsync(query string, args []driver.Value) (*VoltAsyncResp
 func (vc VoltConn) Drain(vasrs []*VoltAsyncResponse) {
 	idxs := []int{} // index into the given slice
 	cases := []reflect.SelectCase{}
-	for idx, vqr := range vasrs {
-		if vqr.IsActive() {
-			idxs = append(idxs, idx)
-			cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(vqr.channel())})
+
+	// are limited to processing 65535 (math.MaxUint16) select cases at a time.
+	var moreResponses bool = true
+
+	for moreResponses {
+		for idx, vasr := range vasrs {
+			if vasr.IsActive() {
+				idxs = append(idxs, idx)
+				cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(vasr.channel())})
+				if len(cases) == math.MaxUint16 {
+					break
+				}
+			}
 		}
-	}
 
-	for len(idxs) > 0 {
-		chosen, val, ok := reflect.Select(cases)
+		if len(cases) < math.MaxUint16 {
+			moreResponses = false
+		}
 
-		// idiom for removing from the middle of a slice
-		idx := idxs[chosen]
-		idxs[chosen] = idxs[len(idxs)-1]
-		idxs = idxs[:len(idxs)-1]
+		for len(idxs) > 0 {
+			chosen, val, ok := reflect.Select(cases)
 
-		cases[chosen] = cases[len(cases)-1]
-		cases = cases[:len(cases)-1]
+			// idiom for removing from the middle of a slice
+			idx := idxs[chosen]
+			idxs[chosen] = idxs[len(idxs) - 1]
+			idxs = idxs[:len(idxs) - 1]
 
-		chosenResponse := vasrs[idx]
-		// if not ok, the channel was closed
-		if !ok {
-			chosenResponse.setError(errors.New("Result was not available, channel was closed"))
-		} else {
-			// check the returned value
-			if val.Kind() != reflect.Interface {
-				chosenResponse.setError(errors.New("unexpected return type, not an interface"))
+			cases[chosen] = cases[len(cases) - 1]
+			cases = cases[:len(cases) - 1]
+
+			chosenResponse := vasrs[idx]
+			// if not ok, the channel was closed
+			if !ok {
+				chosenResponse.setError(errors.New("Result was not available, channel was closed"))
 			} else {
-				rows, ok := val.Interface().(driver.Rows)
-				if ok {
-					vrows := rows.(VoltRows)
-					if vrows.getError() != nil {
-						chosenResponse.setError(vrows.getError())
-					} else {
-						chosenResponse.setRows(rows)
+				// check the returned value
+				if val.Kind() != reflect.Interface {
+					chosenResponse.setError(errors.New("unexpected return type, not an interface"))
+				} else {
+					rows, ok := val.Interface().(driver.Rows)
+					if ok {
+						vrows := rows.(VoltRows)
+						if vrows.getError() != nil {
+							chosenResponse.setError(vrows.getError())
+						} else {
+							chosenResponse.setRows(rows)
+						}
+						continue
 					}
-					continue
-				}
-				rslt, ok := val.Interface().(driver.Result)
-				if ok {
-					vrslt := rslt.(VoltResult)
-					if vrslt.getError() != nil {
-						chosenResponse.setError(vrslt.getError())
-					} else {
-						chosenResponse.setResult(rslt)
+					rslt, ok := val.Interface().(driver.Result)
+					if ok {
+						vrslt := rslt.(VoltResult)
+						if vrslt.getError() != nil {
+							chosenResponse.setError(vrslt.getError())
+						} else {
+							chosenResponse.setResult(rslt)
+						}
+						continue
 					}
-					continue
+					chosenResponse.setError(errors.New("unexpected return type, not driver.Rows or driver.Result"))
 				}
-				chosenResponse.setError(errors.New("unexpected return type, not driver.Rows or driver.Result"))
 			}
 		}
 	}
