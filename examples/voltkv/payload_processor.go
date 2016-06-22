@@ -17,25 +17,29 @@
 package main
 
 import (
-
-)
-import (
-	"fmt"
-	"math/rand"
-	"compress/gzip"
 	"bytes"
+	"compress/gzip"
+	"fmt"
+	"io/ioutil"
+	"math/rand"
+	"strconv"
 )
 
 type payLoadProcessor struct {
-	keySize int
-	minValueSize int
-	maxValueSize int
-	entropy int
-	poolSize int
+	keySize        int
+	minValueSize   int
+	maxValueSize   int
+	entropy        int
+	poolSize       int
 	useCompression bool
-	keyFormat string
-	r rand.Rand
+	keyFormat      string
+	r              rand.Rand
 }
+
+// var entropyBytesGlobal bytes.Buffer = new(bytes.Buffer)
+const EntropyByteSize int = 1024 * 1024 * 4
+
+var entropyBytes *bytes.Reader
 
 func NewPayloadProcessor(keySize, minValueSize, maxValueSize, entropy, poolSize int, useCompression bool) *payLoadProcessor {
 	proc := new(payLoadProcessor)
@@ -46,26 +50,53 @@ func NewPayloadProcessor(keySize, minValueSize, maxValueSize, entropy, poolSize 
 	proc.poolSize = poolSize
 	proc.useCompression = useCompression
 
-	proc.keyFormat = "K%v"
+	proc.keyFormat = "K%" + strconv.Itoa(proc.keySize) + "v"
 	// rand.Seed()
+	b := make([]byte, EntropyByteSize)
+	for i := range b {
+		b[i] = byte(rand.Intn(127) % entropy)
+	}
+	entropyBytes = bytes.NewReader(b)
 	return proc
 }
 
-var entropyBytesGlobal bytes.Buffer
-
-func (proc *payLoadProcessor) generateForStore() (key string, rawValue, StoreValue []byte) {
+func (proc *payLoadProcessor) generateForStore() (key string, rawValue, storeValue []byte) {
 	key = fmt.Sprintf(proc.keyFormat, rand.Intn(proc.poolSize))
-	rawValue = make([]byte,proc.minValueSize+rand.Intn(proc.maxValueSize-proc.minValueSize + 1))
-	// fill rawValue
-
-	if (proc.useCompression) {
-		return key, rawValue, togzip(rawValue)
+	rawValue = make([]byte, proc.minValueSize+rand.Intn(proc.maxValueSize-proc.minValueSize+1))
+	if entropyBytes.Len() > len(rawValue) {
+		entropyBytes.Read(rawValue)
 	} else {
-		return key, rawValue, nil
+		entropyBytes.Seek(0, 0)
+		entropyBytes.Read(rawValue)
+	}
+	if proc.useCompression {
+		return key, rawValue, toGzip(rawValue)
+	} else {
+		return key, rawValue, rawValue
 	}
 }
 
-func togzip (raw []byte) []byte {
+func (proc *payLoadProcessor) generateRandomKeyForRetrieval() string {
+	return fmt.Sprintf(proc.keyFormat, rand.Intn(proc.poolSize))
+}
+
+func (proc *payLoadProcessor) retrieveFromStore(storeValue []byte) ([]byte, []byte) {
+	if proc.useCompression {
+		return fromGzip(storeValue), storeValue
+	} else {
+		return storeValue, storeValue
+	}
+}
+
+func fromGzip(compressed []byte) []byte {
+	var b = bytes.NewReader(compressed)
+	r, _ := gzip.NewReader(b)
+	decompressed, _ := ioutil.ReadAll(r)
+	r.Close()
+	return decompressed
+}
+
+func toGzip(raw []byte) []byte {
 	var b bytes.Buffer
 	w := gzip.NewWriter(&b)
 	w.Write(raw)
