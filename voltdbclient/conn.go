@@ -27,7 +27,6 @@ import (
 	"reflect"
 	"sync"
 	"sync/atomic"
-	"math"
 )
 
 var qHandle int64 = 0 // each query has a unique handle.
@@ -184,22 +183,19 @@ func (vc VoltConn) Drain(vasrs []*VoltAsyncResponse) {
 	idxs := []int{} // index into the given slice
 	cases := []reflect.SelectCase{}
 
-	// are limited to processing 65535 (math.MaxUint16) select cases at a time.
-	var moreResponses bool = true
-
-	for moreResponses {
+	for {
 		for idx, vasr := range vasrs {
 			if vasr.IsActive() {
 				idxs = append(idxs, idx)
 				cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(vasr.channel())})
-				if len(cases) == math.MaxUint16 {
+				if len(cases) == 100 {  // 100 at a time to limit garbage collection of slices
 					break
 				}
 			}
 		}
 
-		if len(cases) < math.MaxUint16 {
-			moreResponses = false
+		if len(cases) == 0 {
+			break
 		}
 
 		for len(idxs) > 0 {
