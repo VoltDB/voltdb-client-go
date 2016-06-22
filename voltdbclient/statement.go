@@ -20,18 +20,26 @@ package voltdbclient
 import (
 	"database/sql/driver"
 	"errors"
+	"regexp"
+)
+
+var (
+	inputFinder, _ = regexp.Compile("[?]")
 )
 
 type VoltStatement struct {
-	closed bool
-	query  string
-	conn   *VoltConn // the connection thot owns this statement.
+	closed   bool
+	query    string
+	numInput int
+	conn     *VoltConn // the connection thot owns this statement.
 }
 
 func newVoltStatement(conn *VoltConn, query string) *VoltStatement {
 	var vs = new(VoltStatement)
 	vs.conn = conn
 	vs.query = query
+	idx := inputFinder.FindAllStringIndex(query, -1)
+	vs.numInput = len(idx)
 	vs.closed = false
 	return vs
 }
@@ -45,33 +53,45 @@ func (vs VoltStatement) Close() error {
 }
 
 func (vs VoltStatement) NumInput() int {
-	return -1
+	return vs.numInput
 }
 
 func (vs VoltStatement) Exec(args []driver.Value) (driver.Result, error) {
 	if vs.closed {
 		return nil, errors.New("Can't invoke Exec, statement is closed")
 	}
-	return vs.conn.Exec(vs.query, args)
+	args = append(args, "")
+	copy(args[1:], args[0:])
+	args[0] = vs.query
+	return vs.conn.Exec("@AdHoc", args)
 }
 
 func (vs VoltStatement) ExecAsync(args []driver.Value) (*VoltAsyncResponse, error) {
 	if vs.closed {
 		return nil, errors.New("Can't invoke ExecAsync, statement is closed")
 	}
-	return vs.conn.ExecAsync(vs.query, args)
+	args = append(args, "")
+	copy(args[1:], args[0:])
+	args[0] = vs.query
+	return vs.conn.ExecAsync("@AdHoc", args)
 }
 
 func (vs VoltStatement) Query(args []driver.Value) (driver.Rows, error) {
 	if vs.closed {
 		return nil, errors.New("Can't invoke Query, statement is closed")
 	}
-	return vs.conn.Query(vs.query, args)
+	args = append(args, "")
+	copy(args[1:], args[0:])
+	args[0] = vs.query
+	return vs.conn.Query("@AdHoc", args)
 }
 
 func (vs VoltStatement) QueryAsync(args []driver.Value) (*VoltAsyncResponse, error) {
 	if vs.closed {
 		return nil, errors.New("Can't invoke QueryAsync, statement is closed")
 	}
-	return vs.conn.QueryAsync(vs.query, args)
+	args = append(args, "")
+	copy(args[1:], args[0:])
+	args[0] = vs.query
+	return vs.conn.QueryAsync("@AdHoc", args)
 }
