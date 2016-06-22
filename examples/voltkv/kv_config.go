@@ -19,19 +19,20 @@ package main
 import (
 	"errors"
 	"flag"
-	"time"
 	"fmt"
+	"time"
 )
 
 type runType string
+
 const (
-	ASYNC runType = "async"
-	SYNC runType = "sync"
+	ASYNC     runType = "async"
+	SYNC      runType = "sync"
 	STATEMENT runType = "statement"
 )
+
 func (p *runType) Set(s string) error {
 	*p = runType(s)
-	fmt.Println(s, p)
 	return nil
 }
 func (p *runType) String() string {
@@ -41,6 +42,7 @@ func (p *runType) String() string {
 type kvConfig struct {
 	displayinterval time.Duration
 	duration        time.Duration
+	warmup          time.Duration
 	servers         string
 	poolsize        int
 	preload         bool
@@ -51,15 +53,16 @@ type kvConfig struct {
 	entropy         int
 	usecompression  bool
 	goroutines      int
-	runtype		runType
+	runtype         runType
 }
 
 func NewKVConfig() (*kvConfig, error) {
 	kv := new(kvConfig)
 	flag.DurationVar(&(kv.displayinterval), "displayinterval", 5*time.Second, "Interval for performance feedback, in seconds.")
-	flag.DurationVar(&(kv.duration), "duration", 15*time.Second, "Benchmark duration, in seconds.")
-	flag.StringVar(&(kv.servers), "servers", "localhost", "Comma separated list of the form server[:port] to connect to.")
-	flag.IntVar(&(kv.poolsize), "poolsize", 10000, "Number of keys to preload.")
+	flag.DurationVar(&(kv.duration), "duration", 120*time.Second, "Benchmark duration, in seconds.")
+	flag.DurationVar(&(kv.warmup), "warmup", 5*time.Second, "Benchmark duration, in seconds.")
+	flag.StringVar(&(kv.servers), "servers", "localhost:21212", "Comma separated list of the form server[:port] to connect to.")
+	flag.IntVar(&(kv.poolsize), "poolsize", 100000, "Number of keys to preload.")
 	flag.BoolVar(&(kv.preload), "preload", true, "Whether to preload a specified number of keys and values.")
 	flag.Float64Var(&(kv.getputratio), "getputratio", 0.90, "Fraction of ops that are gets (vs puts).")
 	flag.IntVar(&(kv.keysize), "keysize", 32, "Size of keys in bytes.")
