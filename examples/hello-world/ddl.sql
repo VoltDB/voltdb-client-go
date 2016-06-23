@@ -5,4 +5,3 @@ CREATE TABLE helloworld (
    PRIMARY KEY (dialect)
 );
 PARTITION TABLE helloworld ON COLUMN dialect;
-

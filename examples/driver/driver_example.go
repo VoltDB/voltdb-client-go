@@ -54,7 +54,7 @@ func main() {
 		os.Exit(-1)
 	}
 
-	rows, err = stmt.Query("French")
+	rows, err = stmt.Query("c")
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
