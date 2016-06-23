@@ -60,7 +60,7 @@ func (vd *VoltDriver) newConnection(hostAndPort string) (driver.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	voltConn := newVoltConn(tcpConn, tcpConn, connData)
+	voltConn := newVoltConn(hostAndPort, tcpConn, tcpConn, *connData)
 	return *voltConn, nil
 }
 

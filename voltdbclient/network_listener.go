@@ -27,6 +27,7 @@ import (
 // the server.  If a callback (channel) is registered for the procedure, the
 // listener puts the response on the channel (calls back).
 type NetworkListener struct {
+	vc             *VoltConn
 	reader         io.Reader
 	requests       map[int64]*NetworkRequest
 	requestMutex   sync.Mutex
@@ -34,8 +35,9 @@ type NetworkListener struct {
 	hasBeenStopped int32
 }
 
-func newListener(reader io.Reader, wg *sync.WaitGroup) *NetworkListener {
+func newListener(vc *VoltConn, reader io.Reader, wg *sync.WaitGroup) *NetworkListener {
 	var l = new(NetworkListener)
+	l.vc = vc
 	l.reader = reader
 	l.requests = make(map[int64]*NetworkRequest)
 	l.requestMutex = sync.Mutex{}
@@ -56,15 +58,18 @@ func (l *NetworkListener) listen() {
 		// then log and drop the message.
 		buf, err := readMessage(l.reader)
 		if err != nil {
-			// Closing the TCPConn will
-			// come there.  Check if the listener is closed
-			if !(l.hasBeenStopped == 1) {
-				fmt.Println("Network listener lost connection to server")
+			if l.hasBeenStopped == 1 {
+				// notify the stopping thread that this thread is unblocked and is exiting.
+				l.wg.Done()
+			} else {
+				// have lost connection.  reestablish connection here and let this thread exit.
+				l.vc.Reconnect()
 			}
-			l.wg.Done()
 			return
 		}
 		handle, err := readLong(buf)
+		// can't do anything without a handle.  If reading the handle fails,
+		// then log and drop the message.
 		if err != nil {
 			fmt.Printf("Error reading handle %v\n", err)
 			continue

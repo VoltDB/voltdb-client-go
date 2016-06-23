@@ -27,6 +27,7 @@ import (
 	"reflect"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 var qHandle int64 = 0 // each query has a unique handle.
@@ -39,25 +40,30 @@ type connectionData struct {
 	buildString string
 }
 
-type VoltConn struct {
+type connectionState struct {
+	connInfo    string
 	reader      io.Reader
 	writer      io.Writer
-	connData    *connectionData
+	connData    connectionData
 	asyncs      map[int64]*VoltAsyncResponse
-	netListener *NetworkListener
+	nl          *NetworkListener
 	nlwg        *sync.WaitGroup
 	isOpen      bool
 }
 
-func newVoltConn(reader io.Reader, writer io.Writer, connData *connectionData) *VoltConn {
+type VoltConn struct {
+	cs     *connectionState
+}
+
+func newVoltConn(connInfo string, reader io.Reader, writer io.Writer, connectionData connectionData) *VoltConn {
 	var vc = new(VoltConn)
-	vc.reader = reader
-	vc.writer = writer
-	vc.asyncs = make(map[int64]*VoltAsyncResponse)
-	vc.nlwg = &(sync.WaitGroup{})
-	vc.netListener = newListener(reader, vc.nlwg)
-	vc.netListener.start()
-	vc.isOpen = true
+
+	asyncs := make(map[int64]*VoltAsyncResponse)
+	wg := sync.WaitGroup{}
+	nl := newListener(vc, reader, &wg)
+	cs := connectionState{connInfo, reader, writer, connectionData, asyncs, nl, &wg, true}
+	vc.cs = &cs
+	nl.start()
 	return vc
 }
 
@@ -66,24 +72,74 @@ func (vc VoltConn) Begin() (driver.Tx, error) {
 }
 
 func (vc VoltConn) Close() (err error) {
+	if !vc.isOpen() {
+		return
+	}
 
 	// stop the network listener
-	vc.netListener.stop()
+	vc.nl().stop()
 
 	// close the tcp conn, will unblock the listener.
-	if vc.reader != nil {
-		tcpConn := vc.reader.(*net.TCPConn)
+	if vc.reader() != nil {
+		tcpConn := vc.reader().(*net.TCPConn)
 		err = tcpConn.Close()
 	}
 
 	// network thread should return.
-	vc.nlwg.Wait()
+	vc.nlwg().Wait()
 
-	vc.reader = nil
-	vc.writer = nil
-	vc.connData = nil
-	vc.isOpen = false
+	vc.cs.isOpen = false
 	return err
+}
+
+func (vc VoltConn) Reconnect() {
+	var first bool = true
+	for {
+		if first {
+			first = false
+		} else {
+			time.Sleep(10 * time.Microsecond)
+		}
+		raddr, err := net.ResolveTCPAddr("tcp", vc.cs.connInfo)
+		if err != nil {
+			fmt.Printf("Failed to resolve tcp address of server %s\n", err)
+			continue
+		}
+		tcpConn, err := net.DialTCP("tcp", nil, raddr)
+		if err != nil {
+			fmt.Printf("Failed to connect to server %s\n", err)
+			continue
+		}
+		login, err := serializeLoginMessage("", "")
+		if err != nil {
+			fmt.Printf("Failed to serialize login message %s\n", err)
+			continue
+		}
+		writeLoginMessage(tcpConn, &login)
+		if err != nil {
+			fmt.Printf("Failed to writing login message to server %s\n", err)
+			continue
+		}
+		connectionData, err := readLoginResponse(tcpConn)
+		if err != nil {
+			fmt.Printf("Did not receive response to login request to server%s\n", err)
+			continue
+		}
+
+		asyncs := make(map[int64]*VoltAsyncResponse)
+		wg := sync.WaitGroup{}
+		nl := newListener(&vc, tcpConn, &wg)
+
+		vc.cs.reader = tcpConn
+		vc.cs.writer = tcpConn
+		vc.cs.connData = *connectionData
+		vc.cs.asyncs = asyncs
+		vc.cs.nl = nl
+		vc.cs.nlwg = &wg
+		vc.cs.isOpen = true
+		nl.start()
+		break
+	}
 }
 
 func OpenConn(connInfo string) (*VoltConn, error) {
@@ -105,7 +161,7 @@ func OpenConn(connInfo string) (*VoltConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newVoltConn(tcpConn, tcpConn, connData), nil
+	return newVoltConn(connInfo, tcpConn, tcpConn, *connData), nil
 }
 
 func (vc VoltConn) Prepare(query string) (driver.Stmt, error) {
@@ -114,13 +170,13 @@ func (vc VoltConn) Prepare(query string) (driver.Stmt, error) {
 }
 
 func (vc VoltConn) Exec(query string, args []driver.Value) (driver.Result, error) {
-	if !vc.isOpen {
+	if !vc.isOpen() {
 		return nil, errors.New("Connection is closed")
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
-	c := vc.netListener.registerRequest(handle, false)
-	if err := vc.serializeQuery(vc.writer, query, handle, args); err != nil {
-		vc.netListener.removeRequest(handle)
+	c := vc.nl().registerRequest(handle, false)
+	if err := vc.serializeQuery(vc.writer(), query, handle, args); err != nil {
+		vc.nl().removeRequest(handle)
 		return VoltResult{}, err
 	}
 	resp := <-c
@@ -132,28 +188,28 @@ func (vc VoltConn) Exec(query string, args []driver.Value) (driver.Result, error
 }
 
 func (vc VoltConn) ExecAsync(query string, args []driver.Value) (*VoltAsyncResponse, error) {
-	if !vc.isOpen {
+	if !vc.isOpen() {
 		return nil, errors.New("Connection is closed")
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
-	c := vc.netListener.registerRequest(handle, false)
-	vasr := newVoltAsyncResponse(&vc, handle, c, false)
+	c := vc.nl().registerRequest(handle, false)
+	vasr := newVoltAsyncResponse(vc, handle, c, false)
 	vc.registerAsync(handle, vasr)
-	if err := vc.serializeQuery(vc.writer, query, handle, args); err != nil {
-		vc.netListener.removeRequest(handle)
+	if err := vc.serializeQuery(vc.writer(), query, handle, args); err != nil {
+		vc.nl().removeRequest(handle)
 		return nil, err
 	}
 	return vasr, nil
 }
 
 func (vc VoltConn) Query(query string, args []driver.Value) (driver.Rows, error) {
-	if !vc.isOpen {
+	if !vc.isOpen() {
 		return nil, errors.New("Connection is closed")
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
-	c := vc.netListener.registerRequest(handle, true)
-	if err := vc.serializeQuery(vc.writer, query, handle, args); err != nil {
-		vc.netListener.removeRequest(handle)
+	c := vc.nl().registerRequest(handle, true)
+	if err := vc.serializeQuery(vc.writer(), query, handle, args); err != nil {
+		vc.nl().removeRequest(handle)
 		return VoltRows{}, err
 	}
 	resp := <-c
@@ -165,15 +221,15 @@ func (vc VoltConn) Query(query string, args []driver.Value) (driver.Rows, error)
 }
 
 func (vc VoltConn) QueryAsync(query string, args []driver.Value) (*VoltAsyncResponse, error) {
-	if !vc.isOpen {
+	if !vc.isOpen() {
 		return nil, errors.New("Connection is closed")
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
-	c := vc.netListener.registerRequest(handle, true)
-	vasr := newVoltAsyncResponse(&vc, handle, c, true)
+	c := vc.nl().registerRequest(handle, true)
+	vasr := newVoltAsyncResponse(vc, handle, c, true)
 	vc.registerAsync(handle, vasr)
-	if err := vc.serializeQuery(vc.writer, query, handle, args); err != nil {
-		vc.netListener.removeRequest(handle)
+	if err := vc.serializeQuery(vc.writer(), query, handle, args); err != nil {
+		vc.nl().removeRequest(handle)
 		return nil, err
 	}
 	return vasr, nil
@@ -246,9 +302,9 @@ func (vc VoltConn) Drain(vasrs []*VoltAsyncResponse) {
 }
 
 func (vc VoltConn) DrainAll() []*VoltAsyncResponse {
-	vasrs := make([]*VoltAsyncResponse, len(vc.asyncs))
+	vasrs := make([]*VoltAsyncResponse, len(vc.asyncs()))
 	i := 0
-	for _, vasr := range vc.asyncs {
+	for _, vasr := range vc.asyncs() {
 		vasrs[i] = vasr
 		i++
 	}
@@ -258,21 +314,45 @@ func (vc VoltConn) DrainAll() []*VoltAsyncResponse {
 
 func (vc VoltConn) ExecutingAsyncs() []*VoltAsyncResponse {
 	// don't copy the queries themselves, but copy the list
-	vasrs := make([]*VoltAsyncResponse, len(vc.asyncs))
+	vasrs := make([]*VoltAsyncResponse, len(vc.asyncs()))
 	i := 0
-	for _, vasr := range vc.asyncs {
+	for _, vasr := range vc.asyncs() {
 		vasrs[i] = vasr
 		i++
 	}
 	return vasrs
 }
 
+func (vc VoltConn) asyncs() map[int64]*VoltAsyncResponse {
+	return vc.cs.asyncs
+}
+
+func (vc VoltConn) isOpen() bool {
+	return vc.cs.isOpen
+}
+
+func (vc VoltConn) nl() *NetworkListener {
+	return vc.cs.nl
+}
+
+func (vc VoltConn) nlwg() *sync.WaitGroup {
+	return vc.cs.nlwg
+}
+
+func (vc VoltConn) reader() io.Reader {
+	return vc.cs.reader
+}
+
+func (vc VoltConn) writer() io.Writer {
+	return vc.cs.writer
+}
+
 func (vc VoltConn) registerAsync(handle int64, vasr *VoltAsyncResponse) {
-	vc.asyncs[handle] = vasr
+	vc.asyncs()[handle] = vasr
 }
 
 func (vc VoltConn) removeAsync(han int64) {
-	delete(vc.asyncs, han)
+	delete(vc.asyncs(), han)
 }
 
 func writeLoginMessage(writer io.Writer, buf *bytes.Buffer) {
@@ -297,7 +377,7 @@ func readLoginResponse(reader io.Reader) (*connectionData, error) {
 }
 
 type VoltAsyncResponse struct {
-	conn    *VoltConn
+	conn    VoltConn
 	han     int64
 	ch      <-chan VoltResponse
 	isQuery bool
@@ -307,7 +387,7 @@ type VoltAsyncResponse struct {
 	active  bool
 }
 
-func newVoltAsyncResponse(conn *VoltConn, han int64, ch <-chan VoltResponse, isQuery bool) *VoltAsyncResponse {
+func newVoltAsyncResponse(conn VoltConn, han int64, ch <-chan VoltResponse, isQuery bool) *VoltAsyncResponse {
 	var vasr = new(VoltAsyncResponse)
 	vasr.conn = conn
 	vasr.han = han
