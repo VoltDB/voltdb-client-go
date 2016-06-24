@@ -46,6 +46,7 @@ type connectionState struct {
 	writer      io.Writer
 	connData    connectionData
 	asyncs      map[int64]*VoltAsyncResponse
+	asyncsMutex sync.Mutex
 	nl          *NetworkListener
 	nlwg        *sync.WaitGroup
 	isOpen      bool
@@ -59,11 +60,13 @@ func newVoltConn(connInfo string, reader io.Reader, writer io.Writer, connection
 	var vc = new(VoltConn)
 
 	asyncs := make(map[int64]*VoltAsyncResponse)
+	asyncsMutex := sync.Mutex{}
 	wg := sync.WaitGroup{}
 	nl := newListener(vc, reader, &wg)
-	cs := connectionState{connInfo, reader, writer, connectionData, asyncs, nl, &wg, true}
+	cs := connectionState{connInfo, reader, writer, connectionData, asyncs, asyncsMutex, nl, &wg, true}
 	vc.cs = &cs
 	nl.start()
+	go vc.processAsyncs()
 	return vc
 }
 
@@ -134,6 +137,7 @@ func (vc VoltConn) Reconnect() {
 		vc.cs.writer = tcpConn
 		vc.cs.connData = *connectionData
 		vc.cs.asyncs = asyncs
+		vc.cs.asyncsMutex = sync.Mutex{}
 		vc.cs.nl = nl
 		vc.cs.nlwg = &wg
 		vc.cs.isOpen = true
@@ -187,13 +191,13 @@ func (vc VoltConn) Exec(query string, args []driver.Value) (driver.Result, error
 	return rslt, nil
 }
 
-func (vc VoltConn) ExecAsync(query string, args []driver.Value) (*VoltAsyncResponse, error) {
+func (vc VoltConn) ExecAsync(resCons resultConsumer, query string, args []driver.Value) (*VoltAsyncResponse, error) {
 	if !vc.isOpen() {
 		return nil, errors.New("Connection is closed")
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
 	c := vc.nl().registerRequest(handle, false)
-	vasr := newVoltAsyncResponse(vc, handle, c, false)
+	vasr := newVoltAsyncResponseForExec(vc, handle, c, resCons)
 	vc.registerAsync(handle, vasr)
 	if err := vc.serializeQuery(vc.writer(), query, handle, args); err != nil {
 		vc.nl().removeRequest(handle)
@@ -220,13 +224,13 @@ func (vc VoltConn) Query(query string, args []driver.Value) (driver.Rows, error)
 	return rows, nil
 }
 
-func (vc VoltConn) QueryAsync(query string, args []driver.Value) (*VoltAsyncResponse, error) {
+func (vc VoltConn) QueryAsync(rowsCons rowsConsumer, query string, args []driver.Value) (*VoltAsyncResponse, error) {
 	if !vc.isOpen() {
 		return nil, errors.New("Connection is closed")
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
 	c := vc.nl().registerRequest(handle, true)
-	vasr := newVoltAsyncResponse(vc, handle, c, true)
+	vasr := newVoltAsyncResponseForQuery(vc, handle, c, rowsCons)
 	vc.registerAsync(handle, vasr)
 	if err := vc.serializeQuery(vc.writer(), query, handle, args); err != nil {
 		vc.nl().removeRequest(handle)
@@ -235,96 +239,102 @@ func (vc VoltConn) QueryAsync(query string, args []driver.Value) (*VoltAsyncResp
 	return vasr, nil
 }
 
-func (vc VoltConn) Drain(vasrs []*VoltAsyncResponse) {
-	idxs := []int{} // index into the given slice
+func (vc VoltConn) Drain() {
+	var numAsyncs int
+	for {
+		vc.asyncsMutex().Lock()
+		numAsyncs = len(vc.asyncs())
+		vc.asyncsMutex().Unlock()
+		if numAsyncs == 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (vc VoltConn) processAsyncs() {
+	handles := []int64{} // index into the given slice
 	cases := []reflect.SelectCase{}
 
 	for {
-		for idx, vasr := range vasrs {
-			if vasr.IsActive() {
-				idxs = append(idxs, idx)
-				cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(vasr.channel())})
-				if len(cases) == 100 {  // 100 at a time to limit garbage collection of slices
-					break
-				}
+		vc.asyncsMutex().Lock()
+		for idx, vasr := range vc.asyncs() {
+			handles = append(handles, idx)
+			cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(vasr.channel())})
+			if len(cases) == 100 {  // 100 at a time to limit garbage collection of slices
+				break
 			}
 		}
+		vc.asyncsMutex().Unlock()
 
 		if len(cases) == 0 {
-			break
+			time.Sleep(10 * time.Millisecond)
+			continue
 		}
 
-		for len(idxs) > 0 {
+		for len(handles) > 0 {
 			chosen, val, ok := reflect.Select(cases)
 
 			// idiom for removing from the middle of a slice
-			idx := idxs[chosen]
-			idxs[chosen] = idxs[len(idxs) - 1]
-			idxs = idxs[:len(idxs) - 1]
+			handle := handles[chosen]
+			handles[chosen] = handles[len(handles) - 1]
+			handles = handles[:len(handles) - 1]
 
 			cases[chosen] = cases[len(cases) - 1]
 			cases = cases[:len(cases) - 1]
 
-			chosenResponse := vasrs[idx]
+			vc.asyncsMutex().Lock()
+			chosenResponse := vc.asyncs()[handle]
+			vc.asyncsMutex().Unlock()
+
 			// if not ok, the channel was closed
 			if !ok {
-				chosenResponse.setError(errors.New("Result was not available, channel was closed"))
+				// TODO: log this
+				fmt.Errorf("Result was not available, channel was closed")
 			} else {
 				// check the returned value
 				if val.Kind() != reflect.Interface {
-					chosenResponse.setError(errors.New("unexpected return type, not an interface"))
+					// TODO: log this
+					fmt.Errorf("unexpected return type, not an interface")
 				} else {
 					rows, ok := val.Interface().(driver.Rows)
 					if ok {
 						vrows := rows.(VoltRows)
-						if vrows.getError() != nil {
-							chosenResponse.setError(vrows.getError())
+						if err := vrows.getError(); err != nil {
+							chosenResponse.rowsCons(nil, err)
 						} else {
-							chosenResponse.setRows(rows)
+							chosenResponse.rowsCons(rows, nil)
+
 						}
+						vc.removeAsync(handle)
+
 						continue
 					}
 					rslt, ok := val.Interface().(driver.Result)
 					if ok {
 						vrslt := rslt.(VoltResult)
-						if vrslt.getError() != nil {
-							chosenResponse.setError(vrslt.getError())
+						if err := vrslt.getError(); err != nil {
+							chosenResponse.resCons(nil, err)
 						} else {
-							chosenResponse.setResult(rslt)
+							chosenResponse.resCons(rslt, nil)
 						}
+						vc.removeAsync(handle)
 						continue
 					}
-					chosenResponse.setError(errors.New("unexpected return type, not driver.Rows or driver.Result"))
+					// TODO: log this
+					fmt.Errorf("unexpected return type, not driver.Rows or driver.Result")
 				}
 			}
 		}
 	}
 }
 
-func (vc VoltConn) DrainAll() []*VoltAsyncResponse {
-	vasrs := make([]*VoltAsyncResponse, len(vc.asyncs()))
-	i := 0
-	for _, vasr := range vc.asyncs() {
-		vasrs[i] = vasr
-		i++
-	}
-	vc.Drain(vasrs)
-	return vasrs
-}
-
-func (vc VoltConn) ExecutingAsyncs() []*VoltAsyncResponse {
-	// don't copy the queries themselves, but copy the list
-	vasrs := make([]*VoltAsyncResponse, len(vc.asyncs()))
-	i := 0
-	for _, vasr := range vc.asyncs() {
-		vasrs[i] = vasr
-		i++
-	}
-	return vasrs
-}
-
 func (vc VoltConn) asyncs() map[int64]*VoltAsyncResponse {
 	return vc.cs.asyncs
+}
+
+func (vc VoltConn) asyncsMutex() *sync.Mutex {
+	return &vc.cs.asyncsMutex
 }
 
 func (vc VoltConn) isOpen() bool {
@@ -348,11 +358,15 @@ func (vc VoltConn) writer() io.Writer {
 }
 
 func (vc VoltConn) registerAsync(handle int64, vasr *VoltAsyncResponse) {
+	vc.asyncsMutex().Lock()
 	vc.asyncs()[handle] = vasr
+	vc.asyncsMutex().Unlock()
 }
 
 func (vc VoltConn) removeAsync(han int64) {
+	vc.asyncsMutex().Lock()
 	delete(vc.asyncs(), han)
+	vc.asyncsMutex().Unlock()
 }
 
 func writeLoginMessage(writer io.Writer, buf *bytes.Buffer) {
@@ -377,68 +391,40 @@ func readLoginResponse(reader io.Reader) (*connectionData, error) {
 }
 
 type VoltAsyncResponse struct {
-	conn    VoltConn
-	han     int64
-	ch      <-chan VoltResponse
-	isQuery bool
-	result  driver.Result
-	rows    driver.Rows
-	err     error
-	active  bool
+	conn     VoltConn
+	han      int64
+	ch       <-chan VoltResponse
+	isQuery  bool
+	result   driver.Result
+	rows     driver.Rows
+	resCons  resultConsumer
+	rowsCons rowsConsumer
 }
 
-func newVoltAsyncResponse(conn VoltConn, han int64, ch <-chan VoltResponse, isQuery bool) *VoltAsyncResponse {
+type rowsConsumer func(driver.Rows, error)
+
+type resultConsumer func(driver.Result, error)
+
+func newVoltAsyncResponseForExec(conn VoltConn, han int64, ch <-chan VoltResponse, resCons resultConsumer) *VoltAsyncResponse {
 	var vasr = new(VoltAsyncResponse)
 	vasr.conn = conn
 	vasr.han = han
 	vasr.ch = ch
-	vasr.isQuery = isQuery
-	vasr.active = true
+	vasr.isQuery = false
+	vasr.resCons = resCons
+	vasr.rowsCons = nil
 	return vasr
 }
 
-func (vasr *VoltAsyncResponse) Result() (driver.Result, error) {
-	if vasr.isQuery {
-		return nil, errors.New("Response holds driver.Rows rather than driver.Result")
-	}
-	if !vasr.active {
-		if vasr.err != nil {
-			return nil, vasr.err
-		}
-		return vasr.result, nil
-
-	} else {
-		resp := <-vasr.ch
-		if err := resp.getError(); err != nil {
-			resp.setError(err)
-			return nil, err
-		}
-		rslt := resp.(VoltResult)
-		vasr.setResult(rslt)
-		return rslt, nil
-	}
-}
-
-func (vasr *VoltAsyncResponse) Rows() (driver.Rows, error) {
-	if !vasr.isQuery {
-		return nil, errors.New("Response holds driver.Result rather than driver.Rows")
-	}
-	if !vasr.active {
-		if vasr.err != nil {
-			return nil, vasr.err
-		}
-		return vasr.rows, nil
-
-	} else {
-		resp := <-vasr.ch
-		if err := resp.getError(); err != nil {
-			resp.setError(err)
-			return nil, err
-		}
-		rows := resp.(VoltRows)
-		vasr.setRows(rows)
-		return rows, nil
-	}
+func newVoltAsyncResponseForQuery(conn VoltConn, han int64, ch <-chan VoltResponse, rowsCons rowsConsumer) *VoltAsyncResponse {
+	var vasr = new(VoltAsyncResponse)
+	vasr.conn = conn
+	vasr.han = han
+	vasr.ch = ch
+	vasr.isQuery = true
+	vasr.resCons = nil
+	vasr.rowsCons = rowsCons
+	return vasr
 }
 
 func (vasr *VoltAsyncResponse) channel() <-chan VoltResponse {
@@ -449,30 +435,8 @@ func (vasr *VoltAsyncResponse) handle() int64 {
 	return vasr.han
 }
 
-func (vasr *VoltAsyncResponse) IsActive() bool {
-	return vasr.active
-}
-
 func (vasr *VoltAsyncResponse) IsQuery() bool {
 	return vasr.isQuery
-}
-
-func (vasr *VoltAsyncResponse) setError(err error) {
-	vasr.err = err
-	vasr.active = false
-	vasr.conn.removeAsync(vasr.han)
-}
-
-func (vasr *VoltAsyncResponse) setResult(result driver.Result) {
-	vasr.result = result
-	vasr.active = false
-	vasr.conn.removeAsync(vasr.han)
-}
-
-func (vasr *VoltAsyncResponse) setRows(rows driver.Rows) {
-	vasr.rows = rows
-	vasr.active = false
-	vasr.conn.removeAsync(vasr.han)
 }
 
 func (vc VoltConn) serializeQuery(writer io.Writer, procedure string, handle int64, args []driver.Value) error {

@@ -66,14 +66,14 @@ func (vs VoltStatement) Exec(args []driver.Value) (driver.Result, error) {
 	return vs.conn.Exec("@AdHoc", args)
 }
 
-func (vs VoltStatement) ExecAsync(args []driver.Value) (*VoltAsyncResponse, error) {
+func (vs VoltStatement) ExecAsync(resCons resultConsumer, args []driver.Value) (*VoltAsyncResponse, error) {
 	if vs.closed {
 		return nil, errors.New("Can't invoke ExecAsync, statement is closed")
 	}
 	args = append(args, "")
 	copy(args[1:], args[0:])
 	args[0] = vs.query
-	return vs.conn.ExecAsync("@AdHoc", args)
+	return vs.conn.ExecAsync(resCons, "@AdHoc", args)
 }
 
 func (vs VoltStatement) Query(args []driver.Value) (driver.Rows, error) {
@@ -86,12 +86,12 @@ func (vs VoltStatement) Query(args []driver.Value) (driver.Rows, error) {
 	return vs.conn.Query("@AdHoc", args)
 }
 
-func (vs VoltStatement) QueryAsync(args []driver.Value) (*VoltAsyncResponse, error) {
+func (vs VoltStatement) QueryAsync(rowsCons rowsConsumer, args []driver.Value) (*VoltAsyncResponse, error) {
 	if vs.closed {
 		return nil, errors.New("Can't invoke QueryAsync, statement is closed")
 	}
 	args = append(args, "")
 	copy(args[1:], args[0:])
 	args[0] = vs.query
-	return vs.conn.QueryAsync("@AdHoc", args)
+	return vs.conn.QueryAsync(rowsCons, "@AdHoc", args)
 }
