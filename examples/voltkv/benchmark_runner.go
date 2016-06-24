@@ -28,8 +28,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/VoltDB/voltdb-client-go/voltdbclient"
 	"database/sql"
+
+	"github.com/VoltDB/voltdb-client-go/voltdbclient"
 )
 
 // handy, rather than typing this out several times
@@ -37,7 +38,7 @@ const HORIZONTAL_RULE = "----------" + "----------" + "----------" + "----------
 	"----------" + "----------" + "----------" + "----------" + "\n"
 
 // for use sql/driver
-const VOLTDB_DRIVER="voltdb"
+const VOLTDB_DRIVER = "voltdb"
 
 // benchmark stats
 type benchmarkStats struct {
@@ -54,20 +55,22 @@ var periodicStats, fullStats *benchmarkStats
 var cpuprofile = ""
 var config *kvConfig
 var ticker *time.Ticker
-var timeStart, timeSent, timeDrained, timeProcessed time.Time
+var timeStart time.Time
+var bm *benchmark
 
 type benchmark struct {
-	conn      *voltdbclient.VoltConn
-	processor *payLoadProcessor
+	proc *payLoadProcessor
+	conn *voltdbclient.VoltConn
 }
 
+// TODO: use init()
 func NewBenchmark() (*benchmark, error) {
-	bm := new(benchmark)
-	bm.processor = NewPayloadProcessor(config.keysize, config.minvaluesize, config.maxvaluesize, config.entropy,
+	bmTemp := new(benchmark)
+	bmTemp.proc = NewPayloadProcessor(config.keysize, config.minvaluesize, config.maxvaluesize, config.entropy,
 		config.poolsize, config.usecompression)
 	periodicStats = new(benchmarkStats)
 	fullStats = new(benchmarkStats)
-	return bm, nil
+	return bmTemp, nil
 }
 
 func (bm *benchmark) runBenchmark() {
@@ -82,10 +85,10 @@ func (bm *benchmark) runBenchmark() {
 	if config.preload {
 		fmt.Println("Preloading data store...")
 		for i := 0; i < config.poolsize; i++ {
-			_, _, storeValue := bm.processor.generateForStore()
-			bm.conn.ExecAsync("STORE.insert", []driver.Value{fmt.Sprintf(bm.processor.keyFormat, i), storeValue})
+			_, _, storeValue := bm.proc.generateForStore()
+			bm.conn.ExecAsync(putCallBack{bm.proc}, "STORE.upsert", []driver.Value{fmt.Sprintf(bm.proc.keyFormat, i), storeValue})
 		}
-		bm.conn.DrainAll()
+		bm.conn.Drain()
 		fmt.Print("Preloading complete.\n\n")
 	}
 
@@ -98,12 +101,11 @@ func (bm *benchmark) runBenchmark() {
 	fmt.Println("Warming up...")
 	switch config.runtype {
 	case ASYNC:
-		runGetPutAsync(bm.conn, bm.processor, config.getputratio, config.warmup)
-		bm.conn.DrainAll()
+		runGetPut(config.goroutines, config.getputratio, config.warmup, runGetPutAsync)
 	case SYNC:
-		runGetPutSync(config.goroutines, bm.processor, config.getputratio, config.warmup, runGetPutConn)
+		runGetPut(config.goroutines, config.getputratio, config.warmup, runGetPutSync)
 	case STATEMENT:
-		runGetPutSync(config.goroutines, bm.processor, config.getputratio, config.warmup, runGetPutStatement)
+		runGetPut(config.goroutines, config.getputratio, config.warmup, runGetPutStatement)
 	}
 
 	//reset the stats after warmup
@@ -121,18 +123,11 @@ func (bm *benchmark) runBenchmark() {
 	fmt.Print("\nRunning benchmark...\n")
 	switch config.runtype {
 	case ASYNC:
-		runGetPutAsync(bm.conn, bm.processor, config.getputratio, config.duration)
-		// block until all outstanding txns return
-		timeSent = time.Now()
-		responses := bm.conn.DrainAll()
-		timeDrained = time.Now()
-		handleResponses(bm.processor, responses)
-		timeProcessed = time.Now()
-		fmt.Printf("Time spent on sent:%v drain:%v postprocess: %v\n", timeSent.Sub(timeStart), timeDrained.Sub(timeSent), timeProcessed.Sub(timeDrained))
+		runGetPut(config.goroutines, config.getputratio, config.duration, runGetPutAsync)
 	case SYNC:
-		runGetPutSync(config.goroutines, bm.processor, config.getputratio, config.duration, runGetPutConn)
+		runGetPut(config.goroutines, config.getputratio, config.duration, runGetPutSync)
 	case STATEMENT:
-		runGetPutSync(config.goroutines, bm.processor, config.getputratio, config.duration, runGetPutStatement)
+		runGetPut(config.goroutines, config.getputratio, config.duration, runGetPutStatement)
 	}
 
 	timeElapsed := time.Now().Sub(timeStart)
@@ -140,8 +135,8 @@ func (bm *benchmark) runBenchmark() {
 	printResults(timeElapsed)
 }
 
-func openAndPingDB(servers string)  *sql.DB {
-	db, err := sql.Open(VOLTDB_DRIVER, servers + "/" + VOLTDB_DRIVER)
+func openAndPingDB(servers string) *sql.DB {
+	db, err := sql.Open(VOLTDB_DRIVER, servers+"/"+VOLTDB_DRIVER)
 	if err != nil {
 		fmt.Println("open")
 		log.Fatal(err)
@@ -156,7 +151,7 @@ func openAndPingDB(servers string)  *sql.DB {
 	return db
 }
 
-func runGetPutStatement(join chan int, proc *payLoadProcessor, getputratio float64, duration time.Duration) {
+func runGetPutStatement(join chan int, getputratio float64, duration time.Duration) {
 	volt := openAndPingDB(config.servers)
 	defer volt.Close()
 
@@ -167,7 +162,7 @@ func runGetPutStatement(join chan int, proc *payLoadProcessor, getputratio float
 		log.Fatal(getErr)
 		os.Exit(-1)
 	}
-	defer  getStmt.Close()
+	defer getStmt.Close()
 
 	putStmt, putErr := volt.Prepare("upsert into store (key, value) values (?,?) ")
 	if putErr != nil {
@@ -184,21 +179,24 @@ func runGetPutStatement(join chan int, proc *payLoadProcessor, getputratio float
 			return
 		default:
 			if rand.Float64() < getputratio {
-				rows, err := getStmt.Query(proc.generateRandomKeyForRetrieval())
-				ops += handleSqlRows(proc, *rows, err)
+				rows, err := getStmt.Query(bm.proc.generateRandomKeyForRetrieval())
+				ops += handleSqlRows(*rows, err)
 			} else {
-				key, rawValue, storeValue := proc.generateForStore()
+				key, rawValue, storeValue := bm.proc.generateForStore()
 				atomic.AddUint64(&(fullStats.networkPutData), uint64(len(storeValue)))
 				atomic.AddUint64(&(fullStats.rawPutData), uint64(len(rawValue)))
-				res, err := putStmt.Exec(key, storeValue)
-				ops += handleResults(proc, res, err)
+				if res, err := putStmt.Exec(key, storeValue); err != nil {
+					ops += handleResultsError(err)
+				} else {
+					ops += handleResults(res)
+				}
 			}
 		}
 
 	}
 }
 
-func runGetPutConn(join chan int, proc *payLoadProcessor, getputratio float64, duration time.Duration) {
+func runGetPutSync(join chan int, getputratio float64, duration time.Duration) {
 	volt := connect(config.servers)
 	defer volt.Close()
 
@@ -212,14 +210,20 @@ func runGetPutConn(join chan int, proc *payLoadProcessor, getputratio float64, d
 			return
 		default:
 			if rand.Float64() < getputratio {
-				rows, err := volt.Query("STORE.select", []driver.Value{proc.generateRandomKeyForRetrieval()})
-				ops += handleDriverRows(proc, rows, err)
+				if rows, err := volt.Query("STORE.select", []driver.Value{bm.proc.generateRandomKeyForRetrieval()}); err != nil {
+					ops += handleDriverRowsError(err)
+				} else {
+					ops += handleDriverRows(bm.proc, rows)
+				}
 			} else {
-				key, rawValue, storeValue := proc.generateForStore()
+				key, rawValue, storeValue := bm.proc.generateForStore()
 				atomic.AddUint64(&(fullStats.networkPutData), uint64(len(storeValue)))
 				atomic.AddUint64(&(fullStats.rawPutData), uint64(len(rawValue)))
-				res, err := volt.Exec("STORE.upsert", []driver.Value{key, storeValue})
-				ops += handleResults(proc, res, err)
+				if res, err := volt.Exec("STORE.upsert", []driver.Value{key, storeValue}); err != nil {
+					ops += handleResultsError(err)
+				} else {
+					ops += handleResults(res)
+				}
 			}
 		}
 
@@ -227,13 +231,40 @@ func runGetPutConn(join chan int, proc *payLoadProcessor, getputratio float64, d
 
 }
 
-func runGetPutSync(gorotines int, proc *payLoadProcessor, getputratio float64, duration time.Duration,
-			fn func(join chan int, proc *payLoadProcessor, getputratio float64, duration time.Duration)) {
+func runGetPutAsync(join chan int, getputratio float64, duration time.Duration) {
+	volt := connect(config.servers)
+	defer volt.Close()
+
+	timeout := time.After(duration)
+
+	gcb := NewGetCallBack(bm.proc)
+	pcb := NewPutCallBack(bm.proc)
+	ops := 0
+	for {
+		select {
+		case <-timeout:
+			volt.Drain()
+			join <- ops
+			return
+		default:
+			if rand.Float64() < getputratio {
+				volt.QueryAsync(gcb, "STORE.select", []driver.Value{bm.proc.generateRandomKeyForRetrieval()})
+			} else {
+				key, _, storeValue := bm.proc.generateForStore()
+				volt.ExecAsync(pcb, "STORE.upsert", []driver.Value{key, storeValue})
+			}
+		}
+
+	}
+}
+
+func runGetPut(gorotines int, getputratio float64, duration time.Duration,
+	fn func(join chan int, getputratio float64, duration time.Duration)) {
 	var joiners = make([]chan int, 0)
 	for i := 0; i < gorotines; i++ {
 		var joinchan = make(chan int)
 		joiners = append(joiners, joinchan)
-		go fn(joinchan, proc, getputratio, duration)
+		go fn(joinchan, getputratio, duration)
 	}
 
 	var totalCount = 0
@@ -246,50 +277,73 @@ func runGetPutSync(gorotines int, proc *payLoadProcessor, getputratio float64, d
 	return
 }
 
-
-
-func runGetPutAsync(conn *voltdbclient.VoltConn, proc *payLoadProcessor, getputratio float64, duration time.Duration) {
-	timeout := time.After(duration)
-	for {
-		select {
-		case <-timeout:
-			fmt.Println("Done")
-			return
-		default:
-			if rand.Float64() < getputratio {
-				conn.QueryAsync("STORE.select", []driver.Value{proc.generateRandomKeyForRetrieval()})
-			} else {
-				key, _, storeValue := proc.generateForStore()
-				conn.ExecAsync("STORE.upsert", []driver.Value{key, storeValue})
-			}
-
-		}
-
-	}
+type getCallBack struct {
+	proc *payLoadProcessor
 }
 
-func handleResponses(proc *payLoadProcessor, responses []*voltdbclient.VoltAsyncResponse) int {
+func NewGetCallBack(proc *payLoadProcessor) getCallBack {
+	gcb := new(getCallBack)
+	gcb.proc = proc
+	return *gcb
+}
+
+func (gcb getCallBack) ConsumeError(err error) {
+	handleDriverRowsError(err)
+}
+
+// shouldn't call this
+func (gcb getCallBack) ConsumeResult(res driver.Result) {
+}
+
+func (gcb getCallBack) ConsumeRows(rows driver.Rows) {
+	handleDriverRows(gcb.proc, rows)
+}
+
+type putCallBack struct {
+	proc *payLoadProcessor
+}
+
+func NewPutCallBack(proc *payLoadProcessor) putCallBack {
+	pcb := new(putCallBack)
+	pcb.proc = proc
+	return *pcb
+}
+
+func (pcb putCallBack) ConsumeError(err error) {
+	handleResultsError(err)
+}
+
+func (pcb putCallBack) ConsumeResult(res driver.Result) {
+	handleResults(res)
+}
+
+// shouldn't call this
+func (pcb putCallBack) ConsumeRows(rows driver.Rows) {
+}
+
+/*
+func handleResponses []*voltdbclient.VoltAsyncResponse) int {
 	ops := 0
 	for _, response := range responses {
 		if response.IsQuery() {
 			rows, err := response.Rows()
-			ops += handleDriverRows(proc, rows, err)
+			ops += handleDriverRows(rows, err)
 		} else {
 			res, err := response.Result()
-			ops += handleResults(proc, res, err)
+			ops += handleResults(res, err)
 		}
 	}
 	return ops
 }
-
-func handleSqlRows(proc *payLoadProcessor, rows sql.Rows, err error) (success int) {
-	defer  rows.Close()
+*/
+func handleSqlRows(rows sql.Rows, err error) (success int) {
+	defer rows.Close()
 	if err == nil {
 		if rows.Next() {
 			atomic.AddUint64(&(fullStats.successfulGets), 1)
 			var val string
 			if err := rows.Scan(&val); err == nil {
-				rawValue, storeValue := proc.retrieveFromStore([]byte(val))
+				rawValue, storeValue := bm.proc.retrieveFromStore([]byte(val))
 				atomic.AddUint64(&(fullStats.networkGetData), uint64(len(storeValue)))
 				atomic.AddUint64(&(fullStats.rawGetData), uint64(len(rawValue)))
 			} else {
@@ -310,45 +364,43 @@ func handleSqlRows(proc *payLoadProcessor, rows sql.Rows, err error) (success in
 	return
 }
 
-func handleDriverRows(proc *payLoadProcessor, rows driver.Rows, err error) (success int) {
+func handleDriverRowsError(err error) (success int) {
+	log.Panic(err)
+	atomic.AddUint64(&(fullStats.failedGets), 1)
+	return 0
+}
+
+func handleDriverRows(proc *payLoadProcessor, rows driver.Rows) (success int) {
 	defer rows.Close()
-	if err == nil {
-		if voltRows := rows.(voltdbclient.VoltRows); voltRows.AdvanceRow() {
-			atomic.AddUint64(&(fullStats.successfulGets), 1)
-			if val, err := voltRows.GetVarbinary(1); err == nil {
-				rawValue, storeValue := proc.retrieveFromStore(val.([]byte))
-				atomic.AddUint64(&(fullStats.networkGetData), uint64(len(storeValue)))
-				atomic.AddUint64(&(fullStats.rawGetData), uint64(len(rawValue)))
-			} else {
-				log.Panic(err)
-				// shouldn't be here
-			}
+	if voltRows := rows.(voltdbclient.VoltRows); voltRows.AdvanceRow() {
+		atomic.AddUint64(&(fullStats.successfulGets), 1)
+		if val, err := voltRows.GetVarbinary(1); err == nil {
+			rawValue, storeValue := proc.retrieveFromStore(val.([]byte))
+			atomic.AddUint64(&(fullStats.networkGetData), uint64(len(storeValue)))
+			atomic.AddUint64(&(fullStats.rawGetData), uint64(len(rawValue)))
 		} else {
-			atomic.AddUint64(&(fullStats.missedGets), 1)
+			log.Panic(err)
+			// shouldn't be here
 		}
-		atomic.AddUint64(&(fullStats.totalOps), 1)
-		atomic.AddUint64(&(periodicStats.totalOps), 1)
-		success = 1
 	} else {
-		log.Panic(err)
-		atomic.AddUint64(&(fullStats.failedGets), 1)
-		success = 0
+		atomic.AddUint64(&(fullStats.missedGets), 1)
 	}
-	return
+	atomic.AddUint64(&(fullStats.totalOps), 1)
+	atomic.AddUint64(&(periodicStats.totalOps), 1)
+	return 1
 }
 
-func handleResults(proc *payLoadProcessor, res driver.Result, err error) (success int) {
-	if err == nil {
-		atomic.AddUint64(&(fullStats.successfulPuts), 1)
-		atomic.AddUint64(&(fullStats.totalOps), 1)
-		atomic.AddUint64(&(periodicStats.totalOps), 1)
-		success = 1
-	} else {
-		log.Panic(err)
-		atomic.AddUint64(&(fullStats.failedPuts), 1)
-		success = 0
-	}
-	return
+func handleResultsError(err error) (success int) {
+	log.Panic(err)
+	atomic.AddUint64(&(fullStats.failedPuts), 1)
+	return 0
+}
+
+func handleResults(res driver.Result) (success int) {
+	atomic.AddUint64(&(fullStats.successfulPuts), 1)
+	atomic.AddUint64(&(fullStats.totalOps), 1)
+	atomic.AddUint64(&(periodicStats.totalOps), 1)
+	return 1
 }
 
 func connect(servers string) *voltdbclient.VoltConn {
@@ -446,6 +498,6 @@ func main() {
 		os.Exit(-1)
 	}
 
-	bm, _ := NewBenchmark()
+	bm, _ = NewBenchmark()
 	bm.runBenchmark()
 }
