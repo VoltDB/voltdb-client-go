@@ -32,8 +32,6 @@ func main() {
 	}
 	defer conn.Close()
 
-	// this works ok
-	// rows, err := conn.Query("@AdHoc", []driver.Value{"select * from HELLOWORLD"})
 	rows, err := conn.Query("@AdHoc", []driver.Value{"select * from HELLOWORLD where DIALECT = ?", "French"})
 	if err != nil {
 		log.Fatal(err)
