@@ -37,11 +37,13 @@ func main() {
 
 	conn1.Exec("DELETE FROM HELLOWORLD;", []driver.Value{})
 
-	conn1.ExecAsync(handleResult, "HELLOWORLD.insert", []driver.Value{"Bonjour", "Monde", "French"})
-	conn1.ExecAsync(handleResult, "HELLOWORLD.insert", []driver.Value{"Hello", "World", "English"})
-	conn1.ExecAsync(handleResult, "HELLOWORLD.insert", []driver.Value{"Hola", "Mundo", "Spanish"})
-	conn1.ExecAsync(handleResult, "HELLOWORLD.insert", []driver.Value{"Hej", "Verden", "Danish"})
-	conn1.ExecAsync(handleResult, "HELLOWORLD.insert", []driver.Value{"Ciao", "Mondo", "Italian"})
+	resCons := ResponseConsumer{}
+
+	conn1.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Bonjour", "Monde", "French"})
+	conn1.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Hello", "World", "English"})
+	conn1.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Hola", "Mundo", "Spanish"})
+	conn1.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Hej", "Verden", "Danish"})
+	conn1.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Ciao", "Mondo", "Italian"})
 	conn1.Drain()
 
 	keys := []string{"English", "French", "Spanish", "Danish", "Italian"}
@@ -49,7 +51,7 @@ func main() {
 	cbs := make([]*voltdbclient.VoltAsyncResponse, 100)
 	for i := 0; i < 100; i++ {
 		key := keys[rand.Intn(5)]
-		cb, err := conn1.QueryAsync(handleRows, "HELLOWORLD.select", []driver.Value{key})
+		cb, err := conn1.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
 		cbs[i] = cb
 		if err != nil {
 			log.Fatal(err)
@@ -74,13 +76,13 @@ func main() {
 
 	for i := 0; i < 2000; i++ {
 		key := keys[rand.Intn(5)]
-		_, err := conn2.QueryAsync(handleRows, "HELLOWORLD.select", []driver.Value{key})
+		_, err := conn2.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(-1)
 		}
 
-		_, err = conn3.QueryAsync(handleRows, "HELLOWORLD.select", []driver.Value{key})
+		_, err = conn3.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(-1)
@@ -111,12 +113,30 @@ func handleRows(rows driver.Rows, err error) {
 	}
 }
 
-func handleResult(res driver.Result, err error) {
+type ResponseConsumer struct {}
+
+func (rc ResponseConsumer) ConsumeError(err error) {
+	fmt.Println(err)
+}
+
+func (rc ResponseConsumer) ConsumeResult(res driver.Result) {
+	ra, _ := res.RowsAffected()
+	lid, _ := res.LastInsertId()
+	fmt.Printf("%d, %d\n", ra, lid)
+}
+
+func (rc ResponseConsumer) ConsumeRows(rows driver.Rows) {
+	vrows := rows.(voltdbclient.VoltRows)
+	vrows.AdvanceRow()
+	iHello, err := vrows.GetStringByName("HELLO")
+	hello := iHello.(string)
 	if err != nil {
-		fmt.Println(err)
-	} else {
-		ra, _ := res.RowsAffected()
-		lid, _ := res.LastInsertId()
-		fmt.Printf("%d, %d\n", ra, lid)
+		log.Fatal(err)
 	}
+	iWorld, err := vrows.GetStringByName("WORLD")
+	world := iWorld.(string)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("%v, %v!\n", hello, world)
 }

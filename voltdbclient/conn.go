@@ -193,13 +193,13 @@ func (vc VoltConn) Exec(query string, args []driver.Value) (driver.Result, error
 	return rslt, nil
 }
 
-func (vc VoltConn) ExecAsync(resCons resultConsumer, query string, args []driver.Value) (*VoltAsyncResponse, error) {
+func (vc VoltConn) ExecAsync(resCons AsyncResponseConsumer, query string, args []driver.Value) (*VoltAsyncResponse, error) {
 	if !vc.isOpen() {
 		return nil, errors.New("Connection is closed")
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
 	c := vc.nl().registerRequest(handle, false)
-	vasr := newVoltAsyncResponseForExec(vc, handle, c, resCons)
+	vasr := newVoltAsyncResponse(vc, handle, c, false, resCons)
 	vc.registerAsync(handle, vasr)
 	if err := vc.serializeQuery(vc.writer(), query, handle, args); err != nil {
 		vc.nl().removeRequest(handle)
@@ -226,13 +226,13 @@ func (vc VoltConn) Query(query string, args []driver.Value) (driver.Rows, error)
 	return rows, nil
 }
 
-func (vc VoltConn) QueryAsync(rowsCons rowsConsumer, query string, args []driver.Value) (*VoltAsyncResponse, error) {
+func (vc VoltConn) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []driver.Value) (*VoltAsyncResponse, error) {
 	if !vc.isOpen() {
 		return nil, errors.New("Connection is closed")
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
 	c := vc.nl().registerRequest(handle, true)
-	vasr := newVoltAsyncResponseForQuery(vc, handle, c, rowsCons)
+	vasr := newVoltAsyncResponse(vc, handle, c, true, rowsCons)
 	vc.registerAsync(handle, vasr)
 	if err := vc.serializeQuery(vc.writer(), query, handle, args); err != nil {
 		vc.nl().removeRequest(handle)
@@ -265,9 +265,9 @@ func (vc VoltConn) processAsyncs() {
 		if async.isQuery() {
 			vrows := resp.(VoltRows)
 			if err := vrows.getError(); err != nil {
-				async.rowsCons(nil, err)
+				async.getArc().ConsumeError(err)
 			} else {
-				async.rowsCons(vrows, nil)
+				async.getArc().ConsumeRows(vrows)
 
 			}
 			vc.removeAsync(handle)
@@ -275,9 +275,9 @@ func (vc VoltConn) processAsyncs() {
 		} else {
 			vrslt := resp.(VoltResult)
 			if err := vrslt.getError(); err != nil {
-				async.resCons(nil, err)
+				async.getArc().ConsumeError(err)
 			} else {
-				async.resCons(vrslt, nil)
+				async.getArc().ConsumeResult(vrslt)
 			}
 			vc.removeAsync(handle)
 			continue
@@ -349,41 +349,32 @@ func readLoginResponse(reader io.Reader) (*connectionData, error) {
 	return connData, err
 }
 
+type AsyncResponseConsumer interface {
+	ConsumeError(error)
+	ConsumeResult(driver.Result)
+	ConsumeRows(driver.Rows)
+}
+
 type VoltAsyncResponse struct {
 	conn     VoltConn
 	han      int64
 	ch       <-chan VoltResponse
 	isQ      bool
-	result   driver.Result
-	rows     driver.Rows
-	resCons  resultConsumer
-	rowsCons rowsConsumer
+	arc      AsyncResponseConsumer
 }
 
-type rowsConsumer func(driver.Rows, error)
-
-type resultConsumer func(driver.Result, error)
-
-func newVoltAsyncResponseForExec(conn VoltConn, han int64, ch <-chan VoltResponse, resCons resultConsumer) *VoltAsyncResponse {
+func newVoltAsyncResponse(conn VoltConn, han int64, ch <-chan VoltResponse, isQuery bool, arc AsyncResponseConsumer) *VoltAsyncResponse {
 	var vasr = new(VoltAsyncResponse)
 	vasr.conn = conn
 	vasr.han = han
 	vasr.ch = ch
-	vasr.isQ = false
-	vasr.resCons = resCons
-	vasr.rowsCons = nil
+	vasr.isQ = isQuery
+	vasr.arc = arc
 	return vasr
 }
 
-func newVoltAsyncResponseForQuery(conn VoltConn, han int64, ch <-chan VoltResponse, rowsCons rowsConsumer) *VoltAsyncResponse {
-	var vasr = new(VoltAsyncResponse)
-	vasr.conn = conn
-	vasr.han = han
-	vasr.ch = ch
-	vasr.isQ = true
-	vasr.resCons = nil
-	vasr.rowsCons = rowsCons
-	return vasr
+func (vasr *VoltAsyncResponse) getArc() AsyncResponseConsumer {
+	return vasr.arc;
 }
 
 func (vasr *VoltAsyncResponse) channel() <-chan VoltResponse {
