@@ -32,7 +32,9 @@ func main() {
 	}
 	defer conn.Close()
 
-	rows, err := conn.Query("HELLOWORLD.select", []driver.Value{"French"})
+	// this works ok
+	// rows, err := conn.Query("@AdHoc", []driver.Value{"select * from HELLOWORLD"})
+	rows, err := conn.Query("@AdHoc", []driver.Value{"select * from HELLOWORLD where DIALECT = ?", "French"})
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
@@ -40,7 +42,7 @@ func main() {
 	printRow(rows)
 
 	// with prepared statement
-	stmt, err := conn.Prepare("HELLOWORLD.select")
+	stmt, err := conn.Prepare("select * from HELLOWORLD where DIALECT = ?")
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
