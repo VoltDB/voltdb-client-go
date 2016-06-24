@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -41,15 +40,16 @@ type connectionData struct {
 }
 
 type connectionState struct {
-	connInfo    string
-	reader      io.Reader
-	writer      io.Writer
-	connData    connectionData
-	asyncs      map[int64]*VoltAsyncResponse
-	asyncsMutex sync.Mutex
-	nl          *NetworkListener
-	nlwg        *sync.WaitGroup
-	isOpen      bool
+	connInfo      string
+	reader        io.Reader
+	writer        io.Writer
+	connData      connectionData
+	asyncsChannel chan VoltResponse
+	asyncs        map[int64]*VoltAsyncResponse
+	asyncsMutex   sync.Mutex
+	nl            *NetworkListener
+	nlwg          *sync.WaitGroup
+	isOpen        bool
 }
 
 type VoltConn struct {
@@ -59,11 +59,12 @@ type VoltConn struct {
 func newVoltConn(connInfo string, reader io.Reader, writer io.Writer, connectionData connectionData) *VoltConn {
 	var vc = new(VoltConn)
 
+	asyncsChannel := make(chan VoltResponse)
 	asyncs := make(map[int64]*VoltAsyncResponse)
 	asyncsMutex := sync.Mutex{}
 	wg := sync.WaitGroup{}
 	nl := newListener(vc, reader, &wg)
-	cs := connectionState{connInfo, reader, writer, connectionData, asyncs, asyncsMutex, nl, &wg, true}
+	cs := connectionState{connInfo, reader, writer, connectionData, asyncsChannel, asyncs, asyncsMutex, nl, &wg, true}
 	vc.cs = &cs
 	nl.start()
 	go vc.processAsyncs()
@@ -136,6 +137,7 @@ func (vc VoltConn) Reconnect() {
 		vc.cs.reader = tcpConn
 		vc.cs.writer = tcpConn
 		vc.cs.connData = *connectionData
+		vc.cs.asyncsChannel = make(chan VoltResponse)
 		vc.cs.asyncs = asyncs
 		vc.cs.asyncsMutex = sync.Mutex{}
 		vc.cs.nl = nl
@@ -253,78 +255,32 @@ func (vc VoltConn) Drain() {
 }
 
 func (vc VoltConn) processAsyncs() {
-	handles := []int64{} // index into the given slice
-	cases := []reflect.SelectCase{}
-
 	for {
+		resp := <- vc.cs.asyncsChannel
+		handle := resp.Handle()
 		vc.asyncsMutex().Lock()
-		for idx, vasr := range vc.asyncs() {
-			handles = append(handles, idx)
-			cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(vasr.channel())})
-			if len(cases) == 100 {  // 100 at a time to limit garbage collection of slices
-				break
-			}
-		}
+		async := vc.asyncs()[handle]
 		vc.asyncsMutex().Unlock()
 
-		if len(cases) == 0 {
-			time.Sleep(10 * time.Millisecond)
-			continue
-		}
-
-		for len(handles) > 0 {
-			chosen, val, ok := reflect.Select(cases)
-
-			// idiom for removing from the middle of a slice
-			handle := handles[chosen]
-			handles[chosen] = handles[len(handles) - 1]
-			handles = handles[:len(handles) - 1]
-
-			cases[chosen] = cases[len(cases) - 1]
-			cases = cases[:len(cases) - 1]
-
-			vc.asyncsMutex().Lock()
-			chosenResponse := vc.asyncs()[handle]
-			vc.asyncsMutex().Unlock()
-
-			// if not ok, the channel was closed
-			if !ok {
-				// TODO: log this
-				fmt.Errorf("Result was not available, channel was closed")
+		if async.isQuery() {
+			vrows := resp.(VoltRows)
+			if err := vrows.getError(); err != nil {
+				async.rowsCons(nil, err)
 			} else {
-				// check the returned value
-				if val.Kind() != reflect.Interface {
-					// TODO: log this
-					fmt.Errorf("unexpected return type, not an interface")
-				} else {
-					rows, ok := val.Interface().(driver.Rows)
-					if ok {
-						vrows := rows.(VoltRows)
-						if err := vrows.getError(); err != nil {
-							chosenResponse.rowsCons(nil, err)
-						} else {
-							chosenResponse.rowsCons(rows, nil)
+				async.rowsCons(vrows, nil)
 
-						}
-						vc.removeAsync(handle)
-
-						continue
-					}
-					rslt, ok := val.Interface().(driver.Result)
-					if ok {
-						vrslt := rslt.(VoltResult)
-						if err := vrslt.getError(); err != nil {
-							chosenResponse.resCons(nil, err)
-						} else {
-							chosenResponse.resCons(rslt, nil)
-						}
-						vc.removeAsync(handle)
-						continue
-					}
-					// TODO: log this
-					fmt.Errorf("unexpected return type, not driver.Rows or driver.Result")
-				}
 			}
+			vc.removeAsync(handle)
+			continue
+		} else {
+			vrslt := resp.(VoltResult)
+			if err := vrslt.getError(); err != nil {
+				async.resCons(nil, err)
+			} else {
+				async.resCons(vrslt, nil)
+			}
+			vc.removeAsync(handle)
+			continue
 		}
 	}
 }
@@ -361,6 +317,9 @@ func (vc VoltConn) registerAsync(handle int64, vasr *VoltAsyncResponse) {
 	vc.asyncsMutex().Lock()
 	vc.asyncs()[handle] = vasr
 	vc.asyncsMutex().Unlock()
+	go func() {
+		vc.cs.asyncsChannel <- <-vasr.channel()
+	}()
 }
 
 func (vc VoltConn) removeAsync(han int64) {
@@ -394,7 +353,7 @@ type VoltAsyncResponse struct {
 	conn     VoltConn
 	han      int64
 	ch       <-chan VoltResponse
-	isQuery  bool
+	isQ      bool
 	result   driver.Result
 	rows     driver.Rows
 	resCons  resultConsumer
@@ -410,7 +369,7 @@ func newVoltAsyncResponseForExec(conn VoltConn, han int64, ch <-chan VoltRespons
 	vasr.conn = conn
 	vasr.han = han
 	vasr.ch = ch
-	vasr.isQuery = false
+	vasr.isQ = false
 	vasr.resCons = resCons
 	vasr.rowsCons = nil
 	return vasr
@@ -421,7 +380,7 @@ func newVoltAsyncResponseForQuery(conn VoltConn, han int64, ch <-chan VoltRespon
 	vasr.conn = conn
 	vasr.han = han
 	vasr.ch = ch
-	vasr.isQuery = true
+	vasr.isQ = true
 	vasr.resCons = nil
 	vasr.rowsCons = rowsCons
 	return vasr
@@ -435,8 +394,8 @@ func (vasr *VoltAsyncResponse) handle() int64 {
 	return vasr.han
 }
 
-func (vasr *VoltAsyncResponse) IsQuery() bool {
-	return vasr.isQuery
+func (vasr *VoltAsyncResponse) isQuery() bool {
+	return vasr.isQ
 }
 
 func (vc VoltConn) serializeQuery(writer io.Writer, procedure string, handle int64, args []driver.Value) error {

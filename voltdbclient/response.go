@@ -27,6 +27,7 @@ type VoltResponse interface {
 	AppStatus() int8
 	AppStatusString() string
 	ClusterRoundTripTime() int32
+	Handle() int64
 	Status() int8
 	StatusString() string
 
@@ -36,7 +37,7 @@ type VoltResponse interface {
 
 // helds a processed response, either a VoltResult or a VoltRows
 type VoltResponseInfo struct {
-	clientHandle         int64
+	handle               int64
 	status               int8
 	statusString         string
 	appStatus            int8
@@ -45,9 +46,9 @@ type VoltResponseInfo struct {
 	err                  error
 }
 
-func newVoltResponseInfo(clientHandle int64, status int8, statusString string, appStatus int8, appStatusString string, clusterRoundTripTime int32, err error) *VoltResponseInfo {
+func newVoltResponseInfo(handle int64, status int8, statusString string, appStatus int8, appStatusString string, clusterRoundTripTime int32, err error) *VoltResponseInfo {
 	var vrsp = new(VoltResponseInfo)
-	vrsp.clientHandle = clientHandle
+	vrsp.handle = handle
 	vrsp.status = status
 	vrsp.statusString = statusString
 	vrsp.appStatus = appStatus
@@ -75,6 +76,10 @@ func (vrsp VoltResponseInfo) getError() error {
 
 func (vrsp VoltResponseInfo) setError(err error) {
 	vrsp.err = err
+}
+
+func (vrsp VoltResponseInfo) Handle() int64 {
+	return vrsp.handle
 }
 
 func (vrsp VoltResponseInfo) Status() int8 {
