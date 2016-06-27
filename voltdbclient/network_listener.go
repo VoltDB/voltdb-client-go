@@ -85,7 +85,7 @@ func (l *NetworkListener) readResponse(r io.Reader, handle int64) {
 
 	l.requestMutex.Lock()
 	req := l.requests[handle]
-	l.removeRequest(handle)
+	delete(l.requests, handle)
 	l.requestMutex.Unlock()
 
 	if req.isQuery() {
@@ -108,7 +108,9 @@ func (l *NetworkListener) registerRequest(handle int64, isQuery bool) <-chan Vol
 
 // need to have a lock on the map when this is invoked.
 func (l *NetworkListener) removeRequest(handle int64) {
+	l.requestMutex.Lock()
 	delete(l.requests, handle)
+	l.requestMutex.Unlock()
 }
 
 func (l *NetworkListener) start() {
