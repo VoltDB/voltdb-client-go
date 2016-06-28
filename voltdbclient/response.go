@@ -182,7 +182,7 @@ func deserializeRows(r io.Reader, rsp voltResponse) (rows VoltRows) {
 		rsp.setError(err)
 		return *(newVoltRows(rsp, 0, nil))
 	}
-	tables := make([]*VoltTable, numTables)
+	tables := make([]*voltTable, numTables)
 	for idx, _ := range tables {
 		if tables[idx], err = deserializeTable(r); err != nil {
 			rsp.setError(err)
@@ -193,7 +193,7 @@ func deserializeRows(r io.Reader, rsp voltResponse) (rows VoltRows) {
 	return *vr
 }
 
-func deserializeTable(r io.Reader) (*VoltTable, error) {
+func deserializeTable(r io.Reader) (*voltTable, error) {
 	var err error
 	_, err = readInt(r) // ttlLength
 	if err != nil {
@@ -255,5 +255,5 @@ func deserializeTable(r io.Reader) (*VoltTable, error) {
 		offset += int64(rowLen + 4)
 	}
 
-	return NewVoltTable(columnCount, columnTypes, columnNames, rowCount, rows), nil
+	return newVoltTable(columnCount, columnTypes, columnNames, rowCount, rows), nil
 }

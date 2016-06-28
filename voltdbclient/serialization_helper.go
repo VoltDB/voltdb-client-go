@@ -271,7 +271,7 @@ func marshallNullValue(buf io.Writer, nv NullValue) (err error) {
 		writeInt(buf, int32(-1))
 	case VT_TIMESTAMP:
 		writeByte(buf, VT_TIMESTAMP)
-		buf.Write(NULL_TIMESTAMP[:])
+		buf.Write(null_timestamp[:])
 	default:
 		panic(fmt.Sprintf("Unexpected null type %d", nv.ColType()))
 	}

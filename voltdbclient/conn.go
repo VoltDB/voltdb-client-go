@@ -27,8 +27,8 @@
 // and as a standalone VoltDB client.
 //
 // voltdbclient supports an asynchronous api as well as the
-// standard database/sql/driver api.  The asynchronous api is on
-// the VoltConn and VoltStatement types.
+// standard database/sql/driver api.  The asynchronous api is supported
+// by the VoltConn and VoltStatement types.
 package voltdbclient
 
 import (
@@ -399,6 +399,14 @@ func readLoginResponse(reader io.Reader) (*connectionData, error) {
 	return connData, err
 }
 
+// AsyncResponseConsumer is a type that consumes responses from asynchronous
+// Queries and Execs.
+// In the VoltDB go client, asynchronous requests are continuously processed by
+// one or more goroutines executing in the background.  When a response from
+// the server is received for an asynchronous request, one of the methods in
+// this interface is invoked.  An instance of AyncResponseConsumer is passed
+// when an asynchronous request is made, this instance will process the
+// response for that request.
 type AsyncResponseConsumer interface {
 	ConsumeError(error)
 	ConsumeResult(driver.Result)

@@ -22,10 +22,10 @@ import (
 	"fmt"
 )
 
-const INVALID_ROW_INDEX = -1
+const invalid_row_index = -1
 
 // Table represents a single result set for a stored procedure invocation.
-type VoltTable struct {
+type voltTable struct {
 	columnCount int16
 	columnTypes []int8
 	columnNames []string
@@ -37,8 +37,8 @@ type VoltTable struct {
 	columnOffsets []int32
 }
 
-func NewVoltTable(columnCount int16, columnTypes []int8, columnNames []string, rowCount int32, rows [][]byte) *VoltTable {
-	var vt = new(VoltTable)
+func newVoltTable(columnCount int16, columnTypes []int8, columnNames []string, rowCount int32, rows [][]byte) *voltTable {
+	var vt = new(voltTable)
 	vt.columnCount = columnCount
 	vt.columnTypes = columnTypes
 	vt.columnNames = columnNames
@@ -50,15 +50,15 @@ func NewVoltTable(columnCount int16, columnTypes []int8, columnNames []string, r
 	for ci, cn := range columnNames {
 		vt.cnToCi[cn] = int16(ci)
 	}
-	vt.rowIndex = INVALID_ROW_INDEX
+	vt.rowIndex = invalid_row_index
 	return vt
 }
 
-func (vt *VoltTable) AdvanceRow() bool {
-	return vt.AdvanceToRow(vt.rowIndex + 1)
+func (vt *voltTable) advanceRow() bool {
+	return vt.advanceToRow(vt.rowIndex+1)
 }
 
-func (vt *VoltTable) AdvanceToRow(rowIndex int32) bool {
+func (vt *voltTable) advanceToRow(rowIndex int32) bool {
 	if rowIndex >= vt.numRows {
 		return false
 	}
@@ -71,7 +71,7 @@ func (vt *VoltTable) AdvanceToRow(rowIndex int32) bool {
 
 // the common logic for reading a column is here.  Read a column as bytes and
 // the represent it as the correct type.
-func (vt *VoltTable) calcOffsets() error {
+func (vt *voltTable) calcOffsets() error {
 	// column count + 1, want starting and ending index for every column
 	offsets := make([]int32, vt.columnCount+1)
 	r := bytes.NewReader(vt.rows[vt.rowIndex])
@@ -91,7 +91,7 @@ func (vt *VoltTable) calcOffsets() error {
 	return nil
 }
 
-func (vt *VoltTable) colLength(r *bytes.Reader, offset int32, colType int8) (int32, error) {
+func (vt *voltTable) colLength(r *bytes.Reader, offset int32, colType int8) (int32, error) {
 	switch colType {
 	case -99: // ARRAY
 		return 0, fmt.Errorf("Not supporting ARRAY")
@@ -138,7 +138,7 @@ func (vt *VoltTable) colLength(r *bytes.Reader, offset int32, colType int8) (int
 	}
 }
 
-func (vt *VoltTable) getBytes(rowIndex int32, columnIndex int16) ([]byte, error) {
+func (vt *voltTable) getBytes(rowIndex int32, columnIndex int16) ([]byte, error) {
 	if vt.columnOffsets == nil {
 		err := vt.calcOffsets()
 		if err != nil {
@@ -148,10 +148,10 @@ func (vt *VoltTable) getBytes(rowIndex int32, columnIndex int16) ([]byte, error)
 	return vt.rows[rowIndex][vt.columnOffsets[columnIndex]:vt.columnOffsets[columnIndex+1]], nil
 }
 
-func (vt *VoltTable) getColumnCount() int {
+func (vt *voltTable) getColumnCount() int {
 	return int(vt.columnCount)
 }
 
-func (vt *VoltTable) getColumnTypes() []int8 {
+func (vt *voltTable) getColumnTypes() []int8 {
 	return vt.columnTypes
 }

@@ -29,9 +29,10 @@ import (
 // de/serialization on the base wire protocol types.
 // See: http://community.voltdb.com/docs/WireProtocol/index
 
+// The set of VoltDB column types and their associated golang type.
 const (
 	VT_ARRAY     int8 = -99 // array (short)(values*)
-	vt_NULL      int8 = 1   // null
+	VT_NULL      int8 = 1   // null
 	VT_BOOL      int8 = 3   // boolean, byte
 	VT_SHORT     int8 = 4   // int16
 	VT_INT       int8 = 5   // int32
@@ -39,7 +40,7 @@ const (
 	VT_FLOAT     int8 = 8   // float64
 	VT_STRING    int8 = 9   // string (int32-length-prefix)(utf-8 bytes)
 	VT_TIMESTAMP int8 = 11  // int64 timestamp microseconds
-	vt_TABLE     int8 = 21  // VoltTable
+	VT_TABLE     int8 = 21  // VoltTable
 	VT_DECIMAL   int8 = 22  // fix-scaled, fix-precision decimal
 	VT_VARBIN    int8 = 25  // varbinary (int)(bytes)
 )

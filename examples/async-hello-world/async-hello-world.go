@@ -93,26 +93,6 @@ func main() {
 	conn3.Drain()
 }
 
-func handleRows(rows driver.Rows, err error) {
-	if err != nil {
-		fmt.Println(err)
-	} else {
-		vrows := rows.(voltdbclient.VoltRows)
-		vrows.AdvanceRow()
-		iHello, err := vrows.GetStringByName("HELLO")
-		hello := iHello.(string)
-		if err != nil {
-			log.Fatal(err)
-		}
-		iWorld, err := vrows.GetStringByName("WORLD")
-		world := iWorld.(string)
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Printf("%v, %v!\n", hello, world)
-	}
-}
-
 type ResponseConsumer struct{}
 
 func (rc ResponseConsumer) ConsumeError(err error) {

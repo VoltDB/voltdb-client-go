@@ -41,13 +41,13 @@ func main() {
 	printRow(rows)
 
 	// with prepared statement
-	stmt, err := conn.Prepare("select * from HELLOWORLD where DIALECT = ?")
+	stmt, err := conn.Prepare("select * from HELLOWORLD")
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
 	}
 
-	rows, err = stmt.Query([]driver.Value{"French"})
+	rows, err = stmt.Query([]driver.Value{})
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
@@ -57,7 +57,7 @@ func main() {
 
 func printRow(rows driver.Rows) {
 	voltRows := rows.(voltdbclient.VoltRows)
-	if voltRows.AdvanceRow() {
+	for voltRows.AdvanceRow() {
 		hello, err := voltRows.GetStringByName("HELLO")
 		if err != nil {
 			log.Fatal(err)
