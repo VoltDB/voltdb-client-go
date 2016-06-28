@@ -14,6 +14,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 package voltdbclient
 
 import (
@@ -32,16 +33,16 @@ var NULL_DECIMAL = [...]byte{128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 var NULL_TIMESTAMP = [...]byte{128, 0, 0, 0, 0, 0, 0, 0}
 
 type VoltRows struct {
-	VoltResponse
+	voltResponse
 	closed     bool
 	numTables  int16
 	tables     []*VoltTable
 	tableIndex int16
 }
 
-func newVoltRows(resp VoltResponse, numTables int16, tables []*VoltTable) *VoltRows {
+func newVoltRows(resp voltResponse, numTables int16, tables []*VoltTable) *VoltRows {
 	var vr = new(VoltRows)
-	vr.VoltResponse = resp
+	vr.voltResponse = resp
 	vr.closed = false
 	vr.numTables = numTables
 	vr.tables = tables

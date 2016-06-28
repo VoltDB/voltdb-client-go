@@ -14,6 +14,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 package voltdbclient
 
 import (
@@ -23,11 +24,11 @@ import (
 	"math"
 )
 
-type VoltResponse interface {
+type voltResponse interface {
 	AppStatus() int8
 	AppStatusString() string
 	ClusterRoundTripTime() int32
-	Handle() int64
+	getHandle() int64
 	Status() int8
 	StatusString() string
 
@@ -78,7 +79,7 @@ func (vrsp VoltResponseInfo) setError(err error) {
 	vrsp.err = err
 }
 
-func (vrsp VoltResponseInfo) Handle() int64 {
+func (vrsp VoltResponseInfo) getHandle() int64 {
 	return vrsp.handle
 }
 
@@ -118,7 +119,7 @@ func (s Status) String() string {
 	return "unreachable"
 }
 
-func deserializeResponse(r io.Reader, handle int64) (rsp VoltResponse) {
+func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse) {
 	// Some fields are optionally included in the response.  Which of these optional
 	// fields are included is indicated by this byte, 'fieldsPresent'.  The set
 	// of optional fields includes 'statusString', 'appStatusString', and 'exceptionLength'.
@@ -167,7 +168,7 @@ func deserializeResponse(r io.Reader, handle int64) (rsp VoltResponse) {
 	return *(newVoltResponseInfo(handle, status, statusString, appStatus, appStatusString, clusterRoundTripTime, nil))
 }
 
-func deserializeRows(r io.Reader, rsp VoltResponse) (rows VoltRows) {
+func deserializeRows(r io.Reader, rsp voltResponse) (rows VoltRows) {
 	if rsp.getError() != nil {
 		return *(newVoltRows(rsp, 0, nil))
 	}

@@ -14,6 +14,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 package voltdbclient
 
 import (
@@ -26,44 +27,44 @@ import (
 // NetworkListener listens for responses for asynchronous procedure calls from
 // the server.  If a callback (channel) is registered for the procedure, the
 // listener puts the response on the channel (calls back).
-type NetworkListener struct {
+type networkListener struct {
 	vc             *VoltConn
 	reader         io.Reader
-	requests       map[int64]*NetworkRequest
+	requests       map[int64]*networkRequest
 	requestMutex   sync.Mutex
 	wg             *sync.WaitGroup
 	hasBeenStopped int32
 }
 
-func newListener(vc *VoltConn, reader io.Reader, wg *sync.WaitGroup) *NetworkListener {
-	var l = new(NetworkListener)
-	l.vc = vc
-	l.reader = reader
-	l.requests = make(map[int64]*NetworkRequest)
-	l.requestMutex = sync.Mutex{}
-	l.wg = wg
-	l.hasBeenStopped = 0
-	return l
+func newListener(vc *VoltConn, reader io.Reader, wg *sync.WaitGroup) *networkListener {
+	var nl = new(networkListener)
+	nl.vc = vc
+	nl.reader = reader
+	nl.requests = make(map[int64]*networkRequest)
+	nl.requestMutex = sync.Mutex{}
+	nl.wg = wg
+	nl.hasBeenStopped = 0
+	return nl
 }
 
 // listen listens for messages from the server and calls back a registered listener.
 // listen blocks on input from the server and should be run as a go routine.
-func (l *NetworkListener) listen() {
+func (nl *networkListener) listen() {
 	for {
-		if !atomic.CompareAndSwapInt32(&l.hasBeenStopped, 0, 0) {
-			l.wg.Done()
+		if !atomic.CompareAndSwapInt32(&nl.hasBeenStopped, 0, 0) {
+			nl.wg.Done()
 			break
 		}
 		// can't do anything without a handle.  If reading the handle fails,
 		// then log and drop the message.
-		buf, err := readMessage(l.reader)
+		buf, err := readMessage(nl.reader)
 		if err != nil {
-			if l.hasBeenStopped == 1 {
+			if nl.hasBeenStopped == 1 {
 				// notify the stopping thread that this thread is unblocked and is exiting.
-				l.wg.Done()
+				nl.wg.Done()
 			} else {
 				// have lost connection.  reestablish connection here and let this thread exit.
-				l.vc.Reconnect()
+				nl.vc.reconnect()
 			}
 			return
 		}
@@ -74,19 +75,19 @@ func (l *NetworkListener) listen() {
 			fmt.Printf("Error reading handle %v\n", err)
 			continue
 		}
-		l.readResponse(buf, handle)
+		nl.readResponse(buf, handle)
 	}
 }
 
 // reads and deserializes a response from the server.
-func (l *NetworkListener) readResponse(r io.Reader, handle int64) {
+func (nl *networkListener) readResponse(r io.Reader, handle int64) {
 
 	rsp := deserializeResponse(r, handle)
 
-	l.requestMutex.Lock()
-	req := l.requests[handle]
-	delete(l.requests, handle)
-	l.requestMutex.Unlock()
+	nl.requestMutex.Lock()
+	req := nl.requests[handle]
+	delete(nl.requests, handle)
+	nl.requestMutex.Unlock()
 
 	if req.isQuery() {
 		rows := deserializeRows(r, rsp)
@@ -97,51 +98,51 @@ func (l *NetworkListener) readResponse(r io.Reader, handle int64) {
 	}
 }
 
-func (l *NetworkListener) registerRequest(handle int64, isQuery bool) <-chan VoltResponse {
-	c := make(chan VoltResponse, 1)
+func (nl *networkListener) registerRequest(handle int64, isQuery bool) <-chan voltResponse {
+	c := make(chan voltResponse, 1)
 	nr := newNetworkRequest(c, isQuery)
-	l.requestMutex.Lock()
-	l.requests[handle] = nr
-	l.requestMutex.Unlock()
+	nl.requestMutex.Lock()
+	nl.requests[handle] = nr
+	nl.requestMutex.Unlock()
 	return c
 }
 
 // need to have a lock on the map when this is invoked.
-func (l *NetworkListener) removeRequest(handle int64) {
-	l.requestMutex.Lock()
-	delete(l.requests, handle)
-	l.requestMutex.Unlock()
+func (nl *networkListener) removeRequest(handle int64) {
+	nl.requestMutex.Lock()
+	delete(nl.requests, handle)
+	nl.requestMutex.Unlock()
 }
 
-func (l *NetworkListener) start() {
-	l.wg.Add(1)
-	go l.listen()
+func (nl *networkListener) start() {
+	nl.wg.Add(1)
+	go nl.listen()
 }
 
-func (l *NetworkListener) stop() {
+func (nl *networkListener) stop() {
 	for {
-		if atomic.CompareAndSwapInt32(&l.hasBeenStopped, 0, 1) {
+		if atomic.CompareAndSwapInt32(&nl.hasBeenStopped, 0, 1) {
 			break
 		}
 	}
 }
 
-type NetworkRequest struct {
+type networkRequest struct {
 	query bool
-	ch    chan VoltResponse
+	ch    chan voltResponse
 }
 
-func newNetworkRequest(ch chan VoltResponse, isQuery bool) *NetworkRequest {
-	var nr = new(NetworkRequest)
+func newNetworkRequest(ch chan voltResponse, isQuery bool) *networkRequest {
+	var nr = new(networkRequest)
 	nr.query = isQuery
 	nr.ch = ch
 	return nr
 }
 
-func (nr NetworkRequest) isQuery() bool {
+func (nr networkRequest) isQuery() bool {
 	return nr.query
 }
 
-func (nr NetworkRequest) getChan() chan VoltResponse {
+func (nr networkRequest) getChan() chan voltResponse {
 	return nr.ch
 }

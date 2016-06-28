@@ -14,15 +14,16 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 package voltdbclient
 
 type VoltResult struct {
-	VoltResponse
+	voltResponse
 }
 
-func newVoltResult(resp VoltResponse) *VoltResult {
+func newVoltResult(resp voltResponse) *VoltResult {
 	var vrslt = new(VoltResult)
-	vrslt.VoltResponse = resp
+	vrslt.voltResponse = resp
 	return vrslt
 }
 

@@ -14,6 +14,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 package voltdbclient
 
 import (
@@ -23,12 +24,15 @@ import (
 	"io/ioutil"
 	"math/big"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
-func TestCallOnClosedConn(t *testing.T) {
-	conn := VoltConn{nil, nil, nil, nil, nil, nil, false}
+func CallOnClosedConn(t *testing.T) {
+	cd := connectionData{0, 0, 0, ""}
+	cs := connectionState{"", nil, nil, cd, nil, nil, sync.Mutex{}, nil, nil, true}
+	conn := VoltConn{&cs}
 	_, err := conn.Query("bad", []driver.Value{})
 	if err == nil {
 		t.Errorf("Expected error calling procedure on closed Conn")
@@ -40,7 +44,7 @@ func ReadDataTypes(t *testing.T) {
 	check(t, err)
 	r := bytes.NewReader(b)
 
-	nl := newListener(r, nil)
+	nl := newListener(nil, r, nil)
 	var handle int64 = 1
 	ch := nl.registerRequest(handle, true)
 

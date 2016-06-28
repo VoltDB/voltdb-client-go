@@ -14,6 +14,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 package voltdbclient
 
 import (
@@ -24,6 +25,7 @@ import (
 	"testing"
 	//"time"
 	"io/ioutil"
+	"sync"
 	"time"
 )
 
@@ -32,7 +34,9 @@ func TestSimpleProcedureCall(t *testing.T) {
 	// this is the writer, write the serialized procedure to this buffer.
 	var bs []byte
 	buf := bytes.NewBuffer(bs)
-	conn := VoltConn{nil, buf, nil, nil, nil, nil, true}
+	cd := connectionData{0, 0, 0, ""}
+	cs := connectionState{"", nil, buf, cd, nil, nil, sync.Mutex{}, nil, nil, true}
+	conn := VoltConn{&cs}
 	var handle int64 = 51515
 	conn.serializeQuery(buf, "HELLOWORLD.insert", handle, []driver.Value{"Bonjour", "Monde", "French"})
 	r := bytes.NewReader(buf.Bytes())
@@ -42,7 +46,9 @@ func TestSimpleProcedureCall(t *testing.T) {
 func TestInsertDifferentTypes(t *testing.T) {
 	var bs []byte
 	buf := bytes.NewBuffer(bs)
-	conn := VoltConn{nil, buf, nil, nil, nil, nil, true}
+	cd := connectionData{0, 0, 0, ""}
+	cs := connectionState{"", nil, buf, cd, nil, nil, sync.Mutex{}, nil, nil, true}
+	conn := VoltConn{&cs}
 
 	var id int32 = 100
 	var nid int32 = 100
@@ -60,7 +66,7 @@ func TestInsertDifferentTypes(t *testing.T) {
 	now := time.Date(2016, time.June, 10, 23, 0, 0, 0, time.UTC)
 
 	var handle int64 = 61616
-	conn.serializeQuery(conn.writer, "EXAMPLE_OF_TYPES.insert", handle, []driver.Value{id, nid, name, data, status, typ, pan, bo, now})
+	conn.serializeQuery(conn.cs.writer, "EXAMPLE_OF_TYPES.insert", handle, []driver.Value{id, nid, name, data, status, typ, pan, bo, now})
 
 	// read the verification file into a buffer and compare the two buffers
 	bs, err := ioutil.ReadFile("./test_resources/verify_insert_types.msg")

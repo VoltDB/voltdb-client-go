@@ -14,6 +14,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 package main
 
 import (
@@ -48,16 +49,15 @@ func main() {
 
 	keys := []string{"English", "French", "Spanish", "Danish", "Italian"}
 
-	cbs := make([]*voltdbclient.VoltAsyncResponse, 100)
 	for i := 0; i < 100; i++ {
 		key := keys[rand.Intn(5)]
-		cb, err := conn1.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
-		cbs[i] = cb
+		err := conn1.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(-1)
 		}
 	}
+	conn1.Drain()
 
 	// create two connections and have them query continuously, then drain the results.
 	conn2, err := voltdbclient.OpenConn("localhost:21212")
@@ -76,13 +76,13 @@ func main() {
 
 	for i := 0; i < 2000; i++ {
 		key := keys[rand.Intn(5)]
-		_, err := conn2.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
+		err := conn2.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(-1)
 		}
 
-		_, err = conn3.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
+		err = conn3.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(-1)
@@ -113,7 +113,7 @@ func handleRows(rows driver.Rows, err error) {
 	}
 }
 
-type ResponseConsumer struct {}
+type ResponseConsumer struct{}
 
 func (rc ResponseConsumer) ConsumeError(err error) {
 	fmt.Println(err)
