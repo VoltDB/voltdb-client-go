@@ -37,7 +37,7 @@ func main() {
 	}
 	defer conn1.Close()
 
-	conn1.Exec("DELETE FROM HELLOWORLD;", []driver.Value{})
+	conn1.Exec("@AdHoc", []driver.Value{"DELETE FROM HELLOWORLD;"})
 
 	resCons := ResponseConsumer{}
 

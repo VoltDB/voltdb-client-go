@@ -34,6 +34,14 @@ func main() {
 	}
 	defer conn.Close()
 
+	conn.Exec("@AdHoc", []driver.Value{"DELETE FROM HELLOWORLD;"})
+
+	conn.Exec("HELLOWORLD.insert", []driver.Value{"Bonjour", "Monde", "French"})
+	conn.Exec("HELLOWORLD.insert", []driver.Value{"Hello", "World", "English"})
+	conn.Exec("HELLOWORLD.insert", []driver.Value{"Hola", "Mundo", "Spanish"})
+	conn.Exec("HELLOWORLD.insert", []driver.Value{"Hej", "Verden", "Danish"})
+	conn.Exec("HELLOWORLD.insert", []driver.Value{"Ciao", "Mondo", "Italian"})
+
 	rows, err := conn.Query("@AdHoc", []driver.Value{"select * from HELLOWORLD where DIALECT = ?", "French"})
 	if err != nil {
 		log.Fatal(err)
