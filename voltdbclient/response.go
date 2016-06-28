@@ -25,19 +25,19 @@ import (
 )
 
 type voltResponse interface {
-	AppStatus() int8
-	AppStatusString() string
-	ClusterRoundTripTime() int32
+	getAppStatus() int8
+	getAppStatusString() string
+	getClusterRoundTripTime() int32
 	getHandle() int64
-	Status() int8
-	StatusString() string
+	getStatus() int8
+	getStatusString() string
 
 	getError() error
 	setError(err error)
 }
 
 // helds a processed response, either a VoltResult or a VoltRows
-type VoltResponseInfo struct {
+type voltResponseInfo struct {
 	handle               int64
 	status               int8
 	statusString         string
@@ -47,8 +47,8 @@ type VoltResponseInfo struct {
 	err                  error
 }
 
-func newVoltResponseInfo(handle int64, status int8, statusString string, appStatus int8, appStatusString string, clusterRoundTripTime int32, err error) *VoltResponseInfo {
-	var vrsp = new(VoltResponseInfo)
+func newVoltResponseInfo(handle int64, status int8, statusString string, appStatus int8, appStatusString string, clusterRoundTripTime int32, err error) *voltResponseInfo {
+	var vrsp = new(voltResponseInfo)
 	vrsp.handle = handle
 	vrsp.status = status
 	vrsp.statusString = statusString
@@ -59,62 +59,64 @@ func newVoltResponseInfo(handle int64, status int8, statusString string, appStat
 	return vrsp
 }
 
-func (vrsp VoltResponseInfo) AppStatus() int8 {
+func (vrsp voltResponseInfo) getAppStatus() int8 {
 	return vrsp.appStatus
 }
 
-func (vrsp VoltResponseInfo) AppStatusString() string {
+func (vrsp voltResponseInfo) getAppStatusString() string {
 	return vrsp.appStatusString
 }
 
-func (vrsp VoltResponseInfo) ClusterRoundTripTime() int32 {
+func (vrsp voltResponseInfo) getClusterRoundTripTime() int32 {
 	return vrsp.clusterRoundTripTime
 }
 
-func (vrsp VoltResponseInfo) getError() error {
+func (vrsp voltResponseInfo) getError() error {
 	return vrsp.err
 }
 
-func (vrsp VoltResponseInfo) setError(err error) {
+func (vrsp voltResponseInfo) setError(err error) {
 	vrsp.err = err
 }
 
-func (vrsp VoltResponseInfo) getHandle() int64 {
+func (vrsp voltResponseInfo) getHandle() int64 {
 	return vrsp.handle
 }
 
-func (vrsp VoltResponseInfo) Status() int8 {
+func (vrsp voltResponseInfo) getStatus() int8 {
 	return vrsp.status
 }
 
-func (vrsp VoltResponseInfo) StatusString() string {
+func (vrsp voltResponseInfo) getStatusString() string {
 	return vrsp.statusString
 }
 
-// Response status codes
-type Status int8
+// Status codes returned by the VoltDB server.
+// Each response to a client Query or Exec has an associated status code.
+type ResponseStatus int8
 
 const (
-	SUCCESS            Status = 1
-	USER_ABORT         Status = -1
-	GRACEFUL_FAILURE   Status = -2
-	UNEXPECTED_FAILURE Status = -3
-	CONNECTION_LOST    Status = -4
+	SUCCESS ResponseStatus = 1
+	USER_ABORT ResponseStatus = -1
+	GRACEFUL_FAILURE ResponseStatus = -2
+	UNEXPECTED_FAILURE ResponseStatus = -3
+	CONNECTION_LOST ResponseStatus = -4
 )
 
-func (s Status) String() string {
-	if s == SUCCESS {
+// Represent a ResponseStatus as a string.
+func (rs ResponseStatus) String() string {
+	if rs == SUCCESS {
 		return "SUCCESS"
-	} else if s == USER_ABORT {
+	} else if rs == USER_ABORT {
 		return "USER ABORT"
-	} else if s == GRACEFUL_FAILURE {
+	} else if rs == GRACEFUL_FAILURE {
 		return "GRACEFUL FAILURE"
-	} else if s == UNEXPECTED_FAILURE {
+	} else if rs == UNEXPECTED_FAILURE {
 		return "UNEXPECTED FAILURE"
-	} else if s == CONNECTION_LOST {
+	} else if rs == CONNECTION_LOST {
 		return "CONNECTION LOST"
 	} else {
-		panic(fmt.Sprintf("Invalid status code: %d", int(s)))
+		panic(fmt.Sprintf("Invalid status code: %d", int(rs)))
 	}
 	return "unreachable"
 }
@@ -133,14 +135,14 @@ func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse) {
 		return *(newVoltResponseInfo(handle, 0, "", 0, "", 0, err))
 	}
 	var statusString string
-	if Status(status) != SUCCESS {
+	if ResponseStatus(status) != SUCCESS {
 		if fieldsPresent&(1<<5) != 0 {
 			statusString, err = readString(r)
 			if err != nil {
 				return *(newVoltResponseInfo(handle, status, "", 0, "", 0, err))
 			}
 		}
-		errString := fmt.Sprintf("Bad status %s %s\n", Status(status).String(), statusString)
+		errString := fmt.Sprintf("Bad status %s %s\n", ResponseStatus(status).String(), statusString)
 		return *(newVoltResponseInfo(handle, status, statusString, 0, "", 0, errors.New(errString)))
 	}
 

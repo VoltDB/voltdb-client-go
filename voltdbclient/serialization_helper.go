@@ -177,7 +177,7 @@ func marshallValue(buf io.Writer, v reflect.Value, t reflect.Type) (err error) {
 	case reflect.Struct:
 		if t, ok := v.Interface().(time.Time); ok {
 			marshallTimestamp(buf, t)
-		} else if nv, ok := v.Interface().(NullValue); ok {
+		} else if nv, ok := v.Interface().(nullValue); ok {
 			marshallNullValue(buf, nv)
 		} else {
 			panic("Can't marshal struct-type parameters")
@@ -246,8 +246,8 @@ func marshallTimestamp(buf io.Writer, t time.Time) (err error) {
 	return
 }
 
-func marshallNullValue(buf io.Writer, nv NullValue) (err error) {
-	switch nv.ColType() {
+func marshallNullValue(buf io.Writer, nv nullValue) (err error) {
+	switch nv.getColType() {
 	case VT_BOOL:
 		writeByte(buf, VT_BOOL)
 		writeByte(buf, math.MinInt8)
@@ -273,7 +273,7 @@ func marshallNullValue(buf io.Writer, nv NullValue) (err error) {
 		writeByte(buf, VT_TIMESTAMP)
 		buf.Write(null_timestamp[:])
 	default:
-		panic(fmt.Sprintf("Unexpected null type %d", nv.ColType()))
+		panic(fmt.Sprintf("Unexpected null type %d", nv.getColType()))
 	}
 	return
 }

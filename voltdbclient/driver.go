@@ -24,23 +24,18 @@ import (
 	"net"
 )
 
+// A database/sql/driver for VoltDB.  This driver is registered as 'voltdb'
 type VoltDriver struct {
 }
 
+// News an instance of a VoltDB driver.
 func NewVoltDriver() *VoltDriver {
 	var vd = new(VoltDriver)
 	return vd
 }
 
-func (vd *VoltDriver) Open(name string) (driver.Conn, error) {
-	conn, err := vd.newConnection(name)
-	if err != nil {
-		return nil, err
-	}
-	return conn, nil
-}
-
-func (vd *VoltDriver) newConnection(hostAndPort string) (driver.Conn, error) {
+// Open a connection to the VoltDB server.
+func (vd *VoltDriver) Open(hostAndPort string) (driver.Conn, error) {
 	raddr, err := net.ResolveTCPAddr("tcp", hostAndPort)
 	if err != nil {
 		return nil, fmt.Errorf("Error resolving %v.", hostAndPort)

@@ -15,6 +15,7 @@
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+// A simple example that demonstrates the use of the VoltDB database/sql/driver.
 package main
 
 import "database/sql"
@@ -47,7 +48,7 @@ func main() {
 	printRows(rows)
 
 	// with prepared statement
-	stmt, err := db.Prepare("HELLOWORLD.select")
+	stmt, err := db.Prepare("select * from HELLOWORLD where dialect = ?")
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)

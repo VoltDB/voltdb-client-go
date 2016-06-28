@@ -15,6 +15,7 @@
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+// A simple example that demonstrates the use of asynchronous Query and Exec calls.
 package main
 
 import (

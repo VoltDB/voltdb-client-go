@@ -408,8 +408,13 @@ func readLoginResponse(reader io.Reader) (*connectionData, error) {
 // when an asynchronous request is made, this instance will process the
 // response for that request.
 type AsyncResponseConsumer interface {
+
+	// This method is invoked when an error is returned by an async Query
+	// or an Exec.
 	ConsumeError(error)
+	// This method is invoked when a Result is returned by an async Exec.
 	ConsumeResult(driver.Result)
+	// This method is invoked when Rows is returned by an async Query.
 	ConsumeRows(driver.Rows)
 }
 
@@ -466,16 +471,10 @@ func (vc VoltConn) serializeQuery(writer io.Writer, procedure string, handle int
 }
 
 // Null Value type
-type NullValue struct {
+type nullValue struct {
 	colType int8
 }
 
-func NewNullValue(colType int8) *NullValue {
-	var nv = new(NullValue)
-	nv.colType = colType
-	return nv
-}
-
-func (nv *NullValue) ColType() int8 {
+func (nv *nullValue) getColType() int8 {
 	return nv.colType
 }
