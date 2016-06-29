@@ -92,6 +92,7 @@ func main() {
 
 	conn2.Drain()
 	conn3.Drain()
+	*/
 }
 
 type ResponseConsumer struct{}

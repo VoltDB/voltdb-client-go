@@ -45,18 +45,20 @@ type benchmarkStats struct {
 	totalOps, successfulGets, missedGets, failedGets, rawGetData, networkGetData, successfulPuts, failedPuts, rawPutData, networkPutData uint64
 }
 
+// helper function for clearing content of any type
 func clear(v interface{}) {
 	p := reflect.ValueOf(v).Elem()
 	p.Set(reflect.Zero(p.Type()))
 }
 
-var periodicStats, fullStats *benchmarkStats
-
-var cpuprofile = ""
-var config *kvConfig
-var ticker *time.Ticker
-var timeStart time.Time
-var bm *benchmark
+var (
+	periodicStats, fullStats *benchmarkStats
+	cpuprofile = ""
+	config *kvConfig
+	ticker *time.Ticker
+	timeStart time.Time
+	bm *benchmark
+)
 
 type benchmark struct {
 	proc *payLoadProcessor
@@ -70,6 +72,10 @@ func NewBenchmark() (*benchmark, error) {
 		config.poolsize, config.usecompression)
 	periodicStats = new(benchmarkStats)
 	fullStats = new(benchmarkStats)
+	fmt.Print(HORIZONTAL_RULE);
+	fmt.Println(" Command Line Configuration");
+	fmt.Println(HORIZONTAL_RULE);
+	fmt.Printf("%+v\n", *config);
 	return bmTemp, nil
 }
 
@@ -250,7 +256,9 @@ func runGetPutAsync(join chan int, getputratio float64, duration time.Duration) 
 			if rand.Float64() < getputratio {
 				volt.QueryAsync(gcb, "STORE.select", []driver.Value{bm.proc.generateRandomKeyForRetrieval()})
 			} else {
-				key, _, storeValue := bm.proc.generateForStore()
+				key, rawValue, storeValue := bm.proc.generateForStore()
+				atomic.AddUint64(&(fullStats.networkPutData), uint64(len(storeValue)))
+				atomic.AddUint64(&(fullStats.rawPutData), uint64(len(rawValue)))
 				volt.ExecAsync(pcb, "STORE.upsert", []driver.Value{key, storeValue})
 			}
 		}

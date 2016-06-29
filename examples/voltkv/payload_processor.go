@@ -33,11 +33,10 @@ type payLoadProcessor struct {
 	poolSize       int
 	useCompression bool
 	keyFormat      string
-	r              rand.Rand
 }
 
 // var entropyBytesGlobal bytes.Buffer = new(bytes.Buffer)
-const EntropyByteSize int = 1024 * 1024 * 4
+const ENTROPY_BYTE_SIZE int = 1024 * 1024 * 4
 
 var entropyBytes *bytes.Reader
 
@@ -52,12 +51,13 @@ func NewPayloadProcessor(keySize, minValueSize, maxValueSize, entropy, poolSize 
 
 	proc.keyFormat = "K%" + strconv.Itoa(proc.keySize) + "v"
 	// rand.Seed()
-	b := make([]byte, EntropyByteSize)
+	b := make([]byte, ENTROPY_BYTE_SIZE)
 	for i := range b {
 		b[i] = byte(rand.Intn(127) % entropy)
 	}
 	entropyBytes = bytes.NewReader(b)
 	return proc
+
 }
 
 func (proc *payLoadProcessor) generateForStore() (key string, rawValue, storeValue []byte) {

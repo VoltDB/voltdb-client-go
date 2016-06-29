@@ -40,6 +40,21 @@ func main() {
 		log.Fatal(err)
 		os.Exit(-1)
 	}
+
+	stmt, err := db.Prepare("{call Vote(?, ?, ?)}")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+
+	rows, err := stmt.Query( 1,2,3)
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+	printRows(rows)
+
+	/*
 	rows, err := db.Query("HELLOWORLD.select", "French")
 	if err != nil {
 		log.Fatal(err)
@@ -60,19 +75,18 @@ func main() {
 		os.Exit(-1)
 	}
 	printRows(rows)
+	*/
 
 }
 
 func printRows(rows *sql.Rows) {
 	for rows.Next() {
-		var hello string
-		var world string
-		var dialect string
-		err := rows.Scan(&hello, &world, &dialect)
+		var hello  int64
+		err := rows.Scan(&hello)
 		if err != nil {
 			fmt.Println(err)
 			break
 		}
-		fmt.Printf("SUCCESS: %s %s %s\n", hello, world, dialect)
+		fmt.Printf("SUCCESS: %s %s %s\n", hello)
 	}
 }
