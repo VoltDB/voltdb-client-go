@@ -30,9 +30,7 @@ func newVoltResult(resp voltResponse, rowsAff int64) *VoltResult {
 	return vrslt
 }
 
-// LastInsertId returns the database's auto-generated ID
-// after, for example, an INSERT into a table with primary
-// key.
+// LastInsertId is not populated by VoltDB, calls to LastInsertId return 0.
 func (vrslt VoltResult) LastInsertId() (int64, error) {
 	return 0, nil
 }
