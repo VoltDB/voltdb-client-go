@@ -25,31 +25,33 @@ SERVERS="localhost"
 
 # remove binaries, logs, runtime artifacts, etc... but keep the jars
 function clean() {
-    rm -rf voltdbroot log procedures/voter/*.class client/voter/*.class *.log
+    rm -rf voltdbroot log procedures/voter/*.class  *.log
 }
 
 # remove everything from "clean" as well as the jarfiles
 function cleanall() {
     clean
-    rm -rf voter-procs.jar voter-client.jar
+    rm -rf voter-procs.jar
+    rm -rf voter
 }
 
 # compile the source code for procedures and the client into jarfiles
-function jars() {
+function build() {
     # compile java source
     javac -classpath $APPCLASSPATH procedures/voter/*.java
-    javac -classpath $CLIENTCLASSPATH client/voter/*.java
     # build procedure and client jars
     jar cf voter-procs.jar -C procedures voter
-    jar cf voter-client.jar -C client voter
     # remove compiled .class files
-    rm -rf procedures/voter/*.class client/voter/*.class
+    rm -rf procedures/voter/*.class
+
+    # compile go source
+    go build github.com/VoltDB/voltdb-client-go/examples/voter/client/voter
 }
 
-# compile the procedure and client jarfiles if they don't exist
-function jars-ifneeded() {
-    if [ ! -e voter-procs.jar ] || [ ! -e voter-client.jar ]; then
-        jars;
+# compile the procedure jarfiles and client if they don't exist
+function build-ifneeded() {
+    if [ ! -e voter-procs.jar ] || [ ! -e voter ]; then
+        build;
     fi
 }
 
@@ -62,7 +64,7 @@ function server() {
 
 # load schema and procedures
 function init() {
-    jars-ifneeded
+    build-ifneeded
     sqlcmd < ddl.sql
 }
 
@@ -73,74 +75,57 @@ function client() {
 
 # Asynchronous benchmark sample
 # Use this target for argument help
-function async-benchmark-help() {
-    jars-ifneeded
-    java -classpath voter-client.jar:$CLIENTCLASSPATH voter.AsyncBenchmark --help
+function benchmark-help() {
+    build-ifneeded
+    ./voter --help
 }
 
 # latencyreport: default is OFF
 # ratelimit: must be a reasonable value if lantencyreport is ON
 # Disable the comments to get latency report
 function async-benchmark() {
-    jars-ifneeded
-    java -classpath voter-client.jar:$CLIENTCLASSPATH voter.AsyncBenchmark \
+    build-ifneeded
+    ./voter \
+        --runtype=async
         --displayinterval=5 \
         --warmup=5 \
         --duration=120 \
         --servers=$SERVERS \
         --contestants=6 \
-        --maxvotes=2
+        --maxvotes=2    \
+        --goroutines=1
 }
 
-# trivial client code for illustration purposes
-function simple-benchmark() {
-    jars-ifneeded
-    java -classpath voter-client.jar:$CLIENTCLASSPATH -Dlog4j.configuration=file://$LOG4J \
-        voter.SimpleBenchmark $SERVERS
-}
-
-# Multi-threaded synchronous benchmark sample
-# Use this target for argument help
-function sync-benchmark-help() {
-    jars-ifneeded
-    java -classpath voter-client.jar:$CLIENTCLASSPATH voter.SyncBenchmark --help
-}
-
+# Multi-goroutines synchronous benchmark sample
 function sync-benchmark() {
-    jars-ifneeded
-    java -classpath voter-client.jar:$CLIENTCLASSPATH -Dlog4j.configuration=file://$LOG4J \
-        voter.SyncBenchmark \
+    build-ifneeded
+    ./voter \
+        --runtype=sync
         --displayinterval=5 \
         --warmup=5 \
         --duration=120 \
         --servers=$SERVERS \
         --contestants=6 \
         --maxvotes=2 \
-        --threads=40
+        --goroutines=40
 }
 
-# JDBC benchmark sample
-# Use this target for argument help
-function jdbc-benchmark-help() {
-    jars-ifneeded
-    java -classpath voter-client.jar:$CLIENTCLASSPATH voter.JDBCBenchmark --help
-}
-
-function jdbc-benchmark() {
-    jars-ifneeded
-    java -classpath voter-client.jar:$CLIENTCLASSPATH -Dlog4j.configuration=file://$LOG4J \
-        voter.JDBCBenchmark \
+# Sql API benchmark sample
+function sql-benchmark() {
+    build-ifneeded
+    ./voter   \
+        --runtype=sql
         --displayinterval=5 \
         --duration=120 \
         --servers=$SERVERS \
         --maxvotes=2 \
         --contestants=6 \
-        --threads=40
+        --goroutines=40
 }
 
 function help() {
-    echo "Usage: ./run.sh {clean|cleanall|jars|server|init|client|async-benchmark|aysnc-benchmark-help|...}"
-    echo "       {...|sync-benchmark|sync-benchmark-help|jdbc-benchmark|jdbc-benchmark-help|simple-benchmark}"
+    echo "Usage: ./run.sh {clean|cleanall|build|server|init|benchmark-help|...}"
+    echo "       {...|client|async-benchmark|sync-benchmark|sql-benchmark}"
 }
 
 # Run the targets pass on the command line

@@ -31,23 +31,19 @@ function clean() {
 # remove everything from "clean" as well as the jarfile
 function cleanall() {
     clean
-    rm -rf voltkv-client.jar
+    rm -rf voltkv
 }
 
-# compile the source code for the client into a jarfile
-function jars() {
-    # compile java source
-    javac -classpath $CLIENTCLASSPATH client/voltkv/*.java
-    # build client jar
-    jar cf voltkv-client.jar -C client voltkv
-    # remove compiled .class files
-    rm -rf client/voltkv/*.class
+# compile the source code for the client
+function build() {
+    # compile go source
+    go build github.com/VoltDB/voltdb-client-go/examples/voltkv/client/voltkv
 }
 
-# compile the client jarfile if it doesn't exist
-function jars-ifneeded() {
-    if [ ! -e voltkv-client.jar ]; then
-        jars;
+# compile the client if it doesn't exist
+function build-ifneeded() {
+    if [ ! -e voltkv ]; then
+        build;
     fi
 }
 
@@ -58,7 +54,7 @@ function server() {
 
 # load schema and procedures
 function init() {
-    jars-ifneeded
+    build-ifneeded
     sqlcmd < ddl.sql
 }
 
@@ -67,19 +63,20 @@ function client() {
     async-benchmark
 }
 
-# Asynchronous benchmark sample
 # Use this target for argument help
-function async-benchmark-help() {
-    jars-ifneeded
-    java -classpath voltkv-client.jar:$CLIENTCLASSPATH voltkv.AsyncBenchmark --help
+function benchmark-help() {
+    build-ifneeded
+    ./voltkv --help
 }
 
+# Asynchronous benchmark sample
 # latencyreport: default is OFF
 # ratelimit: must be a reasonable value if lantencyreport is ON
 # Disable the comments (and add a preceding slash) to get latency report
 function async-benchmark() {
-    jars-ifneeded
-    java -classpath voltkv-client.jar:$CLIENTCLASSPATH voltkv.AsyncBenchmark \
+    build-ifneeded
+    ./voltkv \
+        --runtype=async
         --displayinterval=5 \
         --duration=120 \
         --servers=$SERVERS \
@@ -91,20 +88,13 @@ function async-benchmark() {
         --maxvaluesize=1024 \
         --entropy=127 \
         --usecompression=false
-#        --latencyreport=true \
-#        --ratelimit=100000
 }
 
-# Multi-threaded synchronous benchmark sample
-# Use this target for argument help
-function sync-benchmark-help() {
-    jars-ifneeded
-    java -classpath voltkv-client.jar:$CLIENTCLASSPATH voltkv.SyncBenchmark --help
-}
-
+# Multi-goroutines synchronous benchmark sample
 function sync-benchmark() {
-    jars-ifneeded
-    java -classpath voltkv-client.jar:$CLIENTCLASSPATH voltkv.SyncBenchmark \
+    build-ifneeded
+    ./voltkv \
+        --runtype=sync
         --displayinterval=5 \
         --duration=120 \
         --servers=$SERVERS \
@@ -115,20 +105,15 @@ function sync-benchmark() {
         --minvaluesize=1024 \
         --maxvaluesize=1024 \
         --usecompression=false \
-        --threads=40
+        --goroutines=40
 }
 
-# JDBC benchmark sample
+# Sql API benchmark sample
 # Use this target for argument help
-function jdbc-benchmark-help() {
-    jars-ifneeded
-    java -classpath voltkv-client.jar:$CLIENTCLASSPATH voltkv.JDBCBenchmark --help
-}
-
-function jdbc-benchmark() {
-    jars-ifneeded
-    java -classpath voltkv-client.jar:$CLIENTCLASSPATH voltkv.JDBCBenchmark \
-        --displayinterval=5 \
+function sql-benchmark() {
+    build-ifneeded
+    ./voltkv   \
+        --runtype=sql
         --duration=120 \
         --servers=$SERVERS \
         --poolsize=100000 \
@@ -138,12 +123,12 @@ function jdbc-benchmark() {
         --minvaluesize=1024 \
         --maxvaluesize=1024 \
         --usecompression=false \
-        --threads=40
+        --goroutines=40
 }
 
 function help() {
-    echo "Usage: ./run.sh {clean|cleanall|jars|server|init|client|async-benchmark|aysnc-benchmark-help|...}"
-    echo "       {...|sync-benchmark|sync-benchmark-help|jdbc-benchmark|jdbc-benchmark-help}"
+    echo "Usage: ./run.sh {clean|cleanall|build|server|init|benchmark-help|...}"
+    echo "       {...|client|async-benchmark|sync-benchmark|sql-benchmark}"
 }
 
 # Run the targets pass on the command line
