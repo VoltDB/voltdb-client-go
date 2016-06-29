@@ -190,23 +190,23 @@ func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse) {
 	return *(newVoltResponseInfo(handle, status, statusString, appStatus, appStatusString, clusterRoundTripTime, numTables, nil))
 }
 
-func deserializeResult(r io.Reader, rsp voltResponse) (rows VoltResult) {
+func deserializeResult(r io.Reader, rsp voltResponse) VoltResult {
 	if rsp.getError() != nil {
-		return *(newVoltResult(rsp, 0))
+		return *(newVoltResult(rsp, []int64{0}))
 	}
 
-	var totalRowCount int64 = 0
 	numTables := rsp.getNumTables()
+	ras := make([]int64, numTables)
 	var i int16 = 0
 	for ; i < numTables; i++ {
-		rowCount, err := deserializeTableForResult(r)
+		ra, err := deserializeTableForResult(r)
 		if err != nil {
 			rsp.setError(err)
-			return *(newVoltResult(rsp, 0))
+			return *(newVoltResult(rsp, []int64{0}))
 		}
-		totalRowCount += rowCount
+		ras[i] = ra
 	}
-	res := newVoltResult(rsp, totalRowCount)
+	res := newVoltResult(rsp, ras)
 	return *res
 }
 
