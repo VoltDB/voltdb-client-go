@@ -44,15 +44,13 @@ var null_timestamp = [...]byte{128, 0, 0, 0, 0, 0, 0, 0}
 // supported, a null value will be returned as nil.
 type VoltRows struct {
 	voltResponse
-	numTables  int16
 	tables     []*voltTable
 	tableIndex int16
 }
 
-func newVoltRows(resp voltResponse, numTables int16, tables []*voltTable) *VoltRows {
+func newVoltRows(resp voltResponse, tables []*voltTable) *VoltRows {
 	var vr = new(VoltRows)
 	vr.voltResponse = resp
-	vr.numTables = numTables
 	vr.tables = tables
 	if len(tables) == 0 {
 		vr.tableIndex = -1
@@ -179,7 +177,7 @@ func (vr VoltRows) AdvanceTable() bool {
 // Advances to the table indicated by the index.  Returns false if there is
 // no table at the given index.
 func (vr VoltRows) AdvanceToTable(tableIndex int16) bool {
-	if tableIndex >= vr.numTables {
+	if tableIndex >= vr.getNumTables() {
 		return false
 	}
 	vr.tableIndex++

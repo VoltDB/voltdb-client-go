@@ -270,9 +270,10 @@ func (vc VoltConn) Query(query string, args []driver.Value) (driver.Rows, error)
 	return rows, nil
 }
 
-// Query executes a query asynchronously.  The invoking thread will block until the query is
-// sent over the network to the server.  The eventual response will be handled by the given
-// AsyncResponseConsumer, this processing happens in the 'response' thread.
+// QueryAsync executes a query asynchronously.  The invoking thread will block
+// until the query is sent over the network to the server.  The eventual
+// response will be handled by the given AsyncResponseConsumer, this processing
+// happens in the 'response' thread.
 func (vc VoltConn) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []driver.Value) error {
 	if !vc.isOpen() {
 		return errors.New("Connection is closed")
@@ -290,7 +291,7 @@ func (vc VoltConn) QueryAsync(rowsCons AsyncResponseConsumer, query string, args
 
 // Drain blocks until all outstanding asynchronous requests have been satisfied.
 // Asynchronous requests are processed in a background thread; this call blocks the
-// current thread until that background thread has finished will all asynchronous requests.
+// current thread until that background thread has finished with all asynchronous requests.
 func (vc VoltConn) Drain() {
 	var numAsyncs int
 	for {

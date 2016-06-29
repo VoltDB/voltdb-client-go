@@ -20,11 +20,13 @@ package voltdbclient
 // VoltResult is an implementation of database/sql/driver.Result
 type VoltResult struct {
 	voltResponse
+	rowsAff int64
 }
 
-func newVoltResult(resp voltResponse) *VoltResult {
+func newVoltResult(resp voltResponse, rowsAff int64) *VoltResult {
 	var vrslt = new(VoltResult)
 	vrslt.voltResponse = resp
+	vrslt.rowsAff = rowsAff
 	return vrslt
 }
 
@@ -38,5 +40,5 @@ func (vrslt VoltResult) LastInsertId() (int64, error) {
 // RowsAffected returns the number of rows affected by the
 // query.
 func (vrslt VoltResult) RowsAffected() (int64, error) {
-	return 0, nil
+	return vrslt.rowsAff, nil
 }

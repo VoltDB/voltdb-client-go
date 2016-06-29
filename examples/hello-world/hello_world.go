@@ -34,7 +34,17 @@ func main() {
 	}
 	defer conn.Close()
 
-	conn.Exec("@AdHoc", []driver.Value{"DELETE FROM HELLOWORLD;"})
+	result, err := conn.Exec("@AdHoc", []driver.Value{"DELETE FROM HELLOWORLD;"})
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+	ra, err := result.RowsAffected()
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+	fmt.Printf("%d row(s) deleted\n", ra)
 
 	conn.Exec("HELLOWORLD.insert", []driver.Value{"Bonjour", "Monde", "French"})
 	conn.Exec("HELLOWORLD.insert", []driver.Value{"Hello", "World", "English"})

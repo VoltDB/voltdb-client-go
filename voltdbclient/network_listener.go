@@ -93,8 +93,8 @@ func (nl *networkListener) readResponse(r io.Reader, handle int64) {
 		rows := deserializeRows(r, rsp)
 		req.getChan() <- rows
 	} else {
-		result := newVoltResult(rsp)
-		req.getChan() <- *result
+		result := deserializeResult(r, rsp)
+		req.getChan() <- result
 	}
 }
 
