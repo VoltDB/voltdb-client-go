@@ -36,7 +36,7 @@ func TestSimpleProcedureCall(t *testing.T) {
 	buf := bytes.NewBuffer(bs)
 	cd := connectionData{0, 0, 0, ""}
 	cs := connectionState{"", nil, buf, cd, nil, nil, sync.Mutex{}, nil, nil, true}
-	conn := VoltConn{&cs}
+	conn := nodeConn{&cs}
 	var handle int64 = 51515
 	conn.serializeQuery(buf, "HELLOWORLD.insert", handle, []driver.Value{"Bonjour", "Monde", "French"})
 	r := bytes.NewReader(buf.Bytes())
@@ -48,7 +48,7 @@ func TestInsertDifferentTypes(t *testing.T) {
 	buf := bytes.NewBuffer(bs)
 	cd := connectionData{0, 0, 0, ""}
 	cs := connectionState{"", nil, buf, cd, nil, nil, sync.Mutex{}, nil, nil, true}
-	conn := VoltConn{&cs}
+	conn := nodeConn{&cs}
 
 	var id int32 = 100
 	var nid int32 = 100

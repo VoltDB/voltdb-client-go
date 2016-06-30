@@ -34,7 +34,7 @@ func newVoltResult(resp voltResponse, rowsAff []int64) *VoltResult {
 
 // Advances to the next table.  Returns false if there isn't a next table.
 func (vr VoltResult) AdvanceTable() bool {
-	return vr.AdvanceToTable(vr.ti+1)
+	return vr.AdvanceToTable(vr.ti + 1)
 }
 
 // Advances to the table indicated by the index.  Returns false if there is

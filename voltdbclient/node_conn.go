@@ -15,20 +15,6 @@
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-// voltdbclient provides a go client for VoltDB.  voltdbclient
-// implements the interfaces specified in the database/sql/driver
-// package.  The interfaces specified by database/sql/driver are
-// typically used to implement a driver to be used by the
-// database/sql package.
-//
-// In this case, though, voltdbclient can also be used as a
-// standalone client.  That is, the code in voltdbclient
-// can be used both to implement a voltdb driver for database/sql
-// and as a standalone VoltDB client.
-//
-// voltdbclient supports an asynchronous api as well as the
-// standard database/sql/driver api.  The asynchronous api is supported
-// by the VoltConn and VoltStatement types.
 package voltdbclient
 
 import (
@@ -38,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -79,56 +66,47 @@ type connectionState struct {
 //
 // A VoltConn should not be shared among goroutines; this is true of
 // driver.Conn as well.  But a client can create many instances of a VoltConn.
-type VoltConn struct {
+type nodeConn struct {
 	cs *connectionState
 }
 
-func newVoltConn(connInfo string, reader io.Reader, writer io.Writer, connectionData connectionData) *VoltConn {
-	var vc = new(VoltConn)
+func newNodeConn(connInfo string, reader io.Reader, writer io.Writer, connectionData connectionData) *nodeConn {
+	var nc = new(nodeConn)
 
 	asyncsChannel := make(chan voltResponse)
 	asyncs := make(map[int64]*voltAsyncResponse)
 	asyncsMutex := sync.Mutex{}
 	wg := sync.WaitGroup{}
-	nl := newListener(vc, reader, &wg)
+	nl := newListener(nc, reader, &wg)
 	cs := connectionState{connInfo, reader, writer, connectionData, asyncsChannel, asyncs, asyncsMutex, nl, &wg, true}
-	vc.cs = &cs
+	nc.cs = &cs
 	nl.start()
-	go vc.processAsyncs()
-	return vc
+	go nc.processAsyncs()
+	return nc
 }
 
-// Begin starts a transaction.  VoltDB runs in auto commit mode, and so Begin
-// returns an error.
-func (vc VoltConn) Begin() (driver.Tx, error) {
-	return nil, errors.New("VoltDB does not support transactions, VoltDB autocommits")
-}
-
-// Close closes the connection to the VoltDB server.  Connections to the server
-// are meant to be long lived; it should not be necessary to continually close
-// and reopen connections.  Close would typically be called using a defer.
-func (vc VoltConn) Close() (err error) {
-	if !vc.isOpen() {
+func (nc nodeConn) close() (err error) {
+	if !nc.isOpen() {
 		return
 	}
 
 	// stop the network listener
-	vc.nl().stop()
+	nc.nl().stop()
 
 	// close the tcp conn, will unblock the listener.
-	if vc.reader() != nil {
-		tcpConn := vc.reader().(*net.TCPConn)
+	if nc.reader() != nil {
+		tcpConn := nc.reader().(*net.TCPConn)
 		err = tcpConn.Close()
 	}
 
 	// network thread should return.
-	vc.nlwg().Wait()
+	nc.nlwg().Wait()
 
-	vc.cs.isOpen = false
+	nc.cs.isOpen = false
 	return err
 }
 
-func (vc VoltConn) reconnect() {
+func (nc nodeConn) reconnect() {
 	var first bool = true
 	for {
 		if first {
@@ -136,7 +114,7 @@ func (vc VoltConn) reconnect() {
 		} else {
 			time.Sleep(10 * time.Microsecond)
 		}
-		raddr, err := net.ResolveTCPAddr("tcp", vc.cs.connInfo)
+		raddr, err := net.ResolveTCPAddr("tcp", nc.cs.connInfo)
 		if err != nil {
 			fmt.Printf("Failed to resolve tcp address of server %s\n", err)
 			continue
@@ -164,64 +142,30 @@ func (vc VoltConn) reconnect() {
 
 		asyncs := make(map[int64]*voltAsyncResponse)
 		wg := sync.WaitGroup{}
-		nl := newListener(&vc, tcpConn, &wg)
+		nl := newListener(&nc, tcpConn, &wg)
 
-		vc.cs.reader = tcpConn
-		vc.cs.writer = tcpConn
-		vc.cs.connData = *connectionData
-		vc.cs.asyncsChannel = make(chan voltResponse)
-		vc.cs.asyncs = asyncs
-		vc.cs.asyncsMutex = sync.Mutex{}
-		vc.cs.nl = nl
-		vc.cs.nlwg = &wg
-		vc.cs.isOpen = true
+		nc.cs.reader = tcpConn
+		nc.cs.writer = tcpConn
+		nc.cs.connData = *connectionData
+		nc.cs.asyncsChannel = make(chan voltResponse)
+		nc.cs.asyncs = asyncs
+		nc.cs.asyncsMutex = sync.Mutex{}
+		nc.cs.nl = nl
+		nc.cs.nlwg = &wg
+		nc.cs.isOpen = true
 		nl.start()
 		break
 	}
 }
 
-// OpenConn returns a new connection to the VoltDB server.  The name is a
-// string in a driver-specific format.  The returned connection can be used by
-// only one goroutine at a time.
-func OpenConn(connInfo string) (*VoltConn, error) {
-	// for now, at least, connInfo is host and port.
-	raddr, err := net.ResolveTCPAddr("tcp", connInfo)
-	if err != nil {
-		return nil, fmt.Errorf("Error resolving %v.", connInfo)
-	}
-	var tcpConn *net.TCPConn
-	if tcpConn, err = net.DialTCP("tcp", nil, raddr); err != nil {
-		return nil, err
-	}
-	login, err := serializeLoginMessage("", "")
-	if err != nil {
-		return nil, err
-	}
-	writeLoginMessage(tcpConn, &login)
-	connData, err := readLoginResponse(tcpConn)
-	if err != nil {
-		return nil, err
-	}
-	return newVoltConn(connInfo, tcpConn, tcpConn, *connData), nil
-}
-
-// Prepare creates a prepared statement for later queries or executions.
-// The Statement returned by Prepare is bound to this VoltConn.
-func (vc VoltConn) Prepare(query string) (driver.Stmt, error) {
-	stmt := newVoltStatement(&vc, query)
-	return *stmt, nil
-}
-
-// Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
-// Exec is available on both VoltConn and on VoltStatement.
-func (vc VoltConn) Exec(query string, args []driver.Value) (driver.Result, error) {
-	if !vc.isOpen() {
+func (nc nodeConn) exec(query string, args []driver.Value) (driver.Result, error) {
+	if !nc.isOpen() {
 		return nil, errors.New("Connection is closed")
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
-	c := vc.nl().registerRequest(handle, false)
-	if err := vc.serializeQuery(vc.writer(), query, handle, args); err != nil {
-		vc.nl().removeRequest(handle)
+	c := nc.nl().registerRequest(handle, false)
+	if err := nc.serializeQuery(nc.writer(), query, handle, args); err != nil {
+		nc.nl().removeRequest(handle)
 		return VoltResult{}, err
 	}
 	resp := <-c
@@ -232,34 +176,29 @@ func (vc VoltConn) Exec(query string, args []driver.Value) (driver.Result, error
 	return rslt, nil
 }
 
-// Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
-// ExecAsync is analogous to Exec but is run asynchronously.  That is, an
-// invocation of this method blocks only until a request is sent to the VoltDB
-// server.
-func (vc VoltConn) ExecAsync(resCons AsyncResponseConsumer, query string, args []driver.Value) error {
-	if !vc.isOpen() {
+func (nc nodeConn) execAsync(resCons AsyncResponseConsumer, query string, args []driver.Value) error {
+	if !nc.isOpen() {
 		return errors.New("Connection is closed")
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
-	c := vc.nl().registerRequest(handle, false)
-	vasr := newVoltAsyncResponse(vc, handle, c, false, resCons)
-	vc.registerAsync(handle, vasr)
-	if err := vc.serializeQuery(vc.writer(), query, handle, args); err != nil {
-		vc.nl().removeRequest(handle)
+	c := nc.nl().registerRequest(handle, false)
+	vasr := newVoltAsyncResponse(nc, handle, c, false, resCons)
+	nc.registerAsync(handle, vasr)
+	if err := nc.serializeQuery(nc.writer(), query, handle, args); err != nil {
+		nc.nl().removeRequest(handle)
 		return err
 	}
 	return nil
 }
 
-// Query executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
-func (vc VoltConn) Query(query string, args []driver.Value) (driver.Rows, error) {
-	if !vc.isOpen() {
+func (nc nodeConn) query(query string, args []driver.Value) (driver.Rows, error) {
+	if !nc.isOpen() {
 		return nil, errors.New("Connection is closed")
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
-	c := vc.nl().registerRequest(handle, true)
-	if err := vc.serializeQuery(vc.writer(), query, handle, args); err != nil {
-		vc.nl().removeRequest(handle)
+	c := nc.nl().registerRequest(handle, true)
+	if err := nc.serializeQuery(nc.writer(), query, handle, args); err != nil {
+		nc.nl().removeRequest(handle)
 		return VoltRows{}, err
 	}
 	resp := <-c
@@ -274,44 +213,41 @@ func (vc VoltConn) Query(query string, args []driver.Value) (driver.Rows, error)
 // until the query is sent over the network to the server.  The eventual
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.
-func (vc VoltConn) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []driver.Value) error {
-	if !vc.isOpen() {
+func (nc nodeConn) queryAsync(rowsCons AsyncResponseConsumer, query string, args []driver.Value) error {
+	if !nc.isOpen() {
 		return errors.New("Connection is closed")
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
-	c := vc.nl().registerRequest(handle, true)
-	vasr := newVoltAsyncResponse(vc, handle, c, true, rowsCons)
-	vc.registerAsync(handle, vasr)
-	if err := vc.serializeQuery(vc.writer(), query, handle, args); err != nil {
-		vc.nl().removeRequest(handle)
+	c := nc.nl().registerRequest(handle, true)
+	vasr := newVoltAsyncResponse(nc, handle, c, true, rowsCons)
+	nc.registerAsync(handle, vasr)
+	if err := nc.serializeQuery(nc.writer(), query, handle, args); err != nil {
+		nc.nl().removeRequest(handle)
 		return err
 	}
 	return nil
 }
 
-// Drain blocks until all outstanding asynchronous requests have been satisfied.
-// Asynchronous requests are processed in a background thread; this call blocks the
-// current thread until that background thread has finished with all asynchronous requests.
-func (vc VoltConn) Drain() {
+func (nc nodeConn) drain() {
 	var numAsyncs int
 	for {
-		vc.asyncsMutex().Lock()
-		numAsyncs = len(vc.asyncs())
-		vc.asyncsMutex().Unlock()
+		nc.asyncsMutex().Lock()
+		numAsyncs = len(nc.asyncs())
+		nc.asyncsMutex().Unlock()
 		if numAsyncs == 0 {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		runtime.Gosched()
 	}
 }
 
-func (vc VoltConn) processAsyncs() {
+func (nc nodeConn) processAsyncs() {
 	for {
-		resp := <-vc.cs.asyncsChannel
+		resp := <-nc.cs.asyncsChannel
 		handle := resp.getHandle()
-		vc.asyncsMutex().Lock()
-		async := vc.asyncs()[handle]
-		vc.asyncsMutex().Unlock()
+		nc.asyncsMutex().Lock()
+		async := nc.asyncs()[handle]
+		nc.asyncsMutex().Unlock()
 
 		if async.isQuery() {
 			vrows := resp.(VoltRows)
@@ -321,7 +257,7 @@ func (vc VoltConn) processAsyncs() {
 				async.getArc().ConsumeRows(vrows)
 
 			}
-			vc.removeAsync(handle)
+			nc.removeAsync(handle)
 			continue
 		} else {
 			vrslt := resp.(VoltResult)
@@ -330,53 +266,53 @@ func (vc VoltConn) processAsyncs() {
 			} else {
 				async.getArc().ConsumeResult(vrslt)
 			}
-			vc.removeAsync(handle)
+			nc.removeAsync(handle)
 			continue
 		}
 	}
 }
 
-func (vc VoltConn) asyncs() map[int64]*voltAsyncResponse {
-	return vc.cs.asyncs
+func (nc nodeConn) asyncs() map[int64]*voltAsyncResponse {
+	return nc.cs.asyncs
 }
 
-func (vc VoltConn) asyncsMutex() *sync.Mutex {
-	return &vc.cs.asyncsMutex
+func (nc nodeConn) asyncsMutex() *sync.Mutex {
+	return &nc.cs.asyncsMutex
 }
 
-func (vc VoltConn) isOpen() bool {
-	return vc.cs.isOpen
+func (nc nodeConn) isOpen() bool {
+	return nc.cs.isOpen
 }
 
-func (vc VoltConn) nl() *networkListener {
-	return vc.cs.nl
+func (nc nodeConn) nl() *networkListener {
+	return nc.cs.nl
 }
 
-func (vc VoltConn) nlwg() *sync.WaitGroup {
-	return vc.cs.nlwg
+func (nc nodeConn) nlwg() *sync.WaitGroup {
+	return nc.cs.nlwg
 }
 
-func (vc VoltConn) reader() io.Reader {
-	return vc.cs.reader
+func (nc nodeConn) reader() io.Reader {
+	return nc.cs.reader
 }
 
-func (vc VoltConn) writer() io.Writer {
-	return vc.cs.writer
+func (nc nodeConn) writer() io.Writer {
+	return nc.cs.writer
 }
 
-func (vc VoltConn) registerAsync(handle int64, vasr *voltAsyncResponse) {
-	vc.asyncsMutex().Lock()
-	vc.asyncs()[handle] = vasr
-	vc.asyncsMutex().Unlock()
+func (nc nodeConn) registerAsync(handle int64, vasr *voltAsyncResponse) {
+	nc.asyncsMutex().Lock()
+	nc.asyncs()[handle] = vasr
+	nc.asyncsMutex().Unlock()
 	go func() {
-		vc.cs.asyncsChannel <- <-vasr.channel()
+		nc.cs.asyncsChannel <- <-vasr.channel()
 	}()
 }
 
-func (vc VoltConn) removeAsync(han int64) {
-	vc.asyncsMutex().Lock()
-	delete(vc.asyncs(), han)
-	vc.asyncsMutex().Unlock()
+func (nc nodeConn) removeAsync(han int64) {
+	nc.asyncsMutex().Lock()
+	delete(nc.asyncs(), han)
+	nc.asyncsMutex().Unlock()
 }
 
 func writeLoginMessage(writer io.Writer, buf *bytes.Buffer) {
@@ -420,14 +356,14 @@ type AsyncResponseConsumer interface {
 }
 
 type voltAsyncResponse struct {
-	conn VoltConn
+	conn nodeConn
 	han  int64
 	ch   <-chan voltResponse
 	isQ  bool
 	arc  AsyncResponseConsumer
 }
 
-func newVoltAsyncResponse(conn VoltConn, han int64, ch <-chan voltResponse, isQuery bool, arc AsyncResponseConsumer) *voltAsyncResponse {
+func newVoltAsyncResponse(conn nodeConn, han int64, ch <-chan voltResponse, isQuery bool, arc AsyncResponseConsumer) *voltAsyncResponse {
 	var vasr = new(voltAsyncResponse)
 	vasr.conn = conn
 	vasr.han = han
@@ -453,7 +389,7 @@ func (vasr *voltAsyncResponse) isQuery() bool {
 	return vasr.isQ
 }
 
-func (vc VoltConn) serializeQuery(writer io.Writer, procedure string, handle int64, args []driver.Value) error {
+func (nc nodeConn) serializeQuery(writer io.Writer, procedure string, handle int64, args []driver.Value) error {
 
 	var call bytes.Buffer
 	var err error

@@ -28,7 +28,7 @@ import (
 
 func main() {
 
-	db, err := sql.Open("voltdb", "localhost:21212/voltdb")
+	db, err := sql.Open("voltdb", "volt3g:21212/voltdb")
 	if err != nil {
 		fmt.Println("open")
 		log.Fatal(err)

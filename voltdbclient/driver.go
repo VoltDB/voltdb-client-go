@@ -20,8 +20,6 @@ package voltdbclient
 import (
 	"database/sql"
 	"database/sql/driver"
-	"fmt"
-	"net"
 )
 
 // A database/sql/driver for VoltDB.  This driver is registered as 'voltdb'
@@ -36,27 +34,7 @@ func NewVoltDriver() *VoltDriver {
 
 // Open a connection to the VoltDB server.
 func (vd *VoltDriver) Open(hostAndPort string) (driver.Conn, error) {
-	raddr, err := net.ResolveTCPAddr("tcp", hostAndPort)
-	if err != nil {
-		return nil, fmt.Errorf("Error resolving %v.", hostAndPort)
-	}
-	var tcpConn *net.TCPConn
-	if tcpConn, err = net.DialTCP("tcp", nil, raddr); err != nil {
-		return nil, err
-	}
-	// TODO: Usename and password end up here somehow.
-	login, err := serializeLoginMessage("", "")
-	if err != nil {
-		return nil, err
-	}
-	writeLoginMessage(tcpConn, &login)
-
-	connData, err := readLoginResponse(tcpConn)
-	if err != nil {
-		return nil, err
-	}
-	voltConn := newVoltConn(hostAndPort, tcpConn, tcpConn, *connData)
-	return *voltConn, nil
+	return OpenConn([]string{hostAndPort})
 }
 
 func init() {
