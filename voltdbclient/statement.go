@@ -30,12 +30,12 @@ var (
 type VoltStatement struct {
 	query    string
 	numInput int
-	conn     *VoltConn // the connection thot owns this statement.
+	nc       *nodeConn // the connection that owns this statement.
 }
 
-func newVoltStatement(conn *VoltConn, query string) *VoltStatement {
+func newVoltStatement(nc *nodeConn, query string) *VoltStatement {
 	var vs = new(VoltStatement)
-	vs.conn = conn
+	vs.nc = nc
 	vs.query = query
 	idx := inputFinder.FindAllStringIndex(query, -1)
 	vs.numInput = len(idx)
@@ -59,7 +59,7 @@ func (vs VoltStatement) Exec(args []driver.Value) (driver.Result, error) {
 	args = append(args, "")
 	copy(args[1:], args[0:])
 	args[0] = vs.query
-	return vs.conn.Exec("@AdHoc", args)
+	return vs.nc.exec("@AdHoc", args)
 }
 
 // ExecAsync asynchronously runs an Exec.
@@ -67,7 +67,7 @@ func (vs VoltStatement) ExecAsync(resCons AsyncResponseConsumer, args []driver.V
 	args = append(args, "")
 	copy(args[1:], args[0:])
 	args[0] = vs.query
-	return vs.conn.ExecAsync(resCons, "@AdHoc", args)
+	return vs.nc.execAsync(resCons, "@AdHoc", args)
 }
 
 // Query executes a query that may return rows, such as a SELECT.
@@ -75,7 +75,7 @@ func (vs VoltStatement) Query(args []driver.Value) (driver.Rows, error) {
 	args = append(args, "")
 	copy(args[1:], args[0:])
 	args[0] = vs.query
-	return vs.conn.Query("@AdHoc", args)
+	return vs.nc.query("@AdHoc", args)
 }
 
 // QueryAsync asynchronously runs a Query
@@ -83,5 +83,5 @@ func (vs VoltStatement) QueryAsync(rowsCons AsyncResponseConsumer, args []driver
 	args = append(args, "")
 	copy(args[1:], args[0:])
 	args[0] = vs.query
-	return vs.conn.QueryAsync(rowsCons, "@AdHoc", args)
+	return vs.nc.queryAsync(rowsCons, "@AdHoc", args)
 }

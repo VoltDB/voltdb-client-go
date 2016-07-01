@@ -21,13 +21,11 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"runtime"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // qHandle is a var
@@ -54,31 +52,19 @@ type connectionState struct {
 	isOpen        bool
 }
 
-// VoltConn represents a connection to VoltDB that can be used to execute
-// queries and other statements.  A VoltConn is initially created with a call
-// to OpenConn.
-//
-// A VoltConn is a driver.Conn; VoltConn also supports an asynchronous api.
-//
-// The creation of a VoltConn represents the creation of two associated
-// goroutines.  One of these is used to listen for responses from the VoltDB
-// server.  The other is used to process responses to asynchronous requests.
-//
-// A VoltConn should not be shared among goroutines; this is true of
-// driver.Conn as well.  But a client can create many instances of a VoltConn.
 type nodeConn struct {
 	cs *connectionState
 }
 
-func newNodeConn(connInfo string, reader io.Reader, writer io.Writer, connectionData connectionData) *nodeConn {
+func newNodeConn(vc *VoltConn, ci string, reader io.Reader, writer io.Writer, connectionData connectionData) *nodeConn {
 	var nc = new(nodeConn)
 
 	asyncsChannel := make(chan voltResponse)
 	asyncs := make(map[int64]*voltAsyncResponse)
 	asyncsMutex := sync.Mutex{}
 	wg := sync.WaitGroup{}
-	nl := newListener(nc, reader, &wg)
-	cs := connectionState{connInfo, reader, writer, connectionData, asyncsChannel, asyncs, asyncsMutex, nl, &wg, true}
+	nl := newListener(vc, ci, reader, &wg)
+	cs := connectionState{ci, reader, writer, connectionData, asyncsChannel, asyncs, asyncsMutex, nl, &wg, true}
 	nc.cs = &cs
 	nl.start()
 	go nc.processAsyncs()
@@ -104,58 +90,6 @@ func (nc nodeConn) close() (err error) {
 
 	nc.cs.isOpen = false
 	return err
-}
-
-func (nc nodeConn) reconnect() {
-	var first bool = true
-	for {
-		if first {
-			first = false
-		} else {
-			time.Sleep(10 * time.Microsecond)
-		}
-		raddr, err := net.ResolveTCPAddr("tcp", nc.cs.connInfo)
-		if err != nil {
-			fmt.Printf("Failed to resolve tcp address of server %s\n", err)
-			continue
-		}
-		tcpConn, err := net.DialTCP("tcp", nil, raddr)
-		if err != nil {
-			fmt.Printf("Failed to connect to server %s\n", err)
-			continue
-		}
-		login, err := serializeLoginMessage("", "")
-		if err != nil {
-			fmt.Printf("Failed to serialize login message %s\n", err)
-			continue
-		}
-		writeLoginMessage(tcpConn, &login)
-		if err != nil {
-			fmt.Printf("Failed to writing login message to server %s\n", err)
-			continue
-		}
-		connectionData, err := readLoginResponse(tcpConn)
-		if err != nil {
-			fmt.Printf("Did not receive response to login request to server%s\n", err)
-			continue
-		}
-
-		asyncs := make(map[int64]*voltAsyncResponse)
-		wg := sync.WaitGroup{}
-		nl := newListener(&nc, tcpConn, &wg)
-
-		nc.cs.reader = tcpConn
-		nc.cs.writer = tcpConn
-		nc.cs.connData = *connectionData
-		nc.cs.asyncsChannel = make(chan voltResponse)
-		nc.cs.asyncs = asyncs
-		nc.cs.asyncsMutex = sync.Mutex{}
-		nc.cs.nl = nl
-		nc.cs.nlwg = &wg
-		nc.cs.isOpen = true
-		nl.start()
-		break
-	}
 }
 
 func (nc nodeConn) exec(query string, args []driver.Value) (driver.Result, error) {

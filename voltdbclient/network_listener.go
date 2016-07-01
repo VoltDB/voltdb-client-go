@@ -28,7 +28,8 @@ import (
 // the server.  If a callback (channel) is registered for the procedure, the
 // listener puts the response on the channel (calls back).
 type networkListener struct {
-	nc             *nodeConn
+	vc             *VoltConn
+	ci             string
 	reader         io.Reader
 	requests       map[int64]*networkRequest
 	requestMutex   sync.Mutex
@@ -36,9 +37,9 @@ type networkListener struct {
 	hasBeenStopped int32
 }
 
-func newListener(nc *nodeConn, reader io.Reader, wg *sync.WaitGroup) *networkListener {
+func newListener(vc *VoltConn, ci string, reader io.Reader, wg *sync.WaitGroup) *networkListener {
 	var nl = new(networkListener)
-	nl.nc = nc
+	nl.vc = vc
 	nl.reader = reader
 	nl.requests = make(map[int64]*networkRequest)
 	nl.requestMutex = sync.Mutex{}
@@ -64,7 +65,7 @@ func (nl *networkListener) listen() {
 				nl.wg.Done()
 			} else {
 				// have lost connection.  reestablish connection here and let this thread exit.
-				nl.nc.reconnect()
+				nl.vc.reconnect(nl.ci)
 			}
 			return
 		}
