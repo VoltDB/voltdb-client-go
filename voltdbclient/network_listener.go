@@ -67,7 +67,7 @@ func (nl *networkListener) listen() {
 			} else {
 				// have lost connection.  reestablish connection here and let this thread exit.
 				// remove the connection from the set of active connections.
-				nl.vc.activeConns.removeConn(nl.ci)
+				nl.vc.distributer.removeConn(nl.ci)
 				// reconnect
 				nl.vc.reconnect(nl.ci)
 			}

@@ -56,14 +56,14 @@ const (
 // A VoltConn should not be shared among goroutines; this is true of
 // driver.Conn as well.  But a client can create many instances of a VoltConn.
 type VoltConn struct {
-	*activeConns
+	*distributer
 	cis []string
 }
 
 func newVoltConn(cis []string) *VoltConn {
 	var vc = new(VoltConn)
 	vc.cis = cis
-	vc.activeConns = newActiveConns()
+	vc.distributer = newDistributer()
 	return vc
 }
 
