@@ -144,7 +144,7 @@ func (nc nodeConn) query(query string, args []driver.Value) (driver.Rows, error)
 			return nil, err
 		}
 		return rows, nil
-	case <-time.After(time.Second * 120):
+	case <-time.After(time.Second * QUERY_TIMEOUT):
 		// TODO: make an error type for timeout
 		return nil, errors.New("timeout")
 	}

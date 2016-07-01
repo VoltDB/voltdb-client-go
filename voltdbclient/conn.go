@@ -39,6 +39,10 @@ import (
 	"time"
 )
 
+const (
+	QUERY_TIMEOUT time.Duration = 120 // seconds
+)
+
 // VoltConn represents a connection to VoltDB that can be used to execute
 // queries and other statements.  A VoltConn is initially created with a call
 // to OpenConn.
