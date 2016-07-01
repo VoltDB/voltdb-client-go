@@ -26,6 +26,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // qHandle is a var
@@ -135,12 +136,18 @@ func (nc nodeConn) query(query string, args []driver.Value) (driver.Rows, error)
 		nc.nl().removeRequest(handle)
 		return VoltRows{}, err
 	}
-	resp := <-c
-	rows := resp.(VoltRows)
-	if err := rows.getError(); err != nil {
-		return nil, err
+
+	select {
+	case resp := <-c:
+		rows := resp.(VoltRows)
+		if err := rows.getError(); err != nil {
+			return nil, err
+		}
+		return rows, nil
+	case <-time.After(time.Second * 120):
+		// TODO: make an error type for timeout
+		return nil, errors.New("timeout")
 	}
-	return rows, nil
 }
 
 // QueryAsync executes a query asynchronously.  The invoking thread will block

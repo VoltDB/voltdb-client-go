@@ -18,8 +18,8 @@
 package voltdbclient
 
 import (
-	"fmt"
 	"io"
+	"log"
 	"sync"
 	"sync/atomic"
 )
@@ -40,6 +40,7 @@ type networkListener struct {
 func newListener(vc *VoltConn, ci string, reader io.Reader, wg *sync.WaitGroup) *networkListener {
 	var nl = new(networkListener)
 	nl.vc = vc
+	nl.ci = ci
 	nl.reader = reader
 	nl.requests = make(map[int64]*networkRequest)
 	nl.requestMutex = sync.Mutex{}
@@ -65,6 +66,9 @@ func (nl *networkListener) listen() {
 				nl.wg.Done()
 			} else {
 				// have lost connection.  reestablish connection here and let this thread exit.
+				// remove the connection from the set of active connections.
+				nl.vc.activeConns.removeConn(nl.ci)
+				// reconnect
 				nl.vc.reconnect(nl.ci)
 			}
 			return
@@ -73,7 +77,7 @@ func (nl *networkListener) listen() {
 		// can't do anything without a handle.  If reading the handle fails,
 		// then log and drop the message.
 		if err != nil {
-			fmt.Printf("Error reading handle %v\n", err)
+			log.Printf("Error reading handle %v\n", err)
 			continue
 		}
 		nl.readResponse(buf, handle)

@@ -20,85 +20,131 @@ package voltdbclient
 import (
 	"database/sql/driver"
 	"errors"
-	"fmt"
+	"log"
 	"math/rand"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // the set of currently active connections
 type activeConns struct {
-	ncs  []*nodeConn
-	r    *rand.Rand
-	open *bool
+	ncs      []*nodeConn
+	ncsMutex sync.RWMutex
+	r        *rand.Rand
+	open     atomic.Value
 }
 
 func newActiveConns() *activeConns {
 	var acs = new(activeConns)
 	acs.ncs = make([]*nodeConn, 0)
+	acs.ncsMutex = sync.RWMutex{}
 	acs.r = rand.New(rand.NewSource(time.Now().UnixNano()))
-	acs.open = new(bool)
-	*(acs.open) = true
+	acs.open = atomic.Value{}
+	acs.open.Store(true)
 	return acs
 }
 
 // add a conn that is newly connected
 func (acs *activeConns) addConn(nc *nodeConn) {
+	acs.assertOpen()
+	acs.ncsMutex.Lock()
 	acs.ncs = append(acs.ncs, nc)
+	acs.ncsMutex.Unlock()
 }
 
 // Begin starts a transaction.  VoltDB runs in auto commit mode, and so Begin
 // returns an error.
 func (acs *activeConns) Begin() (driver.Tx, error) {
+	acs.assertOpen()
 	return nil, errors.New("VoltDB does not support transactions, VoltDB autocommits")
 }
 
 // Close closes the connection to the VoltDB server.  Connections to the server
 // are meant to be long lived; it should not be necessary to continually close
 // and reopen connections.  Close would typically be called using a defer.
+// Operations using a closed connection cause a panic.
 func (acs *activeConns) Close() (err error) {
-	if !acs.isOpen() {
+	if acs.isClosed() {
 		return
 	}
+	acs.setClosed()
+
+	// once this is closed there shouldn't be any additional activity against
+	// the connections.  They're touched here without getting a lock.
 	for _, nc := range acs.ncs {
 		err := nc.close()
 		if err != nil {
-			fmt.Println("Failed to close connection with %v", err)
+			log.Println("Failed to close connection with %v", err)
 		}
 	}
+	acs.ncs = nil
 	return nil
+}
+
+func (acs *activeConns) removeConn(ci string) {
+	acs.assertOpen()
+	acs.ncsMutex.Lock()
+	for i, ac := range acs.ncs {
+		if ac.cs.connInfo == ci {
+			acs.ncs = append(acs.ncs[:i], acs.ncs[i+1:]...)
+			break
+		}
+	}
+	acs.ncsMutex.Unlock()
 }
 
 // Drain blocks until all outstanding asynchronous requests have been satisfied.
 // Asynchronous requests are processed in a background thread; this call blocks the
 // current thread until that background thread has finished with all asynchronous requests.
 func (acs *activeConns) Drain() {
+	acs.assertOpen()
+
+	// drain can't work if the set of connections can change
+	// while it's running.  Hold the lock for the duration, some
+	// asyncs may time out.  The user thread is blocked on drain.
+	acs.ncsMutex.Lock()
 	for _, nc := range acs.ncs {
 		nc.drain()
 	}
+	acs.ncsMutex.Unlock()
 }
 
-func (acs *activeConns) isOpen() bool {
-	return *(acs.open)
+func (acs *activeConns) assertOpen() {
+	if !(acs.open.Load().(bool)) {
+		panic("Tried to use closed connection pool")
+	}
+}
+
+func (acs *activeConns) isClosed() bool {
+	return !(acs.open.Load().(bool))
+}
+
+func (acs *activeConns) setClosed() {
+	acs.open.Store(false)
 }
 
 func (acs *activeConns) numConns() int {
-	return len(acs.ncs)
+	acs.assertOpen()
+	acs.ncsMutex.RLock()
+	num := len(acs.ncs)
+	acs.ncsMutex.RUnlock()
+	return num
 }
 
-// remove a conn that we lost connection to
-func (acs *activeConns) removeConn() {
-
-}
-
-func (acs *activeConns) getAC() *nodeConn {
+func (acs *activeConns) getConn() *nodeConn {
+	acs.assertOpen()
+	acs.ncsMutex.RLock()
 	i := acs.r.Intn(len(acs.ncs))
-	return acs.ncs[i]
+	nc := acs.ncs[i]
+	acs.ncsMutex.RUnlock()
+	return nc
 }
 
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // Exec is available on both VoltConn and on VoltStatement.
 func (acs *activeConns) Exec(query string, args []driver.Value) (driver.Result, error) {
-	ac := acs.getAC()
+	ac := acs.getConn()
 	return ac.exec(query, args)
 }
 
@@ -107,21 +153,21 @@ func (acs *activeConns) Exec(query string, args []driver.Value) (driver.Result, 
 // invocation of this method blocks only until a request is sent to the VoltDB
 // server.
 func (acs *activeConns) ExecAsync(resCons AsyncResponseConsumer, query string, args []driver.Value) error {
-	ac := acs.getAC()
+	ac := acs.getConn()
 	return ac.execAsync(resCons, query, args)
 }
 
 // Prepare creates a prepared statement for later queries or executions.
 // The Statement returned by Prepare is bound to this VoltConn.
 func (acs *activeConns) Prepare(query string) (driver.Stmt, error) {
-	ac := acs.getAC()
+	ac := acs.getConn()
 	stmt := newVoltStatement(ac, query)
 	return *stmt, nil
 }
 
 // Query executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
 func (acs *activeConns) Query(query string, args []driver.Value) (driver.Rows, error) {
-	nc := acs.getAC()
+	nc := acs.getConn()
 	return nc.query(query, args)
 }
 
@@ -130,6 +176,6 @@ func (acs *activeConns) Query(query string, args []driver.Value) (driver.Rows, e
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.
 func (acs *activeConns) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []driver.Value) error {
-	nc := acs.getAC()
+	nc := acs.getConn()
 	return nc.queryAsync(rowsCons, query, args)
 }

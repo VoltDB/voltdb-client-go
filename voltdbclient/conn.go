@@ -34,6 +34,7 @@ package voltdbclient
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"time"
 )
@@ -69,9 +70,13 @@ func OpenConn(cis []string) (*VoltConn, error) {
 	vc := newVoltConn(cis)
 
 	for _, ci := range cis {
-		// don't check the error here, should log something
-		// at the point of failure
-		_ = vc.openNodeConn(ci)
+		err := vc.openNodeConn(ci)
+		// if fail to initially open a connection, continue to
+		// retry in the background
+		if err != nil {
+			log.Printf("Failed to connect to host %v with %v\n", ci, err)
+			go vc.reconnect(ci) // the goroutine exits when reconnect succeeds.
+		}
 	}
 	if vc.numConns() == 0 {
 		return nil, errors.New("Failed to connect to a VoltDB server")
@@ -94,6 +99,9 @@ func (vc VoltConn) openNodeConn(ci string) error {
 		return err
 	}
 	writeLoginMessage(tcpConn, &login)
+	if err != nil {
+		return err
+	}
 	connData, err := readLoginResponse(tcpConn)
 	if err != nil {
 		return err
@@ -106,10 +114,12 @@ func (vc VoltConn) openNodeConn(ci string) error {
 func (vc VoltConn) reconnect(ci string) {
 	for {
 		err := vc.openNodeConn(ci)
-		if err != nil {
+		if err == nil {
+			log.Printf("reconnected %v\n", ci)
 			break
 		} else {
-			time.Sleep(10 * time.Microsecond)
+			log.Printf("Failed to connect to host %v with %v retrying...\n", ci, err)
+			time.Sleep(1 * time.Second)
 		}
 	}
 }
