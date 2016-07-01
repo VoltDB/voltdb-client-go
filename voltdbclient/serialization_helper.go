@@ -108,11 +108,7 @@ func serializeStatement(proc string, ud int64, args []driver.Value) (msg bytes.B
 			if _, ok := r.(runtime.Error); ok {
 				panic(r)
 			}
-			if _, ok := r.(error); ok {
-				err = r.(error)
-			} else {
-				fmt.Println(r)
-			}
+			err = r.(error)
 
 		}
 	}()

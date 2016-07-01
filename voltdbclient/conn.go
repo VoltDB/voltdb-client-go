@@ -61,7 +61,7 @@ type connectionState struct {
 	connData      connectionData
 	asyncsChannel chan voltResponse
 	asyncs        map[int64]*voltAsyncResponse
-	asyncsMutex   sync.Mutex
+	asyncsMutex   sync.RWMutex
 	nl            *networkListener
 	nlwg          *sync.WaitGroup
 	isOpen        bool
@@ -88,7 +88,7 @@ func newVoltConn(connInfo string, reader io.Reader, writer io.Writer, connection
 
 	asyncsChannel := make(chan voltResponse)
 	asyncs := make(map[int64]*voltAsyncResponse)
-	asyncsMutex := sync.Mutex{}
+	asyncsMutex := sync.RWMutex{}
 	wg := sync.WaitGroup{}
 	nl := newListener(vc, reader, &wg)
 	cs := connectionState{connInfo, reader, writer, connectionData, asyncsChannel, asyncs, asyncsMutex, nl, &wg, true}
@@ -171,7 +171,7 @@ func (vc VoltConn) reconnect() {
 		vc.cs.connData = *connectionData
 		vc.cs.asyncsChannel = make(chan voltResponse)
 		vc.cs.asyncs = asyncs
-		vc.cs.asyncsMutex = sync.Mutex{}
+		vc.cs.asyncsMutex = sync.RWMutex{}
 		vc.cs.nl = nl
 		vc.cs.nlwg = &wg
 		vc.cs.isOpen = true
@@ -295,9 +295,9 @@ func (vc VoltConn) QueryAsync(rowsCons AsyncResponseConsumer, query string, args
 func (vc VoltConn) Drain() {
 	var numAsyncs int
 	for {
-		vc.asyncsMutex().Lock()
+		vc.asyncsMutex().RLock()
 		numAsyncs = len(vc.asyncs())
-		vc.asyncsMutex().Unlock()
+		vc.asyncsMutex().RUnlock()
 		if numAsyncs == 0 {
 			break
 		}
@@ -309,9 +309,9 @@ func (vc VoltConn) processAsyncs() {
 	for {
 		resp := <-vc.cs.asyncsChannel
 		handle := resp.getHandle()
-		vc.asyncsMutex().Lock()
+		vc.asyncsMutex().RLock()
 		async := vc.asyncs()[handle]
-		vc.asyncsMutex().Unlock()
+		vc.asyncsMutex().RUnlock()
 
 		if async.isQuery() {
 			vrows := resp.(VoltRows)
@@ -340,7 +340,7 @@ func (vc VoltConn) asyncs() map[int64]*voltAsyncResponse {
 	return vc.cs.asyncs
 }
 
-func (vc VoltConn) asyncsMutex() *sync.Mutex {
+func (vc VoltConn) asyncsMutex() *sync.RWMutex {
 	return &vc.cs.asyncsMutex
 }
 
