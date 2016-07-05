@@ -21,9 +21,9 @@ First, follow the instructions in the VoltDB kit's examples/voter folder to star
 
 Then, go to voter folder, run following command to build go voter client.
 
-`go build github.com/VoltDB/voltdb-client-go/examples/voter/`
+`go build github.com/VoltDB/voltdb-client-go/examples/voter`
 
-The voter client has seven arguments:
+The voter client has following arguments:
 
 ```
   $./voter -h
@@ -48,18 +48,10 @@ The voter client has seven arguments:
     	Benchmark duration, in seconds. (default 5s)
 ```
 
-A reasonable default invocation that connects to localhost is:
+A reasonable default invocation that connects to localhost using sql API is:
 
 ```
-./voter \
-    --runtype=sql
-    --displayinterval=5 \
-    --warmup=5 \
-    --duration=120 \
-    --servers=localhost \
-    --contestants=6 \
-    --maxvotes=2    \
-    --goroutines=40
+./voter --runtype=sql
 ```
 
 VoltKV
@@ -71,7 +63,7 @@ Then, go to voltkv folder, run following command to build go voltkv client.
 
 `go build github.com/VoltDB/voltdb-client-go/examples/voltkv`
 
-The voltkv client has seven arguments:
+The voltkv client has following arguments:
 
 ```
 Usage of ./voltkv:
@@ -106,20 +98,8 @@ Usage of ./voltkv:
 
 ```
 
-A reasonable default invocation that connects to localhost is:
+A reasonable default invocation that connects to localhost using sql API is:
 
 ```
-./voltkv \
-  --runtype=sql
-  --displayinterval=5 \
-  --duration=120 \
-  --servers=localhost \
-  --poolsize=100000 \
-  --preload=true \
-  --getputratio=0.90 \
-  --keysize=32 \
-  --minvaluesize=1024 \
-  --maxvaluesize=1024 \
-  --entropy=127 \
-  --usecompression=false
+./voltkv --runtype=sql  
 ```
