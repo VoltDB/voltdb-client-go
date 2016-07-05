@@ -94,13 +94,13 @@ func (nc nodeConn) close() (err error) {
 	return err
 }
 
-func (nc nodeConn) exec(query string, args []driver.Value) (driver.Result, error) {
+func (nc nodeConn) exec(pi *procedureInvocation) (driver.Result, error) {
 	if !nc.isOpen() {
 		return nil, errors.New("Connection is closed")
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
 	c := nc.nl().registerRequest(handle, false)
-	if err := nc.serializeQuery(nc.writer(), query, handle, args); err != nil {
+	if err := nc.serializeQuery(nc.writer(), pi.query, handle, pi.params); err != nil {
 		nc.nl().removeRequest(handle)
 		return VoltResult{}, err
 	}
@@ -112,7 +112,7 @@ func (nc nodeConn) exec(query string, args []driver.Value) (driver.Result, error
 	return rslt, nil
 }
 
-func (nc nodeConn) execAsync(resCons AsyncResponseConsumer, query string, args []driver.Value) error {
+func (nc nodeConn) execAsync(resCons AsyncResponseConsumer, pi *procedureInvocation) error {
 	if !nc.isOpen() {
 		return errors.New("Connection is closed")
 	}
@@ -120,20 +120,20 @@ func (nc nodeConn) execAsync(resCons AsyncResponseConsumer, query string, args [
 	c := nc.nl().registerRequest(handle, false)
 	vasr := newVoltAsyncResponse(nc, handle, c, false, resCons)
 	nc.registerAsync(handle, vasr)
-	if err := nc.serializeQuery(nc.writer(), query, handle, args); err != nil {
+	if err := nc.serializeQuery(nc.writer(), pi.query, handle, pi.params); err != nil {
 		nc.nl().removeRequest(handle)
 		return err
 	}
 	return nil
 }
 
-func (nc nodeConn) query(query string, args []driver.Value) (driver.Rows, error) {
+func (nc nodeConn) query(pi *procedureInvocation) (driver.Rows, error) {
 	if !nc.isOpen() {
 		return nil, errors.New("Connection is closed")
 	}
 	handle := atomic.AddInt64(&qHandle, 1)
 	c := nc.nl().registerRequest(handle, true)
-	if err := nc.serializeQuery(nc.writer(), query, handle, args); err != nil {
+	if err := nc.serializeQuery(nc.writer(), pi.query, handle, pi.params); err != nil {
 		nc.nl().removeRequest(handle)
 		return VoltRows{}, err
 	}
@@ -155,7 +155,7 @@ func (nc nodeConn) query(query string, args []driver.Value) (driver.Rows, error)
 // until the query is sent over the network to the server.  The eventual
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.
-func (nc nodeConn) queryAsync(rowsCons AsyncResponseConsumer, query string, args []driver.Value) error {
+func (nc nodeConn) queryAsync(rowsCons AsyncResponseConsumer, pi *procedureInvocation) error {
 	if !nc.isOpen() {
 		return errors.New("Connection is closed")
 	}
@@ -163,7 +163,7 @@ func (nc nodeConn) queryAsync(rowsCons AsyncResponseConsumer, query string, args
 	c := nc.nl().registerRequest(handle, true)
 	vasr := newVoltAsyncResponse(nc, handle, c, true, rowsCons)
 	nc.registerAsync(handle, vasr)
-	if err := nc.serializeQuery(nc.writer(), query, handle, args); err != nil {
+	if err := nc.serializeQuery(nc.writer(), pi.query, handle, pi.params); err != nil {
 		nc.nl().removeRequest(handle)
 		return err
 	}

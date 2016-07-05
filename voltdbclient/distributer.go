@@ -137,8 +137,9 @@ func (d *distributer) numConns() int {
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // Exec is available on both VoltConn and on VoltStatement.
 func (d *distributer) Exec(query string, args []driver.Value) (driver.Result, error) {
-	ac := d.getConn()
-	return ac.exec(query, args)
+	pi := newProcedureInvocation(query, args)
+	ac := d.getConn(pi)
+	return ac.exec(pi)
 }
 
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
@@ -146,22 +147,23 @@ func (d *distributer) Exec(query string, args []driver.Value) (driver.Result, er
 // invocation of this method blocks only until a request is sent to the VoltDB
 // server.
 func (d *distributer) ExecAsync(resCons AsyncResponseConsumer, query string, args []driver.Value) error {
-	ac := d.getConn()
-	return ac.execAsync(resCons, query, args)
+	pi := newProcedureInvocation(query, args)
+	ac := d.getConn(pi)
+	return ac.execAsync(resCons, pi)
 }
 
 // Prepare creates a prepared statement for later queries or executions.
 // The Statement returned by Prepare is bound to this VoltConn.
 func (d *distributer) Prepare(query string) (driver.Stmt, error) {
-	ac := d.getConn()
-	stmt := newVoltStatement(ac, query)
+	stmt := newVoltStatement(d, query)
 	return *stmt, nil
 }
 
 // Query executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
 func (d *distributer) Query(query string, args []driver.Value) (driver.Rows, error) {
-	ac := d.getConn()
-	return ac.query(query, args)
+	pi := newProcedureInvocation(query, args)
+	ac := d.getConn(pi)
+	return ac.query(pi)
 }
 
 // QueryAsync executes a query asynchronously.  The invoking thread will block
@@ -169,16 +171,17 @@ func (d *distributer) Query(query string, args []driver.Value) (driver.Rows, err
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.
 func (d *distributer) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []driver.Value) error {
-	ac := d.getConn()
-	return ac.queryAsync(rowsCons, query, args)
+	pi := newProcedureInvocation(query, args)
+	ac := d.getConn(pi)
+	return ac.queryAsync(rowsCons, pi)
 }
 
 // Get a connection from the hashinator.  If not, get one by round robin.  If not return nil.
-func (d *distributer) getConn() *nodeConn {
+func (d *distributer) getConn(pi *procedureInvocation) *nodeConn {
 
 	d.assertOpen()
 	d.acsMutex.RLock()
-	c := d.h.getConn()
+	c := d.h.getConn(pi)
 	if c == nil {
 		c = d.getConnByRR()
 	}
@@ -199,4 +202,16 @@ func (d *distributer) getConnByRR() *nodeConn {
 		}
 	}
 	return nil
+}
+
+type procedureInvocation struct {
+	query  string
+	params []driver.Value
+}
+
+func newProcedureInvocation(query string, params []driver.Value) *procedureInvocation {
+	var pi = new(procedureInvocation)
+	pi.query = query
+	pi.params = params
+	return pi
 }

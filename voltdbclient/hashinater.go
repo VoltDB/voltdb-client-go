@@ -7,6 +7,6 @@ func newHashinater() *hashinater {
 	return new(hashinater)
 }
 
-func (h *hashinater) getConn() *nodeConn {
+func (h *hashinater) getConn(pi *procedureInvocation) *nodeConn {
 	return nil
 }
