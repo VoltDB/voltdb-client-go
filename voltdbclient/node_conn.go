@@ -51,6 +51,7 @@ type connectionState struct {
 	nl            *networkListener
 	nlwg          *sync.WaitGroup
 	isOpen        bool
+	bp            bool  // backpressure
 }
 
 type nodeConn struct {
@@ -65,7 +66,7 @@ func newNodeConn(vc *VoltConn, ci string, reader io.Reader, writer io.Writer, co
 	asyncsMutex := sync.Mutex{}
 	wg := sync.WaitGroup{}
 	nl := newListener(vc, ci, reader, &wg)
-	cs := connectionState{ci, reader, writer, connectionData, asyncsChannel, asyncs, asyncsMutex, nl, &wg, true}
+	cs := connectionState{ci, reader, writer, connectionData, asyncsChannel, asyncs, asyncsMutex, nl, &wg, true, false}
 	nc.cs = &cs
 	nl.start()
 	go nc.processAsyncs()
@@ -221,6 +222,10 @@ func (nc nodeConn) asyncsMutex() *sync.Mutex {
 	return &nc.cs.asyncsMutex
 }
 
+func (nc nodeConn) hasBP() bool {
+	return nc.cs.bp
+}
+
 func (nc nodeConn) isOpen() bool {
 	return nc.cs.isOpen
 }
@@ -235,6 +240,14 @@ func (nc nodeConn) nlwg() *sync.WaitGroup {
 
 func (nc nodeConn) reader() io.Reader {
 	return nc.cs.reader
+}
+
+func (nc nodeConn) setBP() {
+	nc.cs.bp = true
+}
+
+func (nc nodeConn) unsetBP() {
+	nc.cs.bp = false
 }
 
 func (nc nodeConn) writer() io.Writer {

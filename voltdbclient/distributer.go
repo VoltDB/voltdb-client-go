@@ -21,27 +21,29 @@ import (
 	"database/sql/driver"
 	"errors"
 	"log"
-	"math/rand"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // the set of currently active connections
 type distributer struct {
-	acs      []*nodeConn  // the set of active connections
+	// the set of active connections
+	acs      []*nodeConn
 	acsMutex sync.RWMutex
-	r        *rand.Rand
+	// next conn to look at when finding by round robin.
+	acsNextI int
 	open     atomic.Value
+	h        *hashinater
 }
 
 func newDistributer() *distributer {
 	var d = new(distributer)
 	d.acs = make([]*nodeConn, 0)
 	d.acsMutex = sync.RWMutex{}
-	d.r = rand.New(rand.NewSource(time.Now().UnixNano()))
+	d.acsNextI = 0
 	d.open = atomic.Value{}
 	d.open.Store(true)
+	d.h = newHashinater()
 	return d
 }
 
@@ -132,15 +134,6 @@ func (d *distributer) numConns() int {
 	return num
 }
 
-func (d *distributer) getConn() *nodeConn {
-	d.assertOpen()
-	d.acsMutex.RLock()
-	i := d.r.Intn(len(d.acs))
-	ac := d.acs[i]
-	d.acsMutex.RUnlock()
-	return ac
-}
-
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // Exec is available on both VoltConn and on VoltStatement.
 func (d *distributer) Exec(query string, args []driver.Value) (driver.Result, error) {
@@ -178,4 +171,32 @@ func (d *distributer) Query(query string, args []driver.Value) (driver.Rows, err
 func (d *distributer) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []driver.Value) error {
 	ac := d.getConn()
 	return ac.queryAsync(rowsCons, query, args)
+}
+
+// Get a connection from the hashinator.  If not, get one by round robin.  If not return nil.
+func (d *distributer) getConn() *nodeConn {
+
+	d.assertOpen()
+	d.acsMutex.RLock()
+	c := d.h.getConn()
+	if c == nil {
+		c = d.getConnByRR()
+	}
+	d.acsMutex.RUnlock()
+	return c
+}
+
+func (d *distributer) getConnByRR() *nodeConn {
+	currLen := len(d.acs)
+	for i := 0; i < currLen; i++ {
+		if d.acsNextI >= currLen {
+			d.acsNextI = 0
+		}
+		c := d.acs[d.acsNextI]
+		d.acsNextI++
+		if !c.hasBP() {
+			return c
+		}
+	}
+	return nil
 }
