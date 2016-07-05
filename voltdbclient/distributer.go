@@ -88,7 +88,7 @@ func (d *distributer) removeConn(ci string) {
 	d.assertOpen()
 	d.acsMutex.Lock()
 	for i, ac := range d.acs {
-		if ac.cs.connInfo == ci {
+		if ac.connInfo == ci {
 			d.acs = append(d.acs[:i], d.acs[i+1:]...)
 			break
 		}
@@ -197,7 +197,7 @@ func (d *distributer) getConnByRR() *nodeConn {
 		}
 		c := d.acs[d.acsNextI]
 		d.acsNextI++
-		if !c.hasBP() {
+		if !c.bp {
 			return c
 		}
 	}
