@@ -104,11 +104,11 @@ func (vrsp voltResponseInfo) getStatusString() string {
 type ResponseStatus int8
 
 const (
-	SUCCESS ResponseStatus = 1
-	USER_ABORT ResponseStatus = -1
-	GRACEFUL_FAILURE ResponseStatus = -2
+	SUCCESS            ResponseStatus = 1
+	USER_ABORT         ResponseStatus = -1
+	GRACEFUL_FAILURE   ResponseStatus = -2
 	UNEXPECTED_FAILURE ResponseStatus = -3
-	CONNECTION_LOST ResponseStatus = -4
+	CONNECTION_LOST    ResponseStatus = -4
 )
 
 // Represent a ResponseStatus as a string.

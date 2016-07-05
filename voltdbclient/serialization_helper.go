@@ -109,6 +109,7 @@ func serializeStatement(proc string, ud int64, args []driver.Value) (msg bytes.B
 				panic(r)
 			}
 			err = r.(error)
+
 		}
 	}()
 
