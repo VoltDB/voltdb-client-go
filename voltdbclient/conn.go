@@ -40,7 +40,8 @@ import (
 )
 
 const (
-	QUERY_TIMEOUT time.Duration = 120 // seconds
+	// Default time out for queries.
+	DEFAULT_QUERY_TIMEOUT time.Duration = 2 * time.Minute
 )
 
 // VoltConn represents a connection to VoltDB that can be used to execute

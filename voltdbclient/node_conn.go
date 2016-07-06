@@ -49,11 +49,11 @@ type nodeConn struct {
 	nl            *networkListener
 	nlwg          *sync.WaitGroup
 	// used to write procedure invocation out to network.
-	nw            *networkWriter
-	nwCh          chan<- *procedureInvocation
+	nw   *networkWriter
+	nwCh chan<- *procedureInvocation
 	// used to wait for writer to return on close.
-	nwwg          *sync.WaitGroup
-	open          bool
+	nwwg *sync.WaitGroup
+	open bool
 }
 
 func newNodeConn(vc *VoltConn, ci string, reader io.Reader, writer io.Writer, connData connectionData) *nodeConn {
@@ -70,7 +70,7 @@ func newNodeConn(vc *VoltConn, ci string, reader io.Reader, writer io.Writer, co
 	nc.nl = newListener(vc, ci, reader, nc.nlwg)
 	// make this a little bigger than the backpressure limit, a number of requests might
 	// be queued while one response is being processed.
-	ch := make(chan *procedureInvocation, piWriteChannelSize +10)
+	ch := make(chan *procedureInvocation, piWriteChannelSize+10)
 	nc.nwCh = ch
 	wg = sync.WaitGroup{}
 	nc.nwwg = &wg
@@ -112,12 +112,17 @@ func (nc *nodeConn) exec(pi *procedureInvocation) (driver.Result, error) {
 	}
 	c := nc.nl.registerRequest(pi.handle, false)
 	nc.nwCh <- pi
-	resp := <-c
-	rslt := resp.(VoltResult)
-	if err := rslt.getError(); err != nil {
-		return nil, err
+
+	select {
+	case resp := <-c:
+		rslt := resp.(VoltResult)
+		if err := rslt.getError(); err != nil {
+			return nil, err
+		}
+		return rslt, nil
+	case <-time.After(pi.timeout):
+		return nil, errors.New("timeout")
 	}
-	return rslt, nil
 }
 
 func (nc *nodeConn) execAsync(resCons AsyncResponseConsumer, pi *procedureInvocation) error {
@@ -145,7 +150,7 @@ func (nc *nodeConn) query(pi *procedureInvocation) (driver.Rows, error) {
 			return nil, err
 		}
 		return rows, nil
-	case <-time.After(time.Second * QUERY_TIMEOUT):
+	case <-time.After(pi.timeout):
 		// TODO: make an error type for timeout
 		return nil, errors.New("timeout")
 	}

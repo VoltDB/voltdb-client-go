@@ -47,23 +47,23 @@ func newNetworkWriter(writer io.Writer, ch <-chan *procedureInvocation, wg *sync
 	return nr
 }
 
-func (nr *networkWriter) writePIs() {
+func (nw *networkWriter) writePIs() {
 
 	for {
-		if !atomic.CompareAndSwapInt32(&nr.hasBeenStopped, 0, 0) {
-			nr.wg.Done()
+		if !atomic.CompareAndSwapInt32(&nw.hasBeenStopped, 0, 0) {
+			nw.wg.Done()
 			break
 		}
 
 		select {
-		case pi := <-nr.piCh:
-			nr.serializePI(pi)
+		case pi := <-nw.piCh:
+			nw.serializePI(pi)
 			// reading the length of a channel is thread safe, though racy
-			qw := len(nr.piCh)
+			qw := len(nw.piCh)
 			if qw > piWriteChannelSize {
-				nr.bp = true
+				nw.setBP()
 			} else {
-				nr.bp = false
+				nw.unsetBP()
 			}
 		case <-time.After(time.Millisecond * 100):
 			continue // give the thread a chance to exit - it's okay to block for a bit, applicable on close
@@ -71,22 +71,22 @@ func (nr *networkWriter) writePIs() {
 	}
 }
 
-func (nr *networkWriter) serializePI(pi *procedureInvocation) {
+func (nw *networkWriter) serializePI(pi *procedureInvocation) {
 	var call bytes.Buffer
 	var err error
 
 	// Serialize the procedure call and its params.
-	if call, err = nr.serializeStatement(pi); err != nil {
+	if call, err = nw.serializeStatement(pi); err != nil {
 		log.Printf("Error serializing procedure call %v\n", err)
 	} else {
 		var netmsg bytes.Buffer
 		writeInt(&netmsg, int32(call.Len()))
 		io.Copy(&netmsg, &call)
-		io.Copy(nr.writer, &netmsg)
+		io.Copy(nw.writer, &netmsg)
 	}
 }
 
-func (nr *networkWriter) serializeStatement(pi *procedureInvocation) (msg bytes.Buffer, err error) {
+func (nw *networkWriter) serializeStatement(pi *procedureInvocation) (msg bytes.Buffer, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(runtime.Error); ok {
@@ -114,34 +114,34 @@ func (nr *networkWriter) serializeStatement(pi *procedureInvocation) (msg bytes.
 	return
 }
 
-func (nr *networkWriter) start() {
-	nr.wg.Add(1)
-	go nr.writePIs()
+func (nw *networkWriter) start() {
+	nw.wg.Add(1)
+	go nw.writePIs()
 }
 
-func (nr *networkWriter) stop() {
+func (nw *networkWriter) stop() {
 	for {
-		if atomic.CompareAndSwapInt32(&nr.hasBeenStopped, 0, 1) {
+		if atomic.CompareAndSwapInt32(&nw.hasBeenStopped, 0, 1) {
 			break
 		}
 	}
 }
 
-func (nr *networkWriter) hasBP() bool {
-	nr.bpMutex.RLock()
-	bp := nr.bp
-	nr.bpMutex.RUnlock()
+func (nw *networkWriter) hasBP() bool {
+	nw.bpMutex.RLock()
+	bp := nw.bp
+	nw.bpMutex.RUnlock()
 	return bp
 }
 
-func (nr *networkWriter) setBP() {
-	nr.bpMutex.Lock()
-	nr.bp = true
-	nr.bpMutex.Unlock()
+func (nw *networkWriter) setBP() {
+	nw.bpMutex.Lock()
+	nw.bp = true
+	nw.bpMutex.Unlock()
 }
 
-func (nr *networkWriter) unsetBP() {
-	nr.bpMutex.Lock()
-	nr.bp = false
-	nr.bpMutex.Unlock()
+func (nw *networkWriter) unsetBP() {
+	nw.bpMutex.Lock()
+	nw.bp = false
+	nw.bpMutex.Unlock()
 }
