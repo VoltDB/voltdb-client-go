@@ -33,13 +33,13 @@ func newVoltResult(resp voltResponse, rowsAff []int64) *VoltResult {
 }
 
 // Advances to the next table.  Returns false if there isn't a next table.
-func (vr VoltResult) AdvanceTable() bool {
+func (vr *VoltResult) AdvanceTable() bool {
 	return vr.AdvanceToTable(vr.ti + 1)
 }
 
 // Advances to the table indicated by the index.  Returns false if there is
 // no table at the given index.
-func (vr VoltResult) AdvanceToTable(ti int) bool {
+func (vr *VoltResult) AdvanceToTable(ti int) bool {
 	if ti >= len(vr.rowsAff) || ti < 0 {
 		return false
 	}
