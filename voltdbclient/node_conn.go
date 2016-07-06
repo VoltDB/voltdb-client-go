@@ -22,6 +22,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"runtime"
 	"sync"
@@ -30,7 +31,8 @@ import (
 )
 
 // qHandle is a var
-var qHandle int64 = 0 // each query has a unique handle.
+var qHandle int64 = 0  // each query has a unique handle.
+var sHandle int64 = -1 // for system proc.
 
 // connectionData are the values returned by a successful login.
 type connectionData struct {
@@ -51,7 +53,7 @@ type connectionState struct {
 	nl            *networkListener
 	nlwg          *sync.WaitGroup
 	isOpen        bool
-	bp            bool  // backpressure
+	bp            bool // backpressure
 }
 
 type nodeConn struct {
@@ -105,11 +107,14 @@ func (nc nodeConn) exec(pi *procedureInvocation) (driver.Result, error) {
 		return VoltResult{}, err
 	}
 	resp := <-c
-	rslt := resp.(VoltResult)
-	if err := rslt.getError(); err != nil {
-		return nil, err
+	switch resp.(type) {
+	case VoltResult:
+		return resp.(VoltResult), nil
+	case VoltError:
+		return nil, resp.(VoltError)
+	default:
+		return nil, VoltError{error: errors.New("unexpected response type")}
 	}
-	return rslt, nil
 }
 
 func (nc nodeConn) execAsync(resCons AsyncResponseConsumer, pi *procedureInvocation) error {
@@ -140,14 +145,18 @@ func (nc nodeConn) query(pi *procedureInvocation) (driver.Rows, error) {
 
 	select {
 	case resp := <-c:
-		rows := resp.(VoltRows)
-		if err := rows.getError(); err != nil {
-			return nil, err
+		switch resp.(type) {
+		case VoltRows:
+			return resp.(VoltRows), nil
+		case VoltError:
+			return nil, resp.(VoltError)
+		default:
+			return nil, VoltError{error: errors.New("unexpected response type")}
 		}
-		return rows, nil
+
 	case <-time.After(time.Second * QUERY_TIMEOUT):
 		// TODO: make an error type for timeout
-		return nil, errors.New("timeout")
+		return nil, VoltError{voltResponse: voltResponseInfo{status: int8(CONNECTION_TIMEOUT)}, error: errors.New("timeout")}
 	}
 }
 
@@ -191,26 +200,39 @@ func (nc nodeConn) processAsyncs() {
 		async := nc.asyncs()[handle]
 		nc.asyncsMutex().Unlock()
 
-		if async.isQuery() {
-			vrows := resp.(VoltRows)
-			if err := vrows.getError(); err != nil {
-				async.getArc().ConsumeError(err)
-			} else {
-				async.getArc().ConsumeRows(vrows)
-
-			}
-			nc.removeAsync(handle)
-			continue
-		} else {
-			vrslt := resp.(VoltResult)
-			if err := vrslt.getError(); err != nil {
-				async.getArc().ConsumeError(err)
-			} else {
-				async.getArc().ConsumeResult(vrslt)
-			}
-			nc.removeAsync(handle)
-			continue
+		switch resp.(type) {
+		case VoltRows:
+			async.getArc().ConsumeRows(resp.(VoltRows))
+		case VoltResult:
+			async.getArc().ConsumeResult(resp.(VoltResult))
+		case VoltError:
+			async.getArc().ConsumeError(resp.(VoltError))
+		default:
+			log.Panic("unexpected response type", resp)
 		}
+		nc.removeAsync(handle)
+		/*
+			if async.isQuery() {
+				vrows := resp.(VoltRows)
+				if err := vrows.getError(); err != nil {
+					async.getArc().ConsumeError(err)
+				} else {
+					async.getArc().ConsumeRows(vrows)
+
+				}
+				nc.removeAsync(handle)
+				continue
+			} else {
+				vrslt := resp.(VoltResult)
+				if err := vrslt.getError(); err != nil {
+					async.getArc().ConsumeError(err)
+				} else {
+					async.getArc().ConsumeResult(vrslt)
+				}
+				nc.removeAsync(handle)
+				continue
+			}
+		*/
 	}
 }
 

@@ -112,6 +112,14 @@ func (vc VoltConn) openNodeConn(ci string) error {
 	}
 	nc := newNodeConn(&vc, ci, tcpConn, tcpConn, *connData)
 	vc.addConn(nc)
+
+	if vc.distributer.useClientAffinity {
+		vc.distributer.hostIdToConnection[int(connData.hostId)] = nc
+		if vc.distributer.subscribedConnection == nil {
+			vc.distributer.subscribeToNewNode()
+		}
+	}
+
 	return nil
 }
 
