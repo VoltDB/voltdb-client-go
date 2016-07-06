@@ -20,7 +20,6 @@ package voltdbclient
 import (
 	"database/sql/driver"
 	"errors"
-	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
