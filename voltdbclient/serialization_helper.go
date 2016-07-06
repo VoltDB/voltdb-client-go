@@ -20,7 +20,6 @@ package voltdbclient
 import (
 	"bytes"
 	"crypto/sha256"
-	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io"
@@ -99,20 +98,6 @@ func deserializeLoginResponse(r io.Reader) (connData *connectionData, err error)
 	connData.leaderAddr = leaderAddr
 	connData.buildString = buildString
 	return connData, nil
-}
-
-func serializeArgs(args []driver.Value) (msg bytes.Buffer, err error) {
-	// parameter_count short
-	// (type byte, parameter)*
-	if err = writeShort(&msg, int16(len(args))); err != nil {
-		return
-	}
-	for _, arg := range args {
-		if err = marshallParam(&msg, arg); err != nil {
-			return
-		}
-	}
-	return
 }
 
 func marshallParam(buf io.Writer, param interface{}) (err error) {

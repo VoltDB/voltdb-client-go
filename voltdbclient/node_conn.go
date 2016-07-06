@@ -28,8 +28,8 @@ import (
 	"time"
 )
 
-// start backpressure when there are this many queued writes
-const piWriteChannelSize = 100
+// start back pressure when this many bytes are queued for write
+const maxQueuedBytes = 262144
 
 // connectionData are the values returned by a successful login.
 type connectionData struct {
@@ -53,6 +53,12 @@ type nodeConn struct {
 	nwCh chan<- *procedureInvocation
 	// used to wait for writer to return on close.
 	nwwg *sync.WaitGroup
+
+	// queued bytes will be read/written by the main clien thread and also
+	// by the network writer thread.
+	queuedBytes int
+	qbMutex     sync.Mutex
+
 	open bool
 }
 
@@ -68,15 +74,18 @@ func newNodeConn(vc *VoltConn, ci string, reader io.Reader, writer io.Writer, co
 	wg := sync.WaitGroup{}
 	nc.nlwg = &wg
 	nc.nl = newListener(vc, ci, reader, nc.nlwg)
-	// make this a little bigger than the backpressure limit, a number of requests might
-	// be queued while one response is being processed.
-	ch := make(chan *procedureInvocation, piWriteChannelSize+10)
+	// The buffer won't be allocated up front, so it's ok to make this big.
+	// In practice the buffer will be limited by back pressure
+	ch := make(chan *procedureInvocation, 1000)
 	nc.nwCh = ch
 	wg = sync.WaitGroup{}
 	nc.nwwg = &wg
-	nc.nw = newNetworkWriter(writer, ch, nc.nwwg)
+	nc.nw = newNetworkWriter(nc, writer, ch, nc.nwwg)
 
 	nc.open = true
+	nc.queuedBytes = 0
+	nc.qbMutex = sync.Mutex{}
+
 	nc.nl.start()
 	nc.nw.start()
 	go nc.processAsyncs()
@@ -111,6 +120,7 @@ func (nc *nodeConn) exec(pi *procedureInvocation) (driver.Result, error) {
 		return nil, errors.New("Connection is closed")
 	}
 	c := nc.nl.registerRequest(pi.handle, false)
+	nc.incrementQueuedBytes(pi.getLen())
 	nc.nwCh <- pi
 
 	select {
@@ -132,6 +142,7 @@ func (nc *nodeConn) execAsync(resCons AsyncResponseConsumer, pi *procedureInvoca
 	c := nc.nl.registerRequest(pi.handle, false)
 	vasr := newVoltAsyncResponse(nc, pi.handle, c, false, resCons)
 	nc.registerAsync(pi.handle, vasr)
+	nc.incrementQueuedBytes(pi.getLen())
 	nc.nwCh <- pi
 	return nil
 }
@@ -141,6 +152,7 @@ func (nc *nodeConn) query(pi *procedureInvocation) (driver.Rows, error) {
 		return nil, errors.New("Connection is closed")
 	}
 	c := nc.nl.registerRequest(pi.handle, true)
+	nc.incrementQueuedBytes(pi.getLen())
 	nc.nwCh <- pi
 
 	select {
@@ -167,8 +179,29 @@ func (nc *nodeConn) queryAsync(rowsCons AsyncResponseConsumer, pi *procedureInvo
 	c := nc.nl.registerRequest(pi.handle, true)
 	vasr := newVoltAsyncResponse(nc, pi.handle, c, true, rowsCons)
 	nc.registerAsync(pi.handle, vasr)
+	nc.incrementQueuedBytes(pi.getLen())
 	nc.nwCh <- pi
 	return nil
+}
+
+func (nc *nodeConn) incrementQueuedBytes(numBytes int) {
+	nc.qbMutex.Lock()
+	nc.queuedBytes += numBytes
+	nc.qbMutex.Unlock()
+}
+
+func (nc *nodeConn) decrementQueuedBytes(numBytes int) {
+	nc.qbMutex.Lock()
+	nc.queuedBytes -= numBytes
+	nc.qbMutex.Unlock()
+}
+
+func (nc *nodeConn) getQueuedBytes() int {
+	var qb int
+	nc.qbMutex.Lock()
+	qb = nc.queuedBytes
+	nc.qbMutex.Unlock()
+	return qb
 }
 
 func (nc *nodeConn) drain() {
@@ -216,7 +249,7 @@ func (nc *nodeConn) processAsyncs() {
 }
 
 func (nc *nodeConn) hasBP() bool {
-	return nc.nw.hasBP()
+	return nc.getQueuedBytes() >= maxQueuedBytes
 }
 
 func (nc *nodeConn) registerAsync(handle int64, vasr *voltAsyncResponse) {

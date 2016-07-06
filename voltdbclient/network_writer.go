@@ -19,6 +19,7 @@ package voltdbclient
 
 import (
 	"bytes"
+	"database/sql/driver"
 	"io"
 	"log"
 	"runtime"
@@ -28,6 +29,7 @@ import (
 )
 
 type networkWriter struct {
+	nc             *nodeConn
 	writer         io.Writer
 	piCh           <-chan *procedureInvocation
 	wg             *sync.WaitGroup
@@ -36,15 +38,16 @@ type networkWriter struct {
 	bpMutex        sync.RWMutex
 }
 
-func newNetworkWriter(writer io.Writer, ch <-chan *procedureInvocation, wg *sync.WaitGroup) *networkWriter {
-	var nr = new(networkWriter)
-	nr.writer = writer
-	nr.piCh = ch
-	nr.wg = wg
-	nr.hasBeenStopped = 0
-	nr.bp = false
-	nr.bpMutex = sync.RWMutex{}
-	return nr
+func newNetworkWriter(nc *nodeConn, writer io.Writer, ch <-chan *procedureInvocation, wg *sync.WaitGroup) *networkWriter {
+	var nw = new(networkWriter)
+	nw.nc = nc
+	nw.writer = writer
+	nw.piCh = ch
+	nw.wg = wg
+	nw.hasBeenStopped = 0
+	nw.bp = false
+	nw.bpMutex = sync.RWMutex{}
+	return nw
 }
 
 func (nw *networkWriter) writePIs() {
@@ -58,13 +61,7 @@ func (nw *networkWriter) writePIs() {
 		select {
 		case pi := <-nw.piCh:
 			nw.serializePI(pi)
-			// reading the length of a channel is thread safe, though racy
-			qw := len(nw.piCh)
-			if qw > piWriteChannelSize {
-				nw.setBP()
-			} else {
-				nw.unsetBP()
-			}
+			nw.nc.decrementQueuedBytes(pi.getLen())
 		case <-time.After(time.Millisecond * 100):
 			continue // give the thread a chance to exit - it's okay to block for a bit, applicable on close
 		}
@@ -75,18 +72,17 @@ func (nw *networkWriter) serializePI(pi *procedureInvocation) {
 	var call bytes.Buffer
 	var err error
 
+	writeInt(&call, int32(pi.getLen()))
+
 	// Serialize the procedure call and its params.
-	if call, err = nw.serializeStatement(pi); err != nil {
+	if err = nw.serializeStatement(&call, pi); err != nil {
 		log.Printf("Error serializing procedure call %v\n", err)
 	} else {
-		var netmsg bytes.Buffer
-		writeInt(&netmsg, int32(call.Len()))
-		io.Copy(&netmsg, &call)
-		io.Copy(nw.writer, &netmsg)
+		io.Copy(nw.writer, &call)
 	}
 }
 
-func (nw *networkWriter) serializeStatement(pi *procedureInvocation) (msg bytes.Buffer, err error) {
+func (nw *networkWriter) serializeStatement(writer io.Writer, pi *procedureInvocation) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(runtime.Error); ok {
@@ -97,20 +93,33 @@ func (nw *networkWriter) serializeStatement(pi *procedureInvocation) (msg bytes.
 	}()
 
 	// batch timeout type
-	if err = writeByte(&msg, 0); err != nil {
+	if err = writeByte(writer, 0); err != nil {
 		return
 	}
-	if err = writeString(&msg, pi.query); err != nil {
+	if err = writeString(writer, pi.query); err != nil {
 		return
 	}
-	if err = writeLong(&msg, pi.handle); err != nil {
+	if err = writeLong(writer, pi.handle); err != nil {
 		return
 	}
-	serializedArgs, err := serializeArgs(pi.params)
+	err = nw.serializeArgs(writer, pi.params)
 	if err != nil {
 		return
 	}
-	io.Copy(&msg, &serializedArgs)
+	return
+}
+
+func (nw *networkWriter) serializeArgs(writer io.Writer, args []driver.Value) (err error) {
+	// parameter_count short
+	// (type byte, parameter)*
+	if err = writeShort(writer, int16(len(args))); err != nil {
+		return
+	}
+	for _, arg := range args {
+		if err = marshallParam(writer, arg); err != nil {
+			return
+		}
+	}
 	return
 }
 
