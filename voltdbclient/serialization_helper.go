@@ -26,7 +26,6 @@ import (
 	"io"
 	"math"
 	"reflect"
-	"runtime"
 	"time"
 )
 
@@ -100,34 +99,6 @@ func deserializeLoginResponse(r io.Reader) (connData *connectionData, err error)
 	connData.leaderAddr = leaderAddr
 	connData.buildString = buildString
 	return connData, nil
-}
-
-func serializeStatement(proc string, ud int64, args []driver.Value) (msg bytes.Buffer, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			if _, ok := r.(runtime.Error); ok {
-				panic(r)
-			}
-			err = r.(error)
-		}
-	}()
-
-	// batch timeout type
-	if err = writeByte(&msg, 0); err != nil {
-		return
-	}
-	if err = writeString(&msg, proc); err != nil {
-		return
-	}
-	if err = writeLong(&msg, ud); err != nil {
-		return
-	}
-	serializedArgs, err := serializeArgs(args)
-	if err != nil {
-		return
-	}
-	io.Copy(&msg, &serializedArgs)
-	return
 }
 
 func serializeArgs(args []driver.Value) (msg bytes.Buffer, err error) {

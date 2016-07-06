@@ -25,12 +25,11 @@ import (
 	"net"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
-// qHandle is a var
-var qHandle int64 = 0 // each query has a unique handle.
+// start backpressure when there are this many queued writes
+const piWriteChannelSize = 100
 
 // connectionData are the values returned by a successful login.
 type connectionData struct {
@@ -43,15 +42,18 @@ type connectionData struct {
 type nodeConn struct {
 	connInfo      string
 	reader        io.Reader
-	writer        io.Writer
 	connData      connectionData
 	asyncsChannel chan voltResponse
 	asyncs        map[int64]*voltAsyncResponse
 	asyncsMutex   sync.Mutex
 	nl            *networkListener
 	nlwg          *sync.WaitGroup
+	// used to write procedure invocation out to network.
+	nw            *networkWriter
+	nwCh          chan<- *procedureInvocation
+	// used to wait for writer to return on close.
+	nwwg          *sync.WaitGroup
 	open          bool
-	bp            bool  // backpressure
 }
 
 func newNodeConn(vc *VoltConn, ci string, reader io.Reader, writer io.Writer, connData connectionData) *nodeConn {
@@ -59,17 +61,24 @@ func newNodeConn(vc *VoltConn, ci string, reader io.Reader, writer io.Writer, co
 
 	nc.connInfo = ci
 	nc.reader = reader
-	nc.writer = writer
 	nc.connData = connData
 	nc.asyncsChannel = make(chan voltResponse)
 	nc.asyncs = make(map[int64]*voltAsyncResponse)
 	nc.asyncsMutex = sync.Mutex{}
 	wg := sync.WaitGroup{}
 	nc.nlwg = &wg
-	nc.nl = newListener(vc, ci, reader, &wg)
+	nc.nl = newListener(vc, ci, reader, nc.nlwg)
+	// make this a little bigger than the backpressure limit, a number of requests might
+	// be queued while one response is being processed.
+	ch := make(chan *procedureInvocation, piWriteChannelSize +10)
+	nc.nwCh = ch
+	wg = sync.WaitGroup{}
+	nc.nwwg = &wg
+	nc.nw = newNetworkWriter(writer, ch, nc.nwwg)
+
 	nc.open = true
-	nc.bp = false
 	nc.nl.start()
+	nc.nw.start()
 	go nc.processAsyncs()
 	return nc
 }
@@ -79,7 +88,8 @@ func (nc *nodeConn) close() (err error) {
 		return
 	}
 
-	// stop the network listener
+	// stop the network writer and reader
+	nc.nw.stop()
 	nc.nl.stop()
 
 	// close the tcp conn, will unblock the listener.
@@ -88,7 +98,8 @@ func (nc *nodeConn) close() (err error) {
 		err = tcpConn.Close()
 	}
 
-	// network thread should return.
+	// network reader and writer should return.
+	nc.nwwg.Wait()
 	nc.nlwg.Wait()
 
 	nc.open = false
@@ -99,12 +110,8 @@ func (nc *nodeConn) exec(pi *procedureInvocation) (driver.Result, error) {
 	if !nc.open {
 		return nil, errors.New("Connection is closed")
 	}
-	handle := atomic.AddInt64(&qHandle, 1)
-	c := nc.nl.registerRequest(handle, false)
-	if err := nc.serializeQuery(nc.writer, pi.query, handle, pi.params); err != nil {
-		nc.nl.removeRequest(handle)
-		return VoltResult{}, err
-	}
+	c := nc.nl.registerRequest(pi.handle, false)
+	nc.nwCh <- pi
 	resp := <-c
 	rslt := resp.(VoltResult)
 	if err := rslt.getError(); err != nil {
@@ -117,14 +124,10 @@ func (nc *nodeConn) execAsync(resCons AsyncResponseConsumer, pi *procedureInvoca
 	if !nc.open {
 		return errors.New("Connection is closed")
 	}
-	handle := atomic.AddInt64(&qHandle, 1)
-	c := nc.nl.registerRequest(handle, false)
-	vasr := newVoltAsyncResponse(nc, handle, c, false, resCons)
-	nc.registerAsync(handle, vasr)
-	if err := nc.serializeQuery(nc.writer, pi.query, handle, pi.params); err != nil {
-		nc.nl.removeRequest(handle)
-		return err
-	}
+	c := nc.nl.registerRequest(pi.handle, false)
+	vasr := newVoltAsyncResponse(nc, pi.handle, c, false, resCons)
+	nc.registerAsync(pi.handle, vasr)
+	nc.nwCh <- pi
 	return nil
 }
 
@@ -132,12 +135,8 @@ func (nc *nodeConn) query(pi *procedureInvocation) (driver.Rows, error) {
 	if !nc.open {
 		return nil, errors.New("Connection is closed")
 	}
-	handle := atomic.AddInt64(&qHandle, 1)
-	c := nc.nl.registerRequest(handle, true)
-	if err := nc.serializeQuery(nc.writer, pi.query, handle, pi.params); err != nil {
-		nc.nl.removeRequest(handle)
-		return VoltRows{}, err
-	}
+	c := nc.nl.registerRequest(pi.handle, true)
+	nc.nwCh <- pi
 
 	select {
 	case resp := <-c:
@@ -160,14 +159,10 @@ func (nc *nodeConn) queryAsync(rowsCons AsyncResponseConsumer, pi *procedureInvo
 	if !nc.open {
 		return errors.New("Connection is closed")
 	}
-	handle := atomic.AddInt64(&qHandle, 1)
-	c := nc.nl.registerRequest(handle, true)
-	vasr := newVoltAsyncResponse(nc, handle, c, true, rowsCons)
-	nc.registerAsync(handle, vasr)
-	if err := nc.serializeQuery(nc.writer, pi.query, handle, pi.params); err != nil {
-		nc.nl.removeRequest(handle)
-		return err
-	}
+	c := nc.nl.registerRequest(pi.handle, true)
+	vasr := newVoltAsyncResponse(nc, pi.handle, c, true, rowsCons)
+	nc.registerAsync(pi.handle, vasr)
+	nc.nwCh <- pi
 	return nil
 }
 
@@ -215,12 +210,8 @@ func (nc *nodeConn) processAsyncs() {
 	}
 }
 
-func (nc *nodeConn) setBP() {
-	nc.bp = true
-}
-
-func (nc *nodeConn) unsetBP() {
-	nc.bp = false
+func (nc *nodeConn) hasBP() bool {
+	return nc.nw.hasBP()
 }
 
 func (nc *nodeConn) registerAsync(handle int64, vasr *voltAsyncResponse) {
@@ -310,24 +301,6 @@ func (vasr *voltAsyncResponse) handle() int64 {
 
 func (vasr *voltAsyncResponse) isQuery() bool {
 	return vasr.isQ
-}
-
-func (nc nodeConn) serializeQuery(writer io.Writer, procedure string, handle int64, args []driver.Value) error {
-
-	var call bytes.Buffer
-	var err error
-
-	// Serialize the procedure call and its params.
-	// Use 0 for handle; it's not necessary in pure sync client.
-	if call, err = serializeStatement(procedure, handle, args); err != nil {
-		return err
-	}
-
-	var netmsg bytes.Buffer
-	writeInt(&netmsg, int32(call.Len()))
-	io.Copy(&netmsg, &call)
-	io.Copy(writer, &netmsg)
-	return nil
 }
 
 // Null Value type

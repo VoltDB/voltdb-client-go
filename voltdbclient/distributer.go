@@ -27,6 +27,7 @@ import (
 
 // the set of currently active connections
 type distributer struct {
+	handle int64
 	// the set of active connections
 	acs      []*nodeConn
 	acsMutex sync.RWMutex
@@ -38,6 +39,7 @@ type distributer struct {
 
 func newDistributer() *distributer {
 	var d = new(distributer)
+	d.handle = 0
 	d.acs = make([]*nodeConn, 0)
 	d.acsMutex = sync.RWMutex{}
 	d.acsNextI = 0
@@ -137,8 +139,12 @@ func (d *distributer) numConns() int {
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // Exec is available on both VoltConn and on VoltStatement.
 func (d *distributer) Exec(query string, args []driver.Value) (driver.Result, error) {
-	pi := newProcedureInvocation(query, args)
+	pi := newProcedureInvocation(d.handle, query, args)
+	d.handle++
 	ac := d.getConn(pi)
+	if ac == nil {
+		return nil, errors.New("timed out")
+	}
 	return ac.exec(pi)
 }
 
@@ -147,8 +153,12 @@ func (d *distributer) Exec(query string, args []driver.Value) (driver.Result, er
 // invocation of this method blocks only until a request is sent to the VoltDB
 // server.
 func (d *distributer) ExecAsync(resCons AsyncResponseConsumer, query string, args []driver.Value) error {
-	pi := newProcedureInvocation(query, args)
+	pi := newProcedureInvocation(d.handle, query, args)
+	d.handle++
 	ac := d.getConn(pi)
+	if ac == nil {
+		errors.New("timed out")
+	}
 	return ac.execAsync(resCons, pi)
 }
 
@@ -161,8 +171,12 @@ func (d *distributer) Prepare(query string) (driver.Stmt, error) {
 
 // Query executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
 func (d *distributer) Query(query string, args []driver.Value) (driver.Rows, error) {
-	pi := newProcedureInvocation(query, args)
+	pi := newProcedureInvocation(d.handle, query, args)
+	d.handle++
 	ac := d.getConn(pi)
+	if ac == nil {
+		return nil, errors.New("timed out")
+	}
 	return ac.query(pi)
 }
 
@@ -171,8 +185,12 @@ func (d *distributer) Query(query string, args []driver.Value) (driver.Rows, err
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.
 func (d *distributer) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []driver.Value) error {
-	pi := newProcedureInvocation(query, args)
+	pi := newProcedureInvocation(d.handle, query, args)
+	d.handle++
 	ac := d.getConn(pi)
+	if ac == nil {
+		return errors.New("timed out")
+	}
 	return ac.queryAsync(rowsCons, pi)
 }
 
@@ -197,7 +215,7 @@ func (d *distributer) getConnByRR() *nodeConn {
 		}
 		c := d.acs[d.acsNextI]
 		d.acsNextI++
-		if !c.bp {
+		if !c.hasBP() {
 			return c
 		}
 	}
@@ -205,12 +223,14 @@ func (d *distributer) getConnByRR() *nodeConn {
 }
 
 type procedureInvocation struct {
+	handle int64
 	query  string
 	params []driver.Value
 }
 
-func newProcedureInvocation(query string, params []driver.Value) *procedureInvocation {
+func newProcedureInvocation(handle int64, query string, params []driver.Value) *procedureInvocation {
 	var pi = new(procedureInvocation)
+	pi.handle = handle
 	pi.query = query
 	pi.params = params
 	return pi
