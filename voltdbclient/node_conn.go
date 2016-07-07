@@ -29,7 +29,7 @@ import (
 )
 
 // start back pressure when this many bytes are queued for write
-const maxQueuedBytes = 20
+const maxQueuedBytes = 262144
 
 // connectionData are the values returned by a successful login.
 type connectionData struct {
