@@ -93,7 +93,7 @@ func (nl *networkListener) readResponse(r io.Reader, handle int64) {
 	req := nl.requests[handle]
 	delete(nl.requests, handle)
 	nl.requestMutex.Unlock()
-
+	req.getNodeConn().decrementQueuedBytes(req.numBytes)
 	if req.isQuery() {
 		rows := deserializeRows(r, rsp)
 		req.getChan() <- rows
@@ -103,13 +103,13 @@ func (nl *networkListener) readResponse(r io.Reader, handle int64) {
 	}
 }
 
-func (nl *networkListener) registerRequest(handle int64, isQuery bool) <-chan voltResponse {
-	c := make(chan voltResponse, 1)
-	nr := newNetworkRequest(c, isQuery)
+func (nl *networkListener) registerRequest(nc *nodeConn, pi *procedureInvocation) <-chan voltResponse {
+	ch := make(chan voltResponse, 1)
+	nr := newNetworkRequest(nc, ch, pi.isQuery, pi.getLen())
 	nl.requestMutex.Lock()
-	nl.requests[handle] = nr
+	nl.requests[pi.handle] = nr
 	nl.requestMutex.Unlock()
-	return c
+	return ch
 }
 
 // need to have a lock on the map when this is invoked.
@@ -133,15 +133,24 @@ func (nl *networkListener) stop() {
 }
 
 type networkRequest struct {
-	query bool
-	ch    chan voltResponse
+	nc       *nodeConn
+	query    bool
+	ch       chan voltResponse
+	// the size of the serialized request written to the server.
+	numBytes int
 }
 
-func newNetworkRequest(ch chan voltResponse, isQuery bool) *networkRequest {
+func newNetworkRequest(nc *nodeConn, ch chan voltResponse, isQuery bool, numBytes int) *networkRequest {
 	var nr = new(networkRequest)
+	nr.nc = nc
 	nr.query = isQuery
 	nr.ch = ch
+	nr.numBytes = numBytes
 	return nr
+}
+
+func (nr networkRequest) getNodeConn() *nodeConn {
+	return nr.nc
 }
 
 func (nr networkRequest) isQuery() bool {
@@ -151,3 +160,8 @@ func (nr networkRequest) isQuery() bool {
 func (nr networkRequest) getChan() chan voltResponse {
 	return nr.ch
 }
+
+func (nr networkRequest) getNumBytes() int {
+	return nr.numBytes
+}
+

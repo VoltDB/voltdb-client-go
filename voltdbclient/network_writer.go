@@ -29,7 +29,6 @@ import (
 )
 
 type networkWriter struct {
-	nc             *nodeConn
 	writer         io.Writer
 	piCh           <-chan *procedureInvocation
 	wg             *sync.WaitGroup
@@ -38,9 +37,8 @@ type networkWriter struct {
 	bpMutex        sync.RWMutex
 }
 
-func newNetworkWriter(nc *nodeConn, writer io.Writer, ch <-chan *procedureInvocation, wg *sync.WaitGroup) *networkWriter {
+func newNetworkWriter(writer io.Writer, ch <-chan *procedureInvocation, wg *sync.WaitGroup) *networkWriter {
 	var nw = new(networkWriter)
-	nw.nc = nc
 	nw.writer = writer
 	nw.piCh = ch
 	nw.wg = wg
@@ -61,7 +59,6 @@ func (nw *networkWriter) writePIs() {
 		select {
 		case pi := <-nw.piCh:
 			nw.serializePI(pi)
-			nw.nc.decrementQueuedBytes(pi.getLen())
 		case <-time.After(time.Millisecond * 100):
 			continue // give the thread a chance to exit - it's okay to block for a bit, applicable on close
 		}

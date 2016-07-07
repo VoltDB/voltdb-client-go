@@ -26,10 +26,11 @@ import (
 	"runtime"
 	"sync"
 	"time"
+	"fmt"
 )
 
 // start back pressure when this many bytes are queued for write
-const maxQueuedBytes = 262144
+const maxQueuedBytes = 20
 
 // connectionData are the values returned by a successful login.
 type connectionData struct {
@@ -54,7 +55,7 @@ type nodeConn struct {
 	// used to wait for writer to return on close.
 	nwwg *sync.WaitGroup
 
-	// queued bytes will be read/written by the main clien thread and also
+	// queued bytes will be read/written by the main client thread and also
 	// by the network writer thread.
 	queuedBytes int
 	qbMutex     sync.Mutex
@@ -80,7 +81,7 @@ func newNodeConn(vc *VoltConn, ci string, reader io.Reader, writer io.Writer, co
 	nc.nwCh = ch
 	wg = sync.WaitGroup{}
 	nc.nwwg = &wg
-	nc.nw = newNetworkWriter(nc, writer, ch, nc.nwwg)
+	nc.nw = newNetworkWriter(writer, ch, nc.nwwg)
 
 	nc.open = true
 	nc.queuedBytes = 0
@@ -119,7 +120,7 @@ func (nc *nodeConn) exec(pi *procedureInvocation) (driver.Result, error) {
 	if !nc.open {
 		return nil, errors.New("Connection is closed")
 	}
-	c := nc.nl.registerRequest(pi.handle, false)
+	c := nc.nl.registerRequest(nc, pi)
 	nc.incrementQueuedBytes(pi.getLen())
 	nc.nwCh <- pi
 
@@ -139,7 +140,7 @@ func (nc *nodeConn) execAsync(resCons AsyncResponseConsumer, pi *procedureInvoca
 	if !nc.open {
 		return errors.New("Connection is closed")
 	}
-	c := nc.nl.registerRequest(pi.handle, false)
+	c := nc.nl.registerRequest(nc, pi)
 	vasr := newVoltAsyncResponse(nc, pi.handle, c, false, resCons)
 	nc.registerAsync(pi.handle, vasr)
 	nc.incrementQueuedBytes(pi.getLen())
@@ -151,7 +152,7 @@ func (nc *nodeConn) query(pi *procedureInvocation) (driver.Rows, error) {
 	if !nc.open {
 		return nil, errors.New("Connection is closed")
 	}
-	c := nc.nl.registerRequest(pi.handle, true)
+	c := nc.nl.registerRequest(nc, pi)
 	nc.incrementQueuedBytes(pi.getLen())
 	nc.nwCh <- pi
 
@@ -176,7 +177,7 @@ func (nc *nodeConn) queryAsync(rowsCons AsyncResponseConsumer, pi *procedureInvo
 	if !nc.open {
 		return errors.New("Connection is closed")
 	}
-	c := nc.nl.registerRequest(pi.handle, true)
+	c := nc.nl.registerRequest(nc, pi)
 	vasr := newVoltAsyncResponse(nc, pi.handle, c, true, rowsCons)
 	nc.registerAsync(pi.handle, vasr)
 	nc.incrementQueuedBytes(pi.getLen())

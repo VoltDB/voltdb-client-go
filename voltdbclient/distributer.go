@@ -148,7 +148,7 @@ func (d *distributer) Exec(query string, args []driver.Value) (driver.Result, er
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // Exec is available on both VoltConn and on VoltStatement.  Specifies a duration for timeout.
 func (d *distributer) ExecTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Result, error) {
-	pi := newProcedureInvocation(d.handle, query, args, timeout)
+	pi := newProcedureInvocation(d.handle, false, query, args, timeout)
 	d.handle++
 	ac, err := d.getConn(pi)
 	if err != nil {
@@ -170,7 +170,7 @@ func (d *distributer) ExecAsync(resCons AsyncResponseConsumer, query string, arg
 // invocation of this method blocks only until a request is sent to the VoltDB
 // server.  Specifies a duration for timeout.
 func (d *distributer) ExecAsyncTimeout(resCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
-	pi := newProcedureInvocation(d.handle, query, args, timeout)
+	pi := newProcedureInvocation(d.handle, false, query, args, timeout)
 	d.handle++
 	ac, err := d.getConn(pi)
 	if err != nil {
@@ -195,7 +195,7 @@ func (d *distributer) Query(query string, args []driver.Value) (driver.Rows, err
 // Query executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
 // Specifies a duration for timeout.
 func (d *distributer) QueryTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Rows, error) {
-	pi := newProcedureInvocation(d.handle, query, args, timeout)
+	pi := newProcedureInvocation(d.handle, true, query, args, timeout)
 	d.handle++
 	ac, err := d.getConn(pi)
 	if err != nil {
@@ -217,7 +217,7 @@ func (d *distributer) QueryAsync(rowsCons AsyncResponseConsumer, query string, a
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.  Specifies a duration for timeout.
 func (d *distributer) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
-	pi := newProcedureInvocation(d.handle, query, args, timeout)
+	pi := newProcedureInvocation(d.handle, true, query, args, timeout)
 	d.handle++
 	ac, err := d.getConn(pi)
 	if err != nil {
@@ -263,15 +263,17 @@ func (d *distributer) getConnByRR(timeout time.Duration) (*nodeConn, error) {
 
 type procedureInvocation struct {
 	handle  int64
+	isQuery bool  // as opposed to an exec.
 	query   string
 	params  []driver.Value
 	timeout time.Duration
 	slen    int // length of pi once serialized
 }
 
-func newProcedureInvocation(handle int64, query string, params []driver.Value, timeout time.Duration) *procedureInvocation {
+func newProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, timeout time.Duration) *procedureInvocation {
 	var pi = new(procedureInvocation)
 	pi.handle = handle
+	pi.isQuery = isQuery
 	pi.query = query
 	pi.params = params
 	pi.timeout = timeout
