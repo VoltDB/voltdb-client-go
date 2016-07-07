@@ -26,7 +26,6 @@ import (
 	"runtime"
 	"sync"
 	"time"
-	"fmt"
 )
 
 // start back pressure when this many bytes are queued for write

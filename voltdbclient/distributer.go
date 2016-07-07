@@ -263,7 +263,7 @@ func (d *distributer) getConnByRR(timeout time.Duration) (*nodeConn, error) {
 
 type procedureInvocation struct {
 	handle  int64
-	isQuery bool  // as opposed to an exec.
+	isQuery bool // as opposed to an exec.
 	query   string
 	params  []driver.Value
 	timeout time.Duration

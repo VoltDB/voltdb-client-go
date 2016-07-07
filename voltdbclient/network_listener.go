@@ -133,9 +133,9 @@ func (nl *networkListener) stop() {
 }
 
 type networkRequest struct {
-	nc       *nodeConn
-	query    bool
-	ch       chan voltResponse
+	nc    *nodeConn
+	query bool
+	ch    chan voltResponse
 	// the size of the serialized request written to the server.
 	numBytes int
 }
@@ -164,4 +164,3 @@ func (nr networkRequest) getChan() chan voltResponse {
 func (nr networkRequest) getNumBytes() int {
 	return nr.numBytes
 }
-
