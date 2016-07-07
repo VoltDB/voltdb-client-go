@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"log"
 	"reflect"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -31,33 +30,27 @@ import (
 // the set of currently active connections
 type distributer struct {
 	handle int64
-	// the set of active connections
-	acs      []*nodeConn
-	acsMutex sync.RWMutex
+	ncs    []*nodeConn
+	numNC  int32
 	// next conn to look at when finding by round robin.
-	acsNextI int
-	open     atomic.Value
-	h        *hashinater
+	ncIndex int32
+	open    atomic.Value
+	h       *hashinater
 }
 
 func newDistributer() *distributer {
 	var d = new(distributer)
 	d.handle = 0
-	d.acs = make([]*nodeConn, 0)
-	d.acsMutex = sync.RWMutex{}
-	d.acsNextI = 0
+	d.ncIndex = 0
 	d.open = atomic.Value{}
 	d.open.Store(true)
 	d.h = newHashinater()
 	return d
 }
 
-// add a conn that is newly connected
-func (d *distributer) addConn(ac *nodeConn) {
-	d.assertOpen()
-	d.acsMutex.Lock()
-	d.acs = append(d.acs, ac)
-	d.acsMutex.Unlock()
+func (d *distributer) setConns(ncs []*nodeConn) {
+	d.ncs = ncs
+	d.numNC = int32(len(ncs))
 }
 
 // Begin starts a transaction.  VoltDB runs in auto commit mode, and so Begin
@@ -79,26 +72,14 @@ func (d *distributer) Close() (err error) {
 
 	// once this is closed there shouldn't be any additional activity against
 	// the connections.  They're touched here without getting a lock.
-	for _, ac := range d.acs {
-		err := ac.close()
+	for _, nc := range d.ncs {
+		err := nc.close()
 		if err != nil {
 			log.Println("Failed to close connection with %v", err)
 		}
 	}
-	d.acs = nil
+	d.ncs = nil
 	return nil
-}
-
-func (d *distributer) removeConn(ci string) {
-	d.assertOpen()
-	d.acsMutex.Lock()
-	for i, ac := range d.acs {
-		if ac.connInfo == ci {
-			d.acs = append(d.acs[:i], d.acs[i+1:]...)
-			break
-		}
-	}
-	d.acsMutex.Unlock()
 }
 
 // Drain blocks until all outstanding asynchronous requests have been satisfied.
@@ -110,11 +91,9 @@ func (d *distributer) Drain() {
 	// drain can't work if the set of connections can change
 	// while it's running.  Hold the lock for the duration, some
 	// asyncs may time out.  The user thread is blocked on drain.
-	d.acsMutex.Lock()
-	for _, ac := range d.acs {
-		ac.drain()
+	for _, nc := range d.ncs {
+		nc.drain()
 	}
-	d.acsMutex.Unlock()
 }
 
 func (d *distributer) assertOpen() {
@@ -131,14 +110,6 @@ func (d *distributer) setClosed() {
 	d.open.Store(false)
 }
 
-func (d *distributer) numConns() int {
-	d.assertOpen()
-	d.acsMutex.RLock()
-	num := len(d.acs)
-	d.acsMutex.RUnlock()
-	return num
-}
-
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // Exec is available on both VoltConn and on VoltStatement.  Uses DEFAULT_QUERY_TIMEOUT.
 func (d *distributer) Exec(query string, args []driver.Value) (driver.Result, error) {
@@ -150,11 +121,11 @@ func (d *distributer) Exec(query string, args []driver.Value) (driver.Result, er
 func (d *distributer) ExecTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Result, error) {
 	pi := newProcedureInvocation(d.handle, false, query, args, timeout)
 	d.handle++
-	ac, err := d.getConn(pi)
+	nc, err := d.getConn(pi)
 	if err != nil {
 		return nil, err
 	}
-	return ac.exec(pi)
+	return nc.exec(pi)
 }
 
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
@@ -172,11 +143,11 @@ func (d *distributer) ExecAsync(resCons AsyncResponseConsumer, query string, arg
 func (d *distributer) ExecAsyncTimeout(resCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
 	pi := newProcedureInvocation(d.handle, false, query, args, timeout)
 	d.handle++
-	ac, err := d.getConn(pi)
+	nc, err := d.getConn(pi)
 	if err != nil {
 		return err
 	}
-	return ac.execAsync(resCons, pi)
+	return nc.execAsync(resCons, pi)
 }
 
 // Prepare creates a prepared statement for later queries or executions.
@@ -197,11 +168,11 @@ func (d *distributer) Query(query string, args []driver.Value) (driver.Rows, err
 func (d *distributer) QueryTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Rows, error) {
 	pi := newProcedureInvocation(d.handle, true, query, args, timeout)
 	d.handle++
-	ac, err := d.getConn(pi)
+	nc, err := d.getConn(pi)
 	if err != nil {
 		return nil, err
 	}
-	return ac.query(pi)
+	return nc.query(pi)
 }
 
 // QueryAsync executes a query asynchronously.  The invoking thread will block
@@ -219,45 +190,55 @@ func (d *distributer) QueryAsync(rowsCons AsyncResponseConsumer, query string, a
 func (d *distributer) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
 	pi := newProcedureInvocation(d.handle, true, query, args, timeout)
 	d.handle++
-	ac, err := d.getConn(pi)
+	nc, err := d.getConn(pi)
 	if err != nil {
 		return err
 	}
-	return ac.queryAsync(rowsCons, pi)
+	return nc.queryAsync(rowsCons, pi)
 }
 
 // Get a connection from the hashinator.  If not, get one by round robin.  If not return nil.
-func (d *distributer) getConn(pi *procedureInvocation) (c *nodeConn, err error) {
+func (d *distributer) getConn(pi *procedureInvocation) (nc *nodeConn, err error) {
 
 	d.assertOpen()
-	d.acsMutex.RLock()
-	c = d.h.getConn(pi)
-	if c == nil {
-		c, err = d.getConnByRR(pi.timeout)
+	nc = d.h.getConn(pi)
+	if nc == nil {
+		nc, err = d.getConnByRR(pi.timeout)
 	}
-	d.acsMutex.RUnlock()
 	if err != nil {
 		return nil, err
 	}
-	return c, nil
+	return nc, nil
 }
 
 func (d *distributer) getConnByRR(timeout time.Duration) (*nodeConn, error) {
 	start := time.Now()
-	currLen := len(d.acs)
-
+	var nc *nodeConn
 	for {
-		if d.acsNextI >= currLen {
-			d.acsNextI = 0
+		var i int32
+		for {
+			currIndex := d.ncIndex
+			if currIndex == d.numNC-1 {
+				i = 0
+				if atomic.CompareAndSwapInt32(&d.ncIndex, currIndex, 0) {
+					break
+				}
+			} else {
+				i = currIndex + 1
+				if atomic.CompareAndSwapInt32(&d.ncIndex, currIndex, i) {
+					break
+				}
+			}
 		}
-		c := d.acs[d.acsNextI]
-		d.acsNextI++
-		if !c.hasBP() {
-			return c, nil
+		nc = d.ncs[i]
+		if nc.isOpen() && !nc.hasBP() {
+			break
 		}
-		if time.Now().Sub(start) > timeout {
-			return nil, errors.New("timeout")
-		}
+	}
+	if time.Now().Sub(start) > timeout {
+		return nil, errors.New("timeout")
+	} else {
+		return nc, nil
 	}
 }
 

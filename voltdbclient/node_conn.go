@@ -21,7 +21,9 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"net"
 	"runtime"
 	"sync"
@@ -55,64 +57,118 @@ type nodeConn struct {
 	nwwg *sync.WaitGroup
 
 	// queued bytes will be read/written by the main client thread and also
-	// by the network writer thread.
+	// by the network listener thread.
 	queuedBytes int
 	qbMutex     sync.Mutex
 
-	open bool
+	open      bool
+	openMutex sync.RWMutex
 }
 
-func newNodeConn(vc *VoltConn, ci string, reader io.Reader, writer io.Writer, connData connectionData) *nodeConn {
+func newNodeConn(ci string) *nodeConn {
 	var nc = new(nodeConn)
 
 	nc.connInfo = ci
-	nc.reader = reader
-	nc.connData = connData
 	nc.asyncsChannel = make(chan voltResponse)
 	nc.asyncs = make(map[int64]*voltAsyncResponse)
 	nc.asyncsMutex = sync.Mutex{}
-	wg := sync.WaitGroup{}
-	nc.nlwg = &wg
-	nc.nl = newListener(vc, ci, reader, nc.nlwg)
-	// The buffer won't be allocated up front, so it's ok to make this big.
-	// In practice the buffer will be limited by back pressure
-	ch := make(chan *procedureInvocation, 1000)
-	nc.nwCh = ch
-	wg = sync.WaitGroup{}
-	nc.nwwg = &wg
-	nc.nw = newNetworkWriter(writer, ch, nc.nwwg)
-
-	nc.open = true
-	nc.queuedBytes = 0
+	nc.openMutex = sync.RWMutex{}
 	nc.qbMutex = sync.Mutex{}
-
-	nc.nl.start()
-	nc.nw.start()
-	go nc.processAsyncs()
 	return nc
 }
 
 func (nc *nodeConn) close() (err error) {
+	nc.openMutex.Lock()
 	if !nc.open {
-		return
+		nc.openMutex.Unlock()
+		return nil
+	} else {
+		if nc.reader != nil {
+			tcpConn := nc.reader.(*net.TCPConn)
+			err = tcpConn.Close()
+		}
+		nc.open = false
+		nc.openMutex.Unlock()
 	}
 
 	// stop the network writer and reader
 	nc.nw.stop()
 	nc.nl.stop()
 
-	// close the tcp conn, will unblock the listener.
-	if nc.reader != nil {
-		tcpConn := nc.reader.(*net.TCPConn)
-		err = tcpConn.Close()
-	}
-
 	// network reader and writer should return.
 	nc.nwwg.Wait()
 	nc.nlwg.Wait()
-
-	nc.open = false
 	return err
+}
+
+func (nc *nodeConn) isOpen() bool {
+	var open bool
+	nc.openMutex.RLock()
+	open = nc.open
+	nc.openMutex.RUnlock()
+	return open
+}
+
+func (nc *nodeConn) connect() error {
+	raddr, err := net.ResolveTCPAddr("tcp", nc.connInfo)
+	if err != nil {
+		return fmt.Errorf("Error resolving %v.", nc.connInfo)
+	}
+	var tcpConn *net.TCPConn
+	if tcpConn, err = net.DialTCP("tcp", nil, raddr); err != nil {
+		return err
+	}
+	login, err := serializeLoginMessage("", "")
+	if err != nil {
+		return err
+	}
+	writeLoginMessage(tcpConn, &login)
+	if err != nil {
+		return err
+	}
+	connData, err := readLoginResponse(tcpConn)
+	if err != nil {
+		return err
+	}
+
+	nc.reader = tcpConn
+	nc.connData = *connData
+
+	wg := sync.WaitGroup{}
+	nc.nlwg = &wg
+	nc.nl = newListener(nc, nc.connInfo, tcpConn, nc.nlwg)
+	// The buffer won't be allocated up front, so it's ok to make this big.
+	// In practice the buffer will be limited by back pressure
+	ch := make(chan *procedureInvocation, 1000)
+	nc.nwCh = ch
+	wg = sync.WaitGroup{}
+	nc.nwwg = &wg
+	nc.nw = newNetworkWriter(tcpConn, ch, nc.nwwg)
+
+	nc.queuedBytes = 0
+
+	nc.nl.start()
+	nc.nw.start()
+	go nc.processAsyncs()
+
+	nc.openMutex.Lock()
+	nc.open = true
+	nc.openMutex.Unlock()
+	return nil
+}
+
+func (nc *nodeConn) reconnect() {
+	for {
+		nc.close()
+		err := nc.connect()
+		if err == nil {
+			log.Printf("reconnected %v\n", nc.connInfo)
+			break
+		} else {
+			log.Printf("Failed to connect to host %v with %v retrying...\n", nc.connInfo, err)
+			time.Sleep(1 * time.Second)
+		}
+	}
 }
 
 func (nc *nodeConn) exec(pi *procedureInvocation) (driver.Result, error) {
@@ -224,6 +280,10 @@ func (nc *nodeConn) processAsyncs() {
 		nc.asyncsMutex.Lock()
 		async := nc.asyncs[handle]
 		nc.asyncsMutex.Unlock()
+		// can happen on reconnect...
+		if async == nil {
+			continue
+		}
 
 		if async.isQuery() {
 			vrows := resp.(VoltRows)

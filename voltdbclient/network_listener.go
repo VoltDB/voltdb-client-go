@@ -28,7 +28,7 @@ import (
 // the server.  If a callback (channel) is registered for the procedure, the
 // listener puts the response on the channel (calls back).
 type networkListener struct {
-	vc             *VoltConn
+	nc             *nodeConn
 	ci             string
 	reader         io.Reader
 	requests       map[int64]*networkRequest
@@ -37,9 +37,9 @@ type networkListener struct {
 	hasBeenStopped int32
 }
 
-func newListener(vc *VoltConn, ci string, reader io.Reader, wg *sync.WaitGroup) *networkListener {
+func newListener(nc *nodeConn, ci string, reader io.Reader, wg *sync.WaitGroup) *networkListener {
 	var nl = new(networkListener)
-	nl.vc = vc
+	nl.nc = nc
 	nl.ci = ci
 	nl.reader = reader
 	nl.requests = make(map[int64]*networkRequest)
@@ -66,10 +66,8 @@ func (nl *networkListener) listen() {
 				nl.wg.Done()
 			} else {
 				// have lost connection.  reestablish connection here and let this thread exit.
-				// remove the connection from the set of active connections.
-				nl.vc.distributer.removeConn(nl.ci)
-				// reconnect
-				nl.vc.reconnect(nl.ci)
+				log.Printf("network listener lost connection to %v with %v\n", nl.ci, err)
+				nl.nc.reconnect()
 			}
 			return
 		}
@@ -77,7 +75,7 @@ func (nl *networkListener) listen() {
 		// can't do anything without a handle.  If reading the handle fails,
 		// then log and drop the message.
 		if err != nil {
-			log.Printf("Error reading handle %v\n", err)
+			log.Printf("For %v error reading handle %v\n", nl.ci, err)
 			continue
 		}
 		nl.readResponse(buf, handle)
@@ -91,8 +89,14 @@ func (nl *networkListener) readResponse(r io.Reader, handle int64) {
 
 	nl.requestMutex.Lock()
 	req := nl.requests[handle]
+	// can happen if client reconnects?
+	if req == nil {
+		nl.requestMutex.Unlock()
+		return
+	}
 	delete(nl.requests, handle)
 	nl.requestMutex.Unlock()
+
 	req.getNodeConn().decrementQueuedBytes(req.numBytes)
 	if req.isQuery() {
 		rows := deserializeRows(r, rsp)
@@ -149,18 +153,18 @@ func newNetworkRequest(nc *nodeConn, ch chan voltResponse, isQuery bool, numByte
 	return nr
 }
 
-func (nr networkRequest) getNodeConn() *nodeConn {
+func (nr *networkRequest) getNodeConn() *nodeConn {
 	return nr.nc
 }
 
-func (nr networkRequest) isQuery() bool {
+func (nr *networkRequest) isQuery() bool {
 	return nr.query
 }
 
-func (nr networkRequest) getChan() chan voltResponse {
+func (nr *networkRequest) getChan() chan voltResponse {
 	return nr.ch
 }
 
-func (nr networkRequest) getNumBytes() int {
+func (nr *networkRequest) getNumBytes() int {
 	return nr.numBytes
 }

@@ -32,10 +32,7 @@
 package voltdbclient
 
 import (
-	"errors"
-	"fmt"
 	"log"
-	"net"
 	"time"
 )
 
@@ -73,58 +70,16 @@ func newVoltConn(cis []string) *VoltConn {
 // only one goroutine at a time.
 func OpenConn(cis []string) (*VoltConn, error) {
 	vc := newVoltConn(cis)
-
-	for _, ci := range cis {
-		err := vc.openNodeConn(ci)
-		// if fail to initially open a connection, continue to
-		// retry in the background
+	ncs := make([]*nodeConn, len(cis))
+	for i, ci := range cis {
+		nc := newNodeConn(ci)
+		ncs[i] = nc
+		err := nc.connect()
 		if err != nil {
 			log.Printf("Failed to connect to host %v with %v\n", ci, err)
-			go vc.reconnect(ci) // the goroutine exits when reconnect succeeds.
+			go nc.reconnect() // the goroutine exits when reconnect succeeds.
 		}
 	}
-	if vc.numConns() == 0 {
-		return nil, errors.New("Failed to connect to a VoltDB server")
-	}
+	vc.setConns(ncs)
 	return vc, nil
-}
-
-func (vc VoltConn) openNodeConn(ci string) error {
-	// for now, at least, connInfo is host and port.
-	raddr, err := net.ResolveTCPAddr("tcp", ci)
-	if err != nil {
-		return fmt.Errorf("Error resolving %v.", ci)
-	}
-	var tcpConn *net.TCPConn
-	if tcpConn, err = net.DialTCP("tcp", nil, raddr); err != nil {
-		return err
-	}
-	login, err := serializeLoginMessage("", "")
-	if err != nil {
-		return err
-	}
-	writeLoginMessage(tcpConn, &login)
-	if err != nil {
-		return err
-	}
-	connData, err := readLoginResponse(tcpConn)
-	if err != nil {
-		return err
-	}
-	nc := newNodeConn(&vc, ci, tcpConn, tcpConn, *connData)
-	vc.addConn(nc)
-	return nil
-}
-
-func (vc VoltConn) reconnect(ci string) {
-	for {
-		err := vc.openNodeConn(ci)
-		if err == nil {
-			log.Printf("reconnected %v\n", ci)
-			break
-		} else {
-			log.Printf("Failed to connect to host %v with %v retrying...\n", ci, err)
-			time.Sleep(1 * time.Second)
-		}
-	}
 }
