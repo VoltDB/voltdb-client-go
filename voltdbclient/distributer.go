@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"log"
 	"reflect"
-	"sync"
 	"sync/atomic"
 	"time"
 )
