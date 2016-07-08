@@ -104,11 +104,17 @@ func (vrsp voltResponseInfo) getStatusString() string {
 type ResponseStatus int8
 
 const (
-	SUCCESS            ResponseStatus = 1
-	USER_ABORT         ResponseStatus = -1
-	GRACEFUL_FAILURE   ResponseStatus = -2
-	UNEXPECTED_FAILURE ResponseStatus = -3
-	CONNECTION_LOST    ResponseStatus = -4
+	SUCCESS                       ResponseStatus = 1
+	USER_ABORT                    ResponseStatus = -1
+	GRACEFUL_FAILURE              ResponseStatus = -2
+	UNEXPECTED_FAILURE            ResponseStatus = -3
+	CONNECTION_LOST               ResponseStatus = -4
+	SERVER_UNAVAILABLE            ResponseStatus = -5
+	CONNECTION_TIMEOUT            ResponseStatus = -6
+	RESPONSE_UNKNOWN              ResponseStatus = -7
+	TXN_RESTART                   ResponseStatus = -8
+	OPERATIONAL_FAILURE           ResponseStatus = -9
+	UNINITIALIZED_APP_STATUS_CODE ResponseStatus = -128
 )
 
 // Represent a ResponseStatus as a string.
@@ -123,6 +129,18 @@ func (rs ResponseStatus) String() string {
 		return "UNEXPECTED FAILURE"
 	} else if rs == CONNECTION_LOST {
 		return "CONNECTION LOST"
+	} else if rs == SERVER_UNAVAILABLE {
+		return "SERVER UNAVAILABLE"
+	} else if rs == CONNECTION_TIMEOUT {
+		return "CONNECTION TIMEOUT"
+	} else if rs == RESPONSE_UNKNOWN {
+		return "RESPONSE UNKNOWN"
+	} else if rs == TXN_RESTART {
+		return "TXN RESTART"
+	} else if rs == OPERATIONAL_FAILURE {
+		return "OPERATIONAL FAILURE"
+	} else if rs == UNINITIALIZED_APP_STATUS_CODE {
+		return "UNINITIALIZED APP STATUS CODE"
 	} else {
 		panic(fmt.Sprintf("Invalid status code: %d", int(rs)))
 	}
