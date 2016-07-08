@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log"
 	"reflect"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -119,8 +120,7 @@ func (d *distributer) Exec(query string, args []driver.Value) (driver.Result, er
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // Exec is available on both VoltConn and on VoltStatement.  Specifies a duration for timeout.
 func (d *distributer) ExecTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Result, error) {
-	pi := newProcedureInvocation(d.handle, false, query, args, timeout)
-	d.handle++
+	pi := newProcedureInvocation(d.getNextHandle(), false, query, args, timeout)
 	nc, err := d.getConn(pi)
 	if err != nil {
 		return nil, err
@@ -141,8 +141,7 @@ func (d *distributer) ExecAsync(resCons AsyncResponseConsumer, query string, arg
 // invocation of this method blocks only until a request is sent to the VoltDB
 // server.  Specifies a duration for timeout.
 func (d *distributer) ExecAsyncTimeout(resCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
-	pi := newProcedureInvocation(d.handle, false, query, args, timeout)
-	d.handle++
+	pi := newProcedureInvocation(d.getNextHandle(), false, query, args, timeout)
 	nc, err := d.getConn(pi)
 	if err != nil {
 		return err
@@ -166,8 +165,7 @@ func (d *distributer) Query(query string, args []driver.Value) (driver.Rows, err
 // Query executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
 // Specifies a duration for timeout.
 func (d *distributer) QueryTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Rows, error) {
-	pi := newProcedureInvocation(d.handle, true, query, args, timeout)
-	d.handle++
+	pi := newProcedureInvocation(d.getNextHandle(), true, query, args, timeout)
 	nc, err := d.getConn(pi)
 	if err != nil {
 		return nil, err
@@ -188,8 +186,7 @@ func (d *distributer) QueryAsync(rowsCons AsyncResponseConsumer, query string, a
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.  Specifies a duration for timeout.
 func (d *distributer) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
-	pi := newProcedureInvocation(d.handle, true, query, args, timeout)
-	d.handle++
+	pi := newProcedureInvocation(d.getNextHandle(), true, query, args, timeout)
 	nc, err := d.getConn(pi)
 	if err != nil {
 		return err
@@ -240,6 +237,18 @@ func (d *distributer) getConnByRR(timeout time.Duration) (*nodeConn, error) {
 	} else {
 		return nc, nil
 	}
+}
+
+func (d *distributer) getNextHandle() int64 {
+	var nextHandle int64
+	for {
+		currHandle := d.handle
+		nextHandle = currHandle + 1
+		if atomic.CompareAndSwapInt64(&d.handle, currHandle, nextHandle) {
+			break
+		}
+	}
+	return nextHandle
 }
 
 type procedureInvocation struct {
