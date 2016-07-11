@@ -144,7 +144,6 @@ func (rs ResponseStatus) String() string {
 	} else {
 		panic(fmt.Sprintf("Invalid status code: %d", int(rs)))
 	}
-	return "unreachable"
 }
 
 func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse) {
