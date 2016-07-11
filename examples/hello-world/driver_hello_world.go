@@ -21,9 +21,10 @@ package main
 import "database/sql"
 import (
 	"fmt"
-	_ "github.com/VoltDB/voltdb-client-go/voltdbclient"
 	"log"
 	"os"
+
+	_ "github.com/VoltDB/voltdb-client-go/voltdbclient"
 )
 
 func main() {
