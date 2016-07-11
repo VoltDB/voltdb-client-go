@@ -32,7 +32,7 @@ import (
 func CallOnClosedConn(t *testing.T) {
 	cd := connectionData{0, 0, 0, ""}
 	conn := nodeConn{"", nil, cd, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, sync.Mutex{}, false, sync.RWMutex{}}
-	pi := newProcedureInvocation(0, true, "HELLOWORLD.select", []driver.Value{}, time.Minute * 2)
+	pi := newProcedureInvocation(0, true, "HELLOWORLD.select", []driver.Value{}, time.Minute*2)
 	_, err := conn.query(pi)
 	if err == nil {
 		t.Errorf("Expected error calling procedure on closed Conn")
@@ -46,7 +46,7 @@ func ReadDataTypes(t *testing.T) {
 
 	nl := newListener(nil, "", r, nil, nil)
 	var handle int64 = 1
-	pi := newProcedureInvocation(handle, true, "HELLOWORLD.select", []driver.Value{}, time.Minute * 2)
+	pi := newProcedureInvocation(handle, true, "HELLOWORLD.select", []driver.Value{}, time.Minute*2)
 	ch := nl.registerRequest(nil, pi)
 
 	nl.readResponse(r, handle)

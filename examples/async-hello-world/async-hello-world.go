@@ -18,6 +18,7 @@
 // A simple example that demonstrates the use of asynchronous Query and Exec calls.
 package main
 
+import _ "net/http/pprof"
 import (
 	"database/sql/driver"
 	"fmt"
@@ -25,12 +26,12 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"sync"
 )
 
 func main() {
 
-	// create one connection, save the async results and wait on them explicitly.
-	conn, err := voltdbclient.OpenConn([]string{"volt3g:21212", "volt3h:21212", "volt3j:21212"})
+	conn, err := voltdbclient.OpenConn([]string{"localhost:21212"})
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
@@ -48,28 +49,27 @@ func main() {
 	conn.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Ciao", "Mondo", "Italian"})
 	conn.Drain()
 
+	wg := sync.WaitGroup{}
+	wg.Add(5)
+	for i := 0; i < 5; i++ {
+		go runQueueries(conn, resCons, &wg)
+	}
+
+	wg.Wait()
+	conn.Drain()
+}
+
+func runQueueries(conn *voltdbclient.VoltConn, rc ResponseConsumer, wg *sync.WaitGroup) {
 	keys := []string{"English", "French", "Spanish", "Danish", "Italian"}
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1000; i++ {
 		key := keys[rand.Intn(5)]
-		err := conn.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
+		err := conn.QueryAsync(rc, "HELLOWORLD.select", []driver.Value{key})
 		if err != nil {
-			log.Fatal(err)
-			os.Exit(-1)
+			fmt.Println(err)
 		}
 	}
-	conn.Drain()
-
-	for i := 0; i < 2000; i++ {
-		key := keys[rand.Intn(5)]
-		err := conn.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
-		if err != nil {
-			log.Fatal(err)
-			os.Exit(-1)
-		}
-	}
-
-	conn.Drain()
+	wg.Done()
 }
 
 type ResponseConsumer struct{}

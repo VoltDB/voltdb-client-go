@@ -21,8 +21,8 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"fmt"
-	"testing"
 	"io/ioutil"
+	"testing"
 	"time"
 )
 
@@ -33,7 +33,7 @@ func SimpleProcedureCall(t *testing.T) {
 	buf := bytes.NewBuffer(bs)
 	nw := newNetworkWriter(buf, nil, nil, nil)
 	var handle int64 = 51515
-	pi := newProcedureInvocation(handle, true, "HELLOWORLD.insert", []driver.Value{}, time.Minute * 2)
+	pi := newProcedureInvocation(handle, true, "HELLOWORLD.insert", []driver.Value{}, time.Minute*2)
 	nw.serializePI(pi)
 	r := bytes.NewReader(buf.Bytes())
 	checkSimpleBuffer(t, r, 0, "HELLOWORLD.insert", 51515, 3, "Bonjour", "Monde", "French")
@@ -60,7 +60,7 @@ func InsertDifferentTypes(t *testing.T) {
 
 	var handle int64 = 61616
 	nw := newNetworkWriter(buf, nil, nil, nil)
-	pi := newProcedureInvocation(handle, true, "EXAMPLE_OF_TYPES.insert", []driver.Value{id, nid, name, data, status, typ, pan, bo, now}, time.Minute * 2)
+	pi := newProcedureInvocation(handle, true, "EXAMPLE_OF_TYPES.insert", []driver.Value{id, nid, name, data, status, typ, pan, bo, now}, time.Minute*2)
 	nw.serializePI(pi)
 
 	// read the verification file into a buffer and compare the two buffers

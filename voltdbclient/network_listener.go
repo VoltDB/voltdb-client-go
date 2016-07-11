@@ -18,7 +18,6 @@
 package voltdbclient
 
 import (
-	"fmt"
 	"io"
 	"log"
 	"sync"

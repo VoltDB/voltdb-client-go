@@ -54,10 +54,10 @@ func main() {
 
 	rows, err := conn.Query("@AdHoc", []driver.Value{"select * from HELLOWORLD where DIALECT = ?", "French"})
 	if err != nil {
-		log.Fatal(err)
-		os.Exit(-1)
+		fmt.Println(err)
+	} else {
+		printRow(rows)
 	}
-	printRow(rows)
 
 	// with prepared statement
 	stmt, err := conn.Prepare("select * from HELLOWORLD")
@@ -79,13 +79,11 @@ func printRow(rows driver.Rows) {
 	for voltRows.AdvanceRow() {
 		hello, err := voltRows.GetStringByName("HELLO")
 		if err != nil {
-			log.Fatal(err)
-			os.Exit(-1)
+			fmt.Println(err)
 		}
 		world, err := voltRows.GetStringByName("WORLD")
 		if err != nil {
-			log.Fatal(err)
-			os.Exit(-1)
+			fmt.Println(err)
 		}
 		fmt.Printf("%v, %v!\n", hello, world)
 	}
