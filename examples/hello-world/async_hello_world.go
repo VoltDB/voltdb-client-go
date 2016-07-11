@@ -31,6 +31,7 @@ import (
 
 func main() {
 
+	// create one connection, save the async results and wait on them explicitly.
 	conn, err := voltdbclient.OpenConn([]string{"localhost:21212"})
 	if err != nil {
 		log.Fatal(err)
@@ -39,7 +40,6 @@ func main() {
 	defer conn.Close()
 
 	conn.Exec("@AdHoc", []driver.Value{"DELETE FROM HELLOWORLD;"})
-
 	resCons := ResponseConsumer{}
 
 	conn.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Bonjour", "Monde", "French"})
@@ -49,27 +49,28 @@ func main() {
 	conn.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Ciao", "Mondo", "Italian"})
 	conn.Drain()
 
-	wg := sync.WaitGroup{}
-	wg.Add(5)
-	for i := 0; i < 5; i++ {
-		go runQueueries(conn, resCons, &wg)
-	}
-
-	wg.Wait()
-	conn.Drain()
-}
-
-func runQueueries(conn *voltdbclient.VoltConn, rc ResponseConsumer, wg *sync.WaitGroup) {
 	keys := []string{"English", "French", "Spanish", "Danish", "Italian"}
+
+	for i := 0; i < 100; i++ {
+		key := keys[rand.Intn(5)]
+		err := conn.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(-1)
+		}
+	}
+	conn.Drain()
 
 	for i := 0; i < 1000; i++ {
 		key := keys[rand.Intn(5)]
-		err := conn.QueryAsync(rc, "HELLOWORLD.select", []driver.Value{key})
+		err := conn.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
 		if err != nil {
-			fmt.Println(err)
+			log.Fatal(err)
+			os.Exit(-1)
 		}
 	}
-	wg.Done()
+
+	conn.Drain()
 }
 
 type ResponseConsumer struct{}
