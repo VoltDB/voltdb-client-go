@@ -17,26 +17,13 @@
 
 package voltdbclient
 
-import (
-	"database/sql"
-	"database/sql/driver"
-)
-
-// A database/sql/driver for VoltDB.  This driver is registered as 'voltdb'
-type VoltDriver struct {
+type hashinater struct {
 }
 
-// News an instance of a VoltDB driver.
-func NewVoltDriver() *VoltDriver {
-	var vd = new(VoltDriver)
-	return vd
+func newHashinater() *hashinater {
+	return new(hashinater)
 }
 
-// Open a connection to the VoltDB server.
-func (vd *VoltDriver) Open(hostAndPort string) (driver.Conn, error) {
-	return OpenConn([]string{hostAndPort})
-}
-
-func init() {
-	sql.Register("voltdb", &VoltDriver{})
+func (h *hashinater) getConn(pi *procedureInvocation) *nodeConn {
+	return nil
 }

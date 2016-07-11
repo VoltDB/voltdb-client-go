@@ -55,7 +55,7 @@ func newVoltTable(columnCount int16, columnTypes []int8, columnNames []string, r
 }
 
 func (vt *voltTable) advanceRow() bool {
-	return vt.advanceToRow(vt.rowIndex+1)
+	return vt.advanceToRow(vt.rowIndex + 1)
 }
 
 func (vt *voltTable) advanceToRow(rowIndex int32) bool {

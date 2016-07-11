@@ -18,8 +18,8 @@
 package voltdbclient
 
 import (
-	"fmt"
 	"io"
+	"log"
 	"sync"
 	"sync/atomic"
 )
@@ -28,7 +28,8 @@ import (
 // the server.  If a callback (channel) is registered for the procedure, the
 // listener puts the response on the channel (calls back).
 type networkListener struct {
-	vc             *VoltConn
+	nc             *nodeConn
+	ci             string
 	reader         io.Reader
 	requests       map[int64]*networkRequest
 	requestMutex   sync.Mutex
@@ -36,9 +37,10 @@ type networkListener struct {
 	hasBeenStopped int32
 }
 
-func newListener(vc *VoltConn, reader io.Reader, wg *sync.WaitGroup) *networkListener {
+func newListener(nc *nodeConn, ci string, reader io.Reader, wg *sync.WaitGroup) *networkListener {
 	var nl = new(networkListener)
-	nl.vc = vc
+	nl.nc = nc
+	nl.ci = ci
 	nl.reader = reader
 	nl.requests = make(map[int64]*networkRequest)
 	nl.requestMutex = sync.Mutex{}
@@ -64,7 +66,8 @@ func (nl *networkListener) listen() {
 				nl.wg.Done()
 			} else {
 				// have lost connection.  reestablish connection here and let this thread exit.
-				nl.vc.reconnect()
+				log.Printf("network listener lost connection to %v with %v\n", nl.ci, err)
+				nl.nc.reconnect()
 			}
 			return
 		}
@@ -72,7 +75,7 @@ func (nl *networkListener) listen() {
 		// can't do anything without a handle.  If reading the handle fails,
 		// then log and drop the message.
 		if err != nil {
-			fmt.Printf("Error reading handle %v\n", err)
+			log.Printf("For %v error reading handle %v\n", nl.ci, err)
 			continue
 		}
 		nl.readResponse(buf, handle)
@@ -86,9 +89,15 @@ func (nl *networkListener) readResponse(r io.Reader, handle int64) {
 
 	nl.requestMutex.Lock()
 	req := nl.requests[handle]
+	// can happen if client reconnects?
+	if req == nil {
+		nl.requestMutex.Unlock()
+		return
+	}
 	delete(nl.requests, handle)
 	nl.requestMutex.Unlock()
 
+	req.getNodeConn().decrementQueuedBytes(req.numBytes)
 	if req.isQuery() {
 		rows := deserializeRows(r, rsp)
 		req.getChan() <- rows
@@ -98,13 +107,13 @@ func (nl *networkListener) readResponse(r io.Reader, handle int64) {
 	}
 }
 
-func (nl *networkListener) registerRequest(handle int64, isQuery bool) <-chan voltResponse {
-	c := make(chan voltResponse, 1)
-	nr := newNetworkRequest(c, isQuery)
+func (nl *networkListener) registerRequest(nc *nodeConn, pi *procedureInvocation) <-chan voltResponse {
+	ch := make(chan voltResponse, 1)
+	nr := newNetworkRequest(nc, ch, pi.isQuery, pi.getLen())
 	nl.requestMutex.Lock()
-	nl.requests[handle] = nr
+	nl.requests[pi.handle] = nr
 	nl.requestMutex.Unlock()
-	return c
+	return ch
 }
 
 // need to have a lock on the map when this is invoked.
@@ -128,21 +137,34 @@ func (nl *networkListener) stop() {
 }
 
 type networkRequest struct {
+	nc    *nodeConn
 	query bool
 	ch    chan voltResponse
+	// the size of the serialized request written to the server.
+	numBytes int
 }
 
-func newNetworkRequest(ch chan voltResponse, isQuery bool) *networkRequest {
+func newNetworkRequest(nc *nodeConn, ch chan voltResponse, isQuery bool, numBytes int) *networkRequest {
 	var nr = new(networkRequest)
+	nr.nc = nc
 	nr.query = isQuery
 	nr.ch = ch
+	nr.numBytes = numBytes
 	return nr
 }
 
-func (nr networkRequest) isQuery() bool {
+func (nr *networkRequest) getNodeConn() *nodeConn {
+	return nr.nc
+}
+
+func (nr *networkRequest) isQuery() bool {
 	return nr.query
 }
 
-func (nr networkRequest) getChan() chan voltResponse {
+func (nr *networkRequest) getChan() chan voltResponse {
 	return nr.ch
+}
+
+func (nr *networkRequest) getNumBytes() int {
+	return nr.numBytes
 }

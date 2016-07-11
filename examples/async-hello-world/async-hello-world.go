@@ -30,68 +30,46 @@ import (
 func main() {
 
 	// create one connection, save the async results and wait on them explicitly.
-	conn1, err := voltdbclient.OpenConn("localhost:21212")
+	conn, err := voltdbclient.OpenConn([]string{"localhost:21212"})
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
 	}
-	defer conn1.Close()
+	defer conn.Close()
 
-	conn1.Exec("@AdHoc", []driver.Value{"DELETE FROM HELLOWORLD;"})
+	conn.Exec("@AdHoc", []driver.Value{"DELETE FROM HELLOWORLD;"})
 
 	resCons := ResponseConsumer{}
 
-	conn1.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Bonjour", "Monde", "French"})
-	conn1.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Hello", "World", "English"})
-	conn1.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Hola", "Mundo", "Spanish"})
-	conn1.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Hej", "Verden", "Danish"})
-	conn1.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Ciao", "Mondo", "Italian"})
-	conn1.Drain()
+	conn.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Bonjour", "Monde", "French"})
+	conn.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Hello", "World", "English"})
+	conn.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Hola", "Mundo", "Spanish"})
+	conn.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Hej", "Verden", "Danish"})
+	conn.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Ciao", "Mondo", "Italian"})
+	conn.Drain()
 
 	keys := []string{"English", "French", "Spanish", "Danish", "Italian"}
 
 	for i := 0; i < 100; i++ {
 		key := keys[rand.Intn(5)]
-		err := conn1.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
+		err := conn.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(-1)
 		}
 	}
-	conn1.Drain()
-
-	// create two connections and have them query continuously, then drain the results.
-	conn2, err := voltdbclient.OpenConn("localhost:21212")
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(-1)
-	}
-	defer conn2.Close()
-
-	conn3, err := voltdbclient.OpenConn("localhost:21212")
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(-1)
-	}
-	defer conn3.Close()
+	conn.Drain()
 
 	for i := 0; i < 2000; i++ {
 		key := keys[rand.Intn(5)]
-		err := conn2.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
-		if err != nil {
-			log.Fatal(err)
-			os.Exit(-1)
-		}
-
-		err = conn3.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
+		err := conn.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(-1)
 		}
 	}
 
-	conn2.Drain()
-	conn3.Drain()
+	conn.Drain()
 }
 
 type ResponseConsumer struct{}

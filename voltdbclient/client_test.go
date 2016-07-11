@@ -32,8 +32,8 @@ import (
 func CallOnClosedConn(t *testing.T) {
 	cd := connectionData{0, 0, 0, ""}
 	cs := connectionState{"", nil, nil, cd, nil, nil, sync.Mutex{}, nil, nil, true}
-	conn := VoltConn{&cs}
-	_, err := conn.Query("bad", []driver.Value{})
+	conn := nodeConn{&cs}
+	_, err := conn.query("bad", []driver.Value{})
 	if err == nil {
 		t.Errorf("Expected error calling procedure on closed Conn")
 	}

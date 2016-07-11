@@ -34,6 +34,8 @@ func main() {
 		log.Fatal(err)
 		os.Exit(-1)
 	}
+	defer db.Close()
+
 	err = db.Ping()
 	if err != nil {
 		fmt.Println("open")

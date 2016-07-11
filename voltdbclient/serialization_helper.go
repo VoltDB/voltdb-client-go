@@ -20,13 +20,11 @@ package voltdbclient
 import (
 	"bytes"
 	"crypto/sha256"
-	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"reflect"
-	"runtime"
 	"time"
 )
 
@@ -100,48 +98,6 @@ func deserializeLoginResponse(r io.Reader) (connData *connectionData, err error)
 	connData.leaderAddr = leaderAddr
 	connData.buildString = buildString
 	return connData, nil
-}
-
-func serializeStatement(proc string, ud int64, args []driver.Value) (msg bytes.Buffer, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			if _, ok := r.(runtime.Error); ok {
-				panic(r)
-			}
-			err = r.(error)
-		}
-	}()
-
-	// batch timeout type
-	if err = writeByte(&msg, 0); err != nil {
-		return
-	}
-	if err = writeString(&msg, proc); err != nil {
-		return
-	}
-	if err = writeLong(&msg, ud); err != nil {
-		return
-	}
-	serializedArgs, err := serializeArgs(args)
-	if err != nil {
-		return
-	}
-	io.Copy(&msg, &serializedArgs)
-	return
-}
-
-func serializeArgs(args []driver.Value) (msg bytes.Buffer, err error) {
-	// parameter_count short
-	// (type byte, parameter)*
-	if err = writeShort(&msg, int16(len(args))); err != nil {
-		return
-	}
-	for _, arg := range args {
-		if err = marshallParam(&msg, arg); err != nil {
-			return
-		}
-	}
-	return
 }
 
 func marshallParam(buf io.Writer, param interface{}) (err error) {
