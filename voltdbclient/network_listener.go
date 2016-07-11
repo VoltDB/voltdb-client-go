@@ -21,31 +21,30 @@ import (
 	"io"
 	"log"
 	"sync"
-	"sync/atomic"
+	"time"
 )
 
 // NetworkListener listens for responses for asynchronous procedure calls from
 // the server.  If a callback (channel) is registered for the procedure, the
 // listener puts the response on the channel (calls back).
 type networkListener struct {
-	nc             *nodeConn
-	ci             string
-	reader         io.Reader
-	requests       map[int64]*networkRequest
-	requestMutex   sync.Mutex
-	wg             *sync.WaitGroup
-	hasBeenStopped int32
+	nc           *nodeConn
+	ci           string
+	reader       io.Reader
+	requests     map[int64]*networkRequest
+	requestMutex sync.Mutex
+	closeCh      *chan bool
+	wg           *sync.WaitGroup
 }
 
-func newListener(nc *nodeConn, ci string, reader io.Reader, wg *sync.WaitGroup) *networkListener {
+func newListener(nc *nodeConn, ci string, reader io.Reader, closeCh *chan bool, wg *sync.WaitGroup) *networkListener {
 	var nl = new(networkListener)
 	nl.nc = nc
 	nl.ci = ci
 	nl.reader = reader
 	nl.requests = make(map[int64]*networkRequest)
-	nl.requestMutex = sync.Mutex{}
+	nl.closeCh = closeCh
 	nl.wg = wg
-	nl.hasBeenStopped = 0
 	return nl
 }
 
@@ -53,23 +52,24 @@ func newListener(nc *nodeConn, ci string, reader io.Reader, wg *sync.WaitGroup) 
 // listen blocks on input from the server and should be run as a go routine.
 func (nl *networkListener) listen() {
 	for {
-		if !atomic.CompareAndSwapInt32(&nl.hasBeenStopped, 0, 0) {
+		if nl.readClose() {
 			nl.wg.Done()
-			break
+			return
 		}
 		// can't do anything without a handle.  If reading the handle fails,
 		// then log and drop the message.
 		buf, err := readMessage(nl.reader)
 		if err != nil {
-			if nl.hasBeenStopped == 1 {
-				// notify the stopping thread that this thread is unblocked and is exiting.
+			if nl.readClose() {
 				nl.wg.Done()
+				return
 			} else {
 				// have lost connection.  reestablish connection here and let this thread exit.
 				log.Printf("network listener lost connection to %v with %v\n", nl.ci, err)
+				nl.wg.Done()
 				nl.nc.reconnect()
+				return
 			}
-			return
 		}
 		handle, err := readLong(buf)
 		// can't do anything without a handle.  If reading the handle fails,
@@ -79,6 +79,15 @@ func (nl *networkListener) listen() {
 			continue
 		}
 		nl.readResponse(buf, handle)
+	}
+}
+
+func (nl *networkListener) readClose() bool {
+	select {
+	case <-*nl.closeCh:
+		return true
+	case <-time.After(5 * time.Millisecond):
+		return false
 	}
 }
 
@@ -124,16 +133,7 @@ func (nl *networkListener) removeRequest(handle int64) {
 }
 
 func (nl *networkListener) start() {
-	nl.wg.Add(1)
 	go nl.listen()
-}
-
-func (nl *networkListener) stop() {
-	for {
-		if atomic.CompareAndSwapInt32(&nl.hasBeenStopped, 0, 1) {
-			break
-		}
-	}
 }
 
 type networkRequest struct {

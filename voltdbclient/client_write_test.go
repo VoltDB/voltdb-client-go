@@ -21,34 +21,27 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"fmt"
-	//"io/ioutil"
-	"testing"
-	//"time"
 	"io/ioutil"
-	"sync"
+	"testing"
 	"time"
 )
 
-func TestSimpleProcedureCall(t *testing.T) {
+func SimpleProcedureCall(t *testing.T) {
 
 	// this is the writer, write the serialized procedure to this buffer.
 	var bs []byte
 	buf := bytes.NewBuffer(bs)
-	cd := connectionData{0, 0, 0, ""}
-	cs := connectionState{"", nil, buf, cd, nil, nil, sync.Mutex{}, nil, nil, true}
-	conn := nodeConn{&cs}
+	nw := newNetworkWriter(buf, nil, nil, nil)
 	var handle int64 = 51515
-	conn.serializeQuery(buf, "HELLOWORLD.insert", handle, []driver.Value{"Bonjour", "Monde", "French"})
+	pi := newProcedureInvocation(handle, true, "HELLOWORLD.insert", []driver.Value{}, time.Minute*2)
+	nw.serializePI(pi)
 	r := bytes.NewReader(buf.Bytes())
 	checkSimpleBuffer(t, r, 0, "HELLOWORLD.insert", 51515, 3, "Bonjour", "Monde", "French")
 }
 
-func TestInsertDifferentTypes(t *testing.T) {
+func InsertDifferentTypes(t *testing.T) {
 	var bs []byte
 	buf := bytes.NewBuffer(bs)
-	cd := connectionData{0, 0, 0, ""}
-	cs := connectionState{"", nil, buf, cd, nil, nil, sync.Mutex{}, nil, nil, true}
-	conn := nodeConn{&cs}
 
 	var id int32 = 100
 	var nid int32 = 100
@@ -66,12 +59,14 @@ func TestInsertDifferentTypes(t *testing.T) {
 	now := time.Date(2016, time.June, 10, 23, 0, 0, 0, time.UTC)
 
 	var handle int64 = 61616
-	conn.serializeQuery(conn.cs.writer, "EXAMPLE_OF_TYPES.insert", handle, []driver.Value{id, nid, name, data, status, typ, pan, bo, now})
+	nw := newNetworkWriter(buf, nil, nil, nil)
+	pi := newProcedureInvocation(handle, true, "EXAMPLE_OF_TYPES.insert", []driver.Value{id, nid, name, data, status, typ, pan, bo, now}, time.Minute*2)
+	nw.serializePI(pi)
 
 	// read the verification file into a buffer and compare the two buffers
 	bs, err := ioutil.ReadFile("./test_resources/verify_insert_types.msg")
 	if err != nil {
-		t.Errorf(fmt.Sprintf("Read of verification file failed %d", err.Error()))
+		t.Errorf(fmt.Sprintf("Read of verification file failed %s", err.Error()))
 	}
 
 	bb := buf.Bytes()
@@ -197,11 +192,11 @@ func checkSimpleBuffer(t *testing.T, r *bytes.Reader, expectedBtt byte, expected
 	// batch timeout type
 	btt, err := readByteAt(r, offset)
 	if err != nil {
-		t.Error("Failed reading batch timeout type %s", err)
+		t.Error(fmt.Printf("Failed reading batch timeout type %s", err))
 		return
 	}
 	if btt != expectedBtt {
-		t.Error(fmt.Printf("For batch timeout type, expected %s but saw %s\n", expectedBtt, btt))
+		t.Error(fmt.Printf("For batch timeout type, expected %b but saw %b\n", expectedBtt, btt))
 		return
 	}
 	offset++
@@ -221,29 +216,29 @@ func checkSimpleBuffer(t *testing.T, r *bytes.Reader, expectedBtt byte, expected
 	// client handle
 	handle, err := readInt64At(r, offset)
 	if err != nil {
-		t.Error("Failed reading handle %s", err)
+		t.Error(fmt.Printf("Failed reading handle %s\n", err))
 		return
 	}
 	if handle != expectedHandle {
-		t.Error(fmt.Printf("For handle, expected %s but saw %s\n", expectedHandle, handle))
+		t.Error(fmt.Printf("For handle, expected %d but saw %d\n", expectedHandle, handle))
 		return
 	}
 	offset += 8
 
 	numParams, err := readInt16At(r, offset)
 	if err != nil {
-		t.Error("Failed reading numParams %s", err)
+		t.Error(fmt.Printf("Failed reading numParams %s\n", err))
 		return
 	}
 	if numParams != expectedNumParams {
-		t.Error(fmt.Printf("For handle, expected %s but saw %s\n", expectedNumParams, numParams))
+		t.Error(fmt.Printf("For num params, expected %d but saw %d\n", expectedNumParams, numParams))
 		return
 	}
 	offset += 2
 
 	colType, err := readInt8At(r, offset)
 	if err != nil {
-		t.Error("Failed reading colType %s", err)
+		t.Error(fmt.Printf("Failed reading colType %s\n", err))
 		return
 	}
 	if colType != VT_STRING {
@@ -254,7 +249,7 @@ func checkSimpleBuffer(t *testing.T, r *bytes.Reader, expectedBtt byte, expected
 
 	stringParamOne, err := readStringAt(r, offset)
 	if err != nil {
-		t.Error("Failed reading stringParamOne %s", err)
+		t.Error(fmt.Printf("Failed reading stringParamOne %s\n", err))
 		return
 	}
 	if stringParamOne != expectedStringParamOne {
@@ -265,7 +260,7 @@ func checkSimpleBuffer(t *testing.T, r *bytes.Reader, expectedBtt byte, expected
 
 	colType, err = readInt8At(r, offset)
 	if err != nil {
-		t.Error("Failed reading colType %s", err)
+		t.Error(fmt.Printf("Failed reading colType %s\n", err))
 		return
 	}
 	if colType != VT_STRING {
@@ -276,7 +271,7 @@ func checkSimpleBuffer(t *testing.T, r *bytes.Reader, expectedBtt byte, expected
 
 	stringParamTwo, err := readStringAt(r, offset)
 	if err != nil {
-		t.Error("Failed reading stringParamTwo %s", err)
+		t.Error(fmt.Printf("Failed reading stringParamTwo %s\n", err))
 		return
 	}
 	if stringParamTwo != expectedStringParamTwo {
@@ -287,7 +282,7 @@ func checkSimpleBuffer(t *testing.T, r *bytes.Reader, expectedBtt byte, expected
 
 	colType, err = readInt8At(r, offset)
 	if err != nil {
-		t.Error("Failed reading colType %s", err)
+		t.Error(fmt.Printf("Failed reading colType %s\n", err))
 		return
 	}
 	if colType != VT_STRING {
@@ -298,7 +293,7 @@ func checkSimpleBuffer(t *testing.T, r *bytes.Reader, expectedBtt byte, expected
 
 	stringParamThree, err := readStringAt(r, offset)
 	if err != nil {
-		t.Error("Failed reading stringParamThree %s", err)
+		t.Error(fmt.Printf("Failed reading stringParamThree %s\n", err))
 		return
 	}
 	if stringParamThree != expectedStringParamThree {

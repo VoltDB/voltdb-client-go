@@ -47,14 +47,15 @@ type nodeConn struct {
 	connData      connectionData
 	asyncsChannel chan voltResponse
 	asyncs        map[int64]*voltAsyncResponse
-	asyncsMutex   sync.Mutex
+	asyncsMutex   *sync.Mutex
 	nl            *networkListener
+	nlCloseCh     chan bool
 	nlwg          *sync.WaitGroup
-	// used to write procedure invocation out to network.
-	nw   *networkWriter
-	nwCh chan<- *procedureInvocation
-	// used to wait for writer to return on close.
-	nwwg *sync.WaitGroup
+
+	nw        *networkWriter
+	nwCh      chan<- *procedureInvocation
+	nwCloseCh chan bool
+	nwwg      *sync.WaitGroup
 
 	// queued bytes will be read/written by the main client thread and also
 	// by the network listener thread.
@@ -71,9 +72,7 @@ func newNodeConn(ci string) *nodeConn {
 	nc.connInfo = ci
 	nc.asyncsChannel = make(chan voltResponse)
 	nc.asyncs = make(map[int64]*voltAsyncResponse)
-	nc.asyncsMutex = sync.Mutex{}
-	nc.openMutex = sync.RWMutex{}
-	nc.qbMutex = sync.Mutex{}
+	nc.asyncsMutex = &sync.Mutex{}
 	return nc
 }
 
@@ -83,19 +82,17 @@ func (nc *nodeConn) close() (err error) {
 		nc.openMutex.Unlock()
 		return nil
 	} else {
-		if nc.reader != nil {
-			tcpConn := nc.reader.(*net.TCPConn)
-			err = tcpConn.Close()
-		}
 		nc.open = false
 		nc.openMutex.Unlock()
 	}
 
-	// stop the network writer and reader
-	nc.nw.stop()
-	nc.nl.stop()
+	close(nc.nwCloseCh)
+	nc.nlCloseCh <- true
 
-	// network reader and writer should return.
+	if nc.reader != nil {
+		tcpConn := nc.reader.(*net.TCPConn)
+		err = tcpConn.Close()
+	}
 	nc.nwwg.Wait()
 	nc.nlwg.Wait()
 	return err
@@ -134,20 +131,25 @@ func (nc *nodeConn) connect() error {
 	nc.reader = tcpConn
 	nc.connData = *connData
 
+	nc.nlCloseCh = make(chan bool, 1)
 	wg := sync.WaitGroup{}
 	nc.nlwg = &wg
-	nc.nl = newListener(nc, nc.connInfo, tcpConn, nc.nlwg)
+	nc.nl = newListener(nc, nc.connInfo, tcpConn, &nc.nwCloseCh, nc.nlwg)
+
 	// The buffer won't be allocated up front, so it's ok to make this big.
 	// In practice the buffer will be limited by back pressure
 	ch := make(chan *procedureInvocation, 1000)
 	nc.nwCh = ch
+	nc.nwCloseCh = make(chan bool)
 	wg = sync.WaitGroup{}
 	nc.nwwg = &wg
-	nc.nw = newNetworkWriter(tcpConn, ch, nc.nwwg)
+	nc.nw = newNetworkWriter(tcpConn, ch, &nc.nwCloseCh, nc.nwwg)
 
 	nc.queuedBytes = 0
 
+	nc.nlwg.Add(1)
 	nc.nl.start()
+	nc.nwwg.Add(1)
 	nc.nw.start()
 	go nc.processAsyncs()
 
@@ -210,7 +212,6 @@ func (nc *nodeConn) query(pi *procedureInvocation) (driver.Rows, error) {
 	c := nc.nl.registerRequest(nc, pi)
 	nc.incrementQueuedBytes(pi.getLen())
 	nc.nwCh <- pi
-
 	select {
 	case resp := <-c:
 		rows := resp.(VoltRows)
@@ -293,8 +294,6 @@ func (nc *nodeConn) processAsyncs() {
 				async.getArc().ConsumeRows(vrows)
 
 			}
-			nc.removeAsync(handle)
-			continue
 		} else {
 			vrslt := resp.(VoltResult)
 			if err := vrslt.getError(); err != nil {
@@ -302,9 +301,11 @@ func (nc *nodeConn) processAsyncs() {
 			} else {
 				async.getArc().ConsumeResult(vrslt)
 			}
-			nc.removeAsync(handle)
-			continue
 		}
+		nc.asyncsMutex.Lock()
+		delete(nc.asyncs, handle)
+		nc.asyncsMutex.Unlock()
+
 	}
 }
 

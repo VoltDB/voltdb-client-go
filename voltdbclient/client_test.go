@@ -31,9 +31,9 @@ import (
 
 func CallOnClosedConn(t *testing.T) {
 	cd := connectionData{0, 0, 0, ""}
-	cs := connectionState{"", nil, nil, cd, nil, nil, sync.Mutex{}, nil, nil, true}
-	conn := nodeConn{&cs}
-	_, err := conn.query("bad", []driver.Value{})
+	conn := nodeConn{"", nil, cd, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, sync.Mutex{}, false, sync.RWMutex{}}
+	pi := newProcedureInvocation(0, true, "HELLOWORLD.select", []driver.Value{}, time.Minute*2)
+	_, err := conn.query(pi)
 	if err == nil {
 		t.Errorf("Expected error calling procedure on closed Conn")
 	}
@@ -44,9 +44,10 @@ func ReadDataTypes(t *testing.T) {
 	check(t, err)
 	r := bytes.NewReader(b)
 
-	nl := newListener(nil, r, nil)
+	nl := newListener(nil, "", r, nil, nil)
 	var handle int64 = 1
-	ch := nl.registerRequest(handle, true)
+	pi := newProcedureInvocation(handle, true, "HELLOWORLD.select", []driver.Value{}, time.Minute*2)
+	ch := nl.registerRequest(nil, pi)
 
 	nl.readResponse(r, handle)
 	vr := <-ch
@@ -133,7 +134,7 @@ func checkRowData(t *testing.T, rows VoltRows, expectedId int32, nIdIsNull bool,
 	if iNid != nil {
 		nId := iNid.(int32)
 		if nIdIsNull || expectedNId != nId {
-			t.Error(fmt.Printf("For NULLABLE_ID, expected value %s", expectedNId))
+			t.Error(fmt.Printf("For NULLABLE_ID, expected value %d", expectedNId))
 		}
 	} else {
 		if !nIdIsNull {
@@ -176,7 +177,7 @@ func checkRowData(t *testing.T, rows VoltRows, expectedId int32, nIdIsNull bool,
 	if iStatus != nil {
 		status := iStatus.(int8)
 		if statusIsNull || expectedStatus != status {
-			t.Error(fmt.Printf("For STATUS, expected value %s", expectedStatus))
+			t.Error(fmt.Printf("For STATUS, expected value %d", expectedStatus))
 		}
 	} else {
 		if !statusIsNull {
@@ -190,7 +191,7 @@ func checkRowData(t *testing.T, rows VoltRows, expectedId int32, nIdIsNull bool,
 	if iType != nil {
 		typ := iType.(int16)
 		if typeIsNull || expectedType != typ {
-			t.Error(fmt.Printf("For TYPE, expected value %s", expectedType))
+			t.Error(fmt.Printf("For TYPE, expected value %d", expectedType))
 		}
 	} else {
 		if !typeIsNull {
@@ -204,7 +205,7 @@ func checkRowData(t *testing.T, rows VoltRows, expectedId int32, nIdIsNull bool,
 	if iPan != nil {
 		pan := iPan.(int64)
 		if panIsNull || expectedPan != pan {
-			t.Error(fmt.Printf("For PAN, expected value %s", expectedPan))
+			t.Error(fmt.Printf("For PAN, expected value %d", expectedPan))
 		}
 	} else {
 		if !panIsNull {
@@ -218,7 +219,7 @@ func checkRowData(t *testing.T, rows VoltRows, expectedId int32, nIdIsNull bool,
 	if iBo != nil {
 		bo := iBo.(float64)
 		if boIsNull || expectedBo != bo {
-			t.Error(fmt.Printf("For BALANCE_OPEN, expected value %s", expectedBo))
+			t.Error(fmt.Printf("For BALANCE_OPEN, expected value %f", expectedBo))
 		}
 	} else {
 		if !boIsNull {
@@ -233,7 +234,7 @@ func checkRowData(t *testing.T, rows VoltRows, expectedId int32, nIdIsNull bool,
 		balance := iBalance.(*big.Float)
 		fl, _ := balance.Float64()
 		if balanceIsNull || expectedBalance != fl {
-			t.Error(fmt.Printf("For BALANCE, expected value %s", expectedBalance))
+			t.Error(fmt.Printf("For BALANCE, expected value %f", expectedBalance))
 		}
 	} else {
 		if !balanceIsNull {

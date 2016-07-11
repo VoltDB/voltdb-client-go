@@ -22,18 +22,22 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"reflect"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
 // the set of currently active connections
 type distributer struct {
-	handle int64
-	ncs    []*nodeConn
-	numNC  int32
+	handle   int64
+	hanMutex sync.Mutex
+	ncs      []*nodeConn
 	// next conn to look at when finding by round robin.
-	ncIndex int32
+	ncIndex int
+	ncLen   int
+	ncMutex sync.Mutex
 	open    atomic.Value
 	h       *hashinater
 }
@@ -50,7 +54,7 @@ func newDistributer() *distributer {
 
 func (d *distributer) setConns(ncs []*nodeConn) {
 	d.ncs = ncs
-	d.numNC = int32(len(ncs))
+	d.ncLen = len(ncs)
 }
 
 // Begin starts a transaction.  VoltDB runs in auto commit mode, and so Begin
@@ -75,7 +79,7 @@ func (d *distributer) Close() (err error) {
 	for _, nc := range d.ncs {
 		err := nc.close()
 		if err != nil {
-			log.Println("Failed to close connection with %v", err)
+			log.Printf("Failed to close connection with %v\n", err)
 		}
 	}
 	d.ncs = nil
@@ -88,12 +92,23 @@ func (d *distributer) Close() (err error) {
 func (d *distributer) Drain() {
 	d.assertOpen()
 
+	wg := sync.WaitGroup{}
+	wg.Add(len(d.ncs))
+
 	// drain can't work if the set of connections can change
 	// while it's running.  Hold the lock for the duration, some
 	// asyncs may time out.  The user thread is blocked on drain.
 	for _, nc := range d.ncs {
-		nc.drain()
+		d.drainNode(nc, &wg)
 	}
+	wg.Wait()
+}
+
+func (d *distributer) drainNode(nc *nodeConn, wg *sync.WaitGroup) {
+	go func(nc *nodeConn, wg *sync.WaitGroup) {
+		nc.drain()
+		wg.Done()
+	}(nc, wg)
 }
 
 func (d *distributer) assertOpen() {
@@ -190,64 +205,53 @@ func (d *distributer) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, query st
 	if err != nil {
 		return err
 	}
+	if nc == nil {
+		return errors.New("no valid connection found")
+	}
 	return nc.queryAsync(rowsCons, pi)
 }
 
 // Get a connection from the hashinator.  If not, get one by round robin.  If not return nil.
-func (d *distributer) getConn(pi *procedureInvocation) (nc *nodeConn, err error) {
+func (d *distributer) getConn(pi *procedureInvocation) (*nodeConn, error) {
 
 	d.assertOpen()
-	nc = d.h.getConn(pi)
-	if nc == nil {
-		nc, err = d.getConnByRR(pi.timeout)
+	nc := d.h.getConn(pi)
+	if nc != nil {
+		return nc, nil
+	} else {
+		return d.getConnByRR(pi.timeout)
 	}
-	if err != nil {
-		return nil, err
-	}
-	return nc, nil
 }
 
 func (d *distributer) getConnByRR(timeout time.Duration) (*nodeConn, error) {
 	start := time.Now()
-	var nc *nodeConn
-	for {
-		var i int32
-		for {
-			currIndex := d.ncIndex
-			if currIndex == d.numNC-1 {
-				i = 0
-				if atomic.CompareAndSwapInt32(&d.ncIndex, currIndex, 0) {
-					break
-				}
+	d.ncMutex.Lock()
+	defer d.ncMutex.Unlock()
+	for i := 0; i < d.ncLen; i++ {
+		d.ncIndex++
+		d.ncIndex = d.ncIndex % d.ncLen
+		nc := d.ncs[d.ncIndex]
+		if nc.isOpen() && !nc.hasBP() {
+			if time.Now().Sub(start) > timeout {
+				return nil, errors.New("timeout")
 			} else {
-				i = currIndex + 1
-				if atomic.CompareAndSwapInt32(&d.ncIndex, currIndex, i) {
-					break
-				}
+				return nc, nil
 			}
 		}
-		nc = d.ncs[i]
-		if nc.isOpen() && !nc.hasBP() {
-			break
-		}
 	}
-	if time.Now().Sub(start) > timeout {
-		return nil, errors.New("timeout")
-	} else {
-		return nc, nil
-	}
+	// if went through the loop without finding an open connection
+	// without backpressure then return nil.
+	return nil, nil
 }
 
 func (d *distributer) getNextHandle() int64 {
-	var nextHandle int64
-	for {
-		currHandle := d.handle
-		nextHandle = currHandle + 1
-		if atomic.CompareAndSwapInt64(&d.handle, currHandle, nextHandle) {
-			break
-		}
+	d.hanMutex.Lock()
+	defer d.hanMutex.Unlock()
+	d.handle++
+	if d.handle == math.MaxInt64 {
+		d.handle = 0
 	}
-	return nextHandle
+	return d.handle
 }
 
 type procedureInvocation struct {

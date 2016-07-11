@@ -24,44 +24,49 @@ import (
 	"log"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
 type networkWriter struct {
-	writer         io.Writer
-	piCh           <-chan *procedureInvocation
-	wg             *sync.WaitGroup
-	hasBeenStopped int32
-	bp             bool
-	bpMutex        sync.RWMutex
+	writer  io.Writer
+	piCh    <-chan *procedureInvocation
+	closeCh *chan bool
+	wg      *sync.WaitGroup
+	bp      bool
+	bpMutex sync.RWMutex
 }
 
-func newNetworkWriter(writer io.Writer, ch <-chan *procedureInvocation, wg *sync.WaitGroup) *networkWriter {
+func newNetworkWriter(writer io.Writer, ch <-chan *procedureInvocation, closeCh *chan bool, wg *sync.WaitGroup) *networkWriter {
 	var nw = new(networkWriter)
 	nw.writer = writer
 	nw.piCh = ch
+	nw.closeCh = closeCh
 	nw.wg = wg
-	nw.hasBeenStopped = 0
 	nw.bp = false
-	nw.bpMutex = sync.RWMutex{}
 	return nw
 }
 
 func (nw *networkWriter) writePIs() {
 
 	for {
-		if !atomic.CompareAndSwapInt32(&nw.hasBeenStopped, 0, 0) {
-			nw.wg.Done()
-			break
-		}
-
 		select {
 		case pi := <-nw.piCh:
 			nw.serializePI(pi)
-		case <-time.After(time.Millisecond * 100):
-			continue // give the thread a chance to exit - it's okay to block for a bit, applicable on close
+		case <-time.After(time.Millisecond * 10):
+			if nw.readClose() {
+				nw.wg.Done()
+				return
+			}
 		}
+	}
+}
+
+func (nw *networkWriter) readClose() bool {
+	select {
+	case <-*nw.closeCh:
+		return true
+	case <-time.After(5 * time.Millisecond):
+		return false
 	}
 }
 
@@ -121,16 +126,7 @@ func (nw *networkWriter) serializeArgs(writer io.Writer, args []driver.Value) (e
 }
 
 func (nw *networkWriter) start() {
-	nw.wg.Add(1)
 	go nw.writePIs()
-}
-
-func (nw *networkWriter) stop() {
-	for {
-		if atomic.CompareAndSwapInt32(&nw.hasBeenStopped, 0, 1) {
-			break
-		}
-	}
 }
 
 func (nw *networkWriter) hasBP() bool {

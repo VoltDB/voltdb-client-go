@@ -38,7 +38,6 @@ func main() {
 	defer conn.Close()
 
 	conn.Exec("@AdHoc", []driver.Value{"DELETE FROM HELLOWORLD;"})
-
 	resCons := ResponseConsumer{}
 
 	conn.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Bonjour", "Monde", "French"})
