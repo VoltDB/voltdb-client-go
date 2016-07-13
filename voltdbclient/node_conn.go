@@ -361,7 +361,6 @@ func (nc *nodeConn) registerAsync(handle int64, vasr *voltAsyncResponse) {
 				nc.asyncsChannel <- err.(voltResponse)
 			}
 		}
-		nc.asyncsChannel <- <-ch
 	}(vasr.channel())
 }
 
