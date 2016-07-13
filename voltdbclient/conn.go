@@ -38,6 +38,7 @@ import (
 const (
 	// Default time out for queries.
 	DEFAULT_QUERY_TIMEOUT time.Duration = 2 * time.Minute
+	// TODO No timeout for system procedure call?
 )
 
 // VoltConn represents a connection to VoltDB that can be used to execute
@@ -71,13 +72,19 @@ func OpenConn(cis []string) (*VoltConn, error) {
 	vc := newVoltConn(cis)
 	ncs := make([]*nodeConn, len(cis))
 	for i, ci := range cis {
-		nc := newNodeConn(ci)
+		nc := newNodeConn(ci, vc.distributer)
 		ncs[i] = nc
 		err := nc.connect()
 		if err != nil {
 			return nil, err
 		}
+		if vc.distributer.useClientAffinity {
+			vc.distributer.hostIdToConnection[int(nc.connData.hostId)] = nc
+		}
 	}
 	vc.setConns(ncs)
+	if vc.distributer.subscribedConnection == nil {
+		vc.distributer.subscribeToNewNode()
+	}
 	return vc, nil
 }

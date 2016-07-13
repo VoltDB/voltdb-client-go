@@ -33,9 +33,12 @@ type voltResponse interface {
 	getNumTables() int16
 	getStatus() int8
 	getStatusString() string
+}
 
-	getError() error
-	setError(err error)
+// VoltErrors
+type VoltError struct {
+	voltResponse
+	error
 }
 
 // helds a processed response, either a VoltResult or a VoltRows
@@ -47,10 +50,9 @@ type voltResponseInfo struct {
 	appStatusString      string
 	clusterRoundTripTime int32
 	numTables            int16
-	err                  error
 }
 
-func newVoltResponseInfo(handle int64, status int8, statusString string, appStatus int8, appStatusString string, clusterRoundTripTime int32, numTables int16, err error) *voltResponseInfo {
+func newVoltResponseInfo(handle int64, status int8, statusString string, appStatus int8, appStatusString string, clusterRoundTripTime int32, numTables int16) *voltResponseInfo {
 	var vrsp = new(voltResponseInfo)
 	vrsp.handle = handle
 	vrsp.status = status
@@ -59,14 +61,6 @@ func newVoltResponseInfo(handle int64, status int8, statusString string, appStat
 	vrsp.appStatusString = appStatusString
 	vrsp.clusterRoundTripTime = clusterRoundTripTime
 	vrsp.numTables = numTables
-	vrsp.err = err
-	return vrsp
-}
-
-func newVoltResponseInfoError(handle int64, err error) *voltResponseInfo {
-	var vrsp = new(voltResponseInfo)
-	vrsp.handle = handle
-	vrsp.err = err
 	return vrsp
 }
 
@@ -80,14 +74,6 @@ func (vrsp voltResponseInfo) getAppStatusString() string {
 
 func (vrsp voltResponseInfo) getClusterRoundTripTime() int32 {
 	return vrsp.clusterRoundTripTime
-}
-
-func (vrsp voltResponseInfo) getError() error {
-	return vrsp.err
-}
-
-func (vrsp voltResponseInfo) setError(err error) {
-	vrsp.err = err
 }
 
 func (vrsp voltResponseInfo) getHandle() int64 {
@@ -153,103 +139,91 @@ func (rs ResponseStatus) String() string {
 	}
 }
 
-func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse) {
+func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse, volterr error) {
 	// Some fields are optionally included in the response.  Which of these optional
 	// fields are included is indicated by this byte, 'fieldsPresent'.  The set
 	// of optional fields includes 'statusString', 'appStatusString', and 'exceptionLength'.
 	fieldsPresent, err := readUint8(r)
 	if err != nil {
-		return *(newVoltResponseInfo(handle, 0, "", 0, "", 0, 0, err))
+		return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, 0, "", 0, "", 0, 0)), error: err}
 	}
 
 	status, err := readByte(r)
 	if err != nil {
-		return *(newVoltResponseInfo(handle, 0, "", 0, "", 0, 0, err))
+		return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, 0, "", 0, "", 0, 0)), error: err}
 	}
 	var statusString string
 	if ResponseStatus(status) != SUCCESS {
 		if fieldsPresent&(1<<5) != 0 {
 			statusString, err = readString(r)
 			if err != nil {
-				return *(newVoltResponseInfo(handle, status, "", 0, "", 0, 0, err))
+				return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, status, "", 0, "", 0, 0)), error: err}
 			}
 		}
 		errString := fmt.Sprintf("Bad status %s %s\n", ResponseStatus(status).String(), statusString)
-		return *(newVoltResponseInfo(handle, status, statusString, 0, "", 0, 0, errors.New(errString)))
+		return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, status, statusString, 0, "", 0, 0)), error: errors.New(errString)}
 	}
 
 	appStatus, err := readByte(r)
 	if err != nil {
-		return *(newVoltResponseInfo(handle, status, statusString, 0, "", 0, 0, err))
+		return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, status, statusString, 0, "", 0, 0)), error: err}
 	}
 	var appStatusString string
 	if appStatus != 0 && appStatus != math.MinInt8 {
 		if fieldsPresent&(1<<7) != 0 {
 			appStatusString, err = readString(r)
 			if err != nil {
-				return *(newVoltResponseInfo(handle, status, statusString, appStatus, "", 0, 0, err))
+				return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, status, statusString, appStatus, "", 0, 0)), error: err}
 			}
 		}
 		errString := fmt.Sprintf("Bad app status %d %s\n", appStatus, appStatusString)
-		return *(newVoltResponseInfo(handle, status, statusString, 0, "", 0, 0, errors.New(errString)))
+		return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, status, statusString, 0, "", 0, 0)), error: errors.New(errString)}
 	}
 
 	clusterRoundTripTime, err := readInt(r)
 	if err != nil {
-		return *(newVoltResponseInfo(handle, status, statusString, appStatus, appStatusString, 0, 0, err))
+		return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, status, statusString, appStatus, appStatusString, 0, 0)), error: err}
 	}
 
 	numTables, err := readShort(r)
 	if err != nil {
-		rsp.setError(err)
-		return *(newVoltRows(rsp, nil))
+		return *(newVoltRows(rsp, nil)), VoltError{error: err}
 	}
 
 	if numTables < 0 {
 		err := errors.New("Negative value for numTables")
-		rsp.setError(err)
-		return *(newVoltRows(rsp, nil))
+		return *(newVoltRows(rsp, nil)), VoltError{error: err}
 	}
 
-	return *(newVoltResponseInfo(handle, status, statusString, appStatus, appStatusString, clusterRoundTripTime, numTables, nil))
+	return *(newVoltResponseInfo(handle, status, statusString, appStatus, appStatusString, clusterRoundTripTime, numTables)), nil
 }
 
-func deserializeResult(r io.Reader, rsp voltResponse) VoltResult {
-	if rsp.getError() != nil {
-		return *(newVoltResult(rsp, []int64{0}))
-	}
-
+func deserializeResult(r io.Reader, rsp voltResponse) (VoltResult, error) {
 	numTables := rsp.getNumTables()
 	ras := make([]int64, numTables)
 	var i int16 = 0
 	for ; i < numTables; i++ {
 		ra, err := deserializeTableForResult(r)
 		if err != nil {
-			rsp.setError(err)
-			return *(newVoltResult(rsp, []int64{0}))
+			return *(newVoltResult(rsp, []int64{0})), VoltError{voltResponse: rsp, error: err}
 		}
 		ras[i] = ra
 	}
 	res := newVoltResult(rsp, ras)
-	return *res
+	return *res, nil
 }
 
-func deserializeRows(r io.Reader, rsp voltResponse) (rows VoltRows) {
+func deserializeRows(r io.Reader, rsp voltResponse) (VoltRows, error) {
 	var err error
-	if rsp.getError() != nil {
-		return *(newVoltRows(rsp, nil))
-	}
-
 	numTables := rsp.getNumTables()
 	tables := make([]*voltTable, numTables)
 	for idx, _ := range tables {
 		if tables[idx], err = deserializeTableForRows(r); err != nil {
-			rsp.setError(err)
-			return *(newVoltRows(rsp, nil))
+			return *(newVoltRows(rsp, nil)), VoltError{voltResponse: rsp, error: err}
 		}
 	}
 	vr := newVoltRows(rsp, tables)
-	return *vr
+	return *vr, nil
 }
 
 func deserializeTableCommon(r io.Reader) (colCount int16, err error) {

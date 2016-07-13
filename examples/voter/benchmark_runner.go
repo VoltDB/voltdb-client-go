@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/VoltDB/voltdb-client-go/voltdbclient"
+	"strings"
 )
 
 // handy, rather than typing this out several times
@@ -291,7 +292,7 @@ func handleSqlRows(rows *sql.Rows, err error) (success int) {
 		} else {
 			log.Panic(err)
 			atomic.AddUint64(&(fullStats.failedVotes), 1)
-			return  0
+			return 0
 		}
 	}
 	return 0
@@ -327,7 +328,7 @@ func handleVoteReturnCode(rows driver.Rows) (success int) {
 }
 
 func connect(servers string) *voltdbclient.VoltConn {
-	conn, err := voltdbclient.OpenConn(servers)
+	conn, err := voltdbclient.OpenConn(strings.Split(servers,","))
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)

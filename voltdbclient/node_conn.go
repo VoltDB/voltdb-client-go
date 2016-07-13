@@ -41,6 +41,7 @@ type connectionData struct {
 }
 
 type nodeConn struct {
+	dist          *distributer
 	connInfo      string
 	reader        io.Reader
 	connData      *connectionData
@@ -63,13 +64,14 @@ type nodeConn struct {
 	openMutex sync.RWMutex
 }
 
-func newNodeConn(ci string) *nodeConn {
+func newNodeConn(ci string, dist *distributer) *nodeConn {
 	var nc = new(nodeConn)
 
 	nc.connInfo = ci
 	nc.asyncsChannel = make(chan voltResponse)
 	nc.asyncs = make(map[int64]*voltAsyncResponse)
 	nc.asyncsMutex = &sync.Mutex{}
+	nc.dist = dist
 	return nc
 }
 
@@ -94,7 +96,6 @@ func (nc *nodeConn) close() (err error) {
 	nc.nl.wg.Wait()
 	return err
 }
-
 func (nc *nodeConn) isOpen() bool {
 	var open bool
 	nc.openMutex.RLock()
@@ -213,13 +214,16 @@ func (nc *nodeConn) exec(pi *procedureInvocation) (driver.Result, error) {
 
 	select {
 	case resp := <-c:
-		rslt := resp.(VoltResult)
-		if err := rslt.getError(); err != nil {
-			return nil, err
+		switch resp.(type) {
+		case VoltResult:
+			return resp.(VoltResult), nil
+		case VoltError:
+			return nil, resp.(VoltError)
+		default:
+			return nil, VoltError{error: errors.New("unexpected response type")}
 		}
-		return rslt, nil
 	case <-time.After(pi.timeout):
-		return nil, errors.New("timeout")
+		return nil, VoltError{voltResponse: voltResponseInfo{status: int8(CONNECTION_TIMEOUT)}, error: errors.New("timeout")}
 	}
 }
 
@@ -244,14 +248,17 @@ func (nc *nodeConn) query(pi *procedureInvocation) (driver.Rows, error) {
 	nc.nwCh <- pi
 	select {
 	case resp := <-c:
-		rows := resp.(VoltRows)
-		if err := rows.getError(); err != nil {
-			return nil, err
+		switch resp.(type) {
+		case VoltRows:
+			return resp.(VoltRows), nil
+		case VoltError:
+			return nil, resp.(VoltError)
+		default:
+			return nil, VoltError{error: errors.New("unexpected response type")}
 		}
-		return rows, nil
 	case <-time.After(pi.timeout):
 		// TODO: make an error type for timeout
-		return nil, errors.New("timeout")
+		return nil, VoltError{voltResponse: voltResponseInfo{status: int8(CONNECTION_TIMEOUT)}, error: errors.New("timeout")}
 	}
 }
 
@@ -317,27 +324,15 @@ func (nc *nodeConn) processAsyncs() {
 			continue
 		}
 
-		err := resp.getError()
-		if err != nil {
-			async.getArc().ConsumeError(err)
-		} else {
-
-			if async.isQuery() {
-				vrows := resp.(VoltRows)
-				if err := vrows.getError(); err != nil {
-					async.getArc().ConsumeError(err)
-				} else {
-					async.getArc().ConsumeRows(vrows)
-
-				}
-			} else {
-				vrslt := resp.(VoltResult)
-				if err := vrslt.getError(); err != nil {
-					async.getArc().ConsumeError(err)
-				} else {
-					async.getArc().ConsumeResult(vrslt)
-				}
-			}
+		switch resp.(type) {
+		case VoltRows:
+			async.getArc().ConsumeRows(resp.(VoltRows))
+		case VoltResult:
+			async.getArc().ConsumeResult(resp.(VoltResult))
+		case VoltError:
+			async.getArc().ConsumeError(resp.(VoltError))
+		default:
+			log.Panic("unexpected response type", resp)
 		}
 		nc.asyncsMutex.Lock()
 		delete(nc.asyncs, handle)
@@ -361,8 +356,7 @@ func (nc *nodeConn) registerAsync(handle int64, vasr *voltAsyncResponse) {
 			req := nc.nl.removeRequest(vasr.handle())
 			if req != nil {
 				err := errors.New("timeout")
-				vr := newVoltResponseInfoError(vasr.handle(), err)
-				nc.asyncsChannel <- vr
+				nc.asyncsChannel <- err.(voltResponse)
 			}
 		}
 		nc.asyncsChannel <- <-ch
@@ -456,4 +450,11 @@ type nullValue struct {
 
 func (nv *nullValue) getColType() int8 {
 	return nv.colType
+}
+
+func (nc *nodeConn) TestClose() {
+	if nc.reader != nil {
+		tcpConn := nc.reader.(*net.TCPConn)
+		_ = tcpConn.Close()
+	}
 }

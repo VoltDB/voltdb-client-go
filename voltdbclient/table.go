@@ -155,3 +155,7 @@ func (vt *voltTable) getColumnCount() int {
 func (vt *voltTable) getColumnTypes() []int8 {
 	return vt.columnTypes
 }
+
+func (vt *voltTable) getRowCount() int {
+	return int(vt.numRows)
+}

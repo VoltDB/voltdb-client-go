@@ -18,7 +18,6 @@
 package voltdbclient
 
 import (
-	"bytes"
 	"errors"
 	"io"
 	"log"
@@ -66,7 +65,7 @@ func (nl *networkListener) listen() {
 		}
 		// can't do anything without a handle.  If reading the handle fails,
 		// then log and drop the message.
-		err := nl.readResponse(nl.reader)
+		buf, err := readMessage(nl.reader)
 		if err != nil {
 			if nl.readClose() {
 				nl.close()
@@ -78,6 +77,14 @@ func (nl *networkListener) listen() {
 				return
 			}
 		}
+		handle, err := readLong(buf)
+		// can't do anything without a handle.  If reading the handle fails,
+		// then log and drop the message.
+		if err != nil {
+			log.Printf("For %v error reading handle %v\n", nl.ci, err)
+			continue
+		}
+		nl.readResponse(buf, handle)
 	}
 }
 
@@ -97,55 +104,57 @@ func (nl *networkListener) close() {
 	err := errors.New("connection lost")
 	nl.requestMutex.Lock()
 	defer nl.requestMutex.Unlock()
-	for handle, req := range nl.requests {
-		vr := newVoltResponseInfoError(handle, err)
-		req.getChan() <- vr
+	for _, req := range nl.requests {
+		req.getChan() <- err.(voltResponse)
 	}
 	nl.requests = make(map[int64]*networkRequest)
 }
 
 // reads and deserializes a response from the server.
-func (nl *networkListener) readResponse(r io.Reader) error {
+func (nl *networkListener) readResponse(r io.Reader, handle int64) {
+	var err error
+	rsp, err := deserializeResponse(r, handle)
 
-	// return an error and reconnect to the server for the
-	// first two cases - failed to read the message.
-	size, err := readMessageHdr(r)
-	if err != nil {
-		return err
+	// handling special response
+	// TODO add sentPing() for checke liveness
+	if handle == PING_HANDLE {
+		// nl.outstandingping = false
+		return
 	}
-	data := make([]byte, size)
-	if _, err = io.ReadFull(r, data); err != nil {
-		return err
-	}
-	buf := bytes.NewBuffer(data)
+	if handle == ASYNC_TOPO_HANDLE {
+		if err != nil {
+			nl.nc.dist.handleSubscribe(err.(voltResponse))
+		} else {
+			if rows, err := deserializeRows(r, rsp); err != nil {
+				nl.nc.dist.handleSubscribe(err.(voltResponse))
+			} else {
+				nl.nc.dist.handleSubscribe(rows)
+			}
 
-	// for malformed messages just drop the message, not the
-	// connection
-	if _, err = readByte(buf); err != nil {
-		log.Printf("Dropped malformed message, bad version\n")
-		return nil
-	}
-
-	handle, err := readLong(buf)
-	if err != nil {
-		log.Printf("Dropped malformed message, bad handle\n")
-		return nil
+		}
+		return
 	}
 
 	// remove the associated request as soon as the handle is found.
 	req := nl.removeRequest(handle)
 
 	if req != nil {
-		rsp := deserializeResponse(buf, handle)
-		if req.isQuery() {
-			rows := deserializeRows(buf, rsp)
-			req.getChan() <- rows
+		if err != nil {
+			req.getChan() <- err.(voltResponse)
+		} else if req.isQuery() {
+			if rows, err := deserializeRows(r, rsp); err != nil {
+				req.getChan() <- err.(voltResponse)
+			} else {
+				req.getChan() <- rows
+			}
 		} else {
-			result := deserializeResult(buf, rsp)
-			req.getChan() <- result
+			if result, err := deserializeResult(r, rsp); err != nil {
+				req.getChan() <- err.(voltResponse)
+			} else {
+				req.getChan() <- result
+			}
 		}
 	}
-	return nil
 }
 
 func (nl *networkListener) registerRequest(nc *nodeConn, pi *procedureInvocation) <-chan voltResponse {
