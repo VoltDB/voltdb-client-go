@@ -18,6 +18,7 @@
 package voltdbclient
 
 import (
+	"errors"
 	"io"
 	"log"
 	"sync"
@@ -48,12 +49,18 @@ func newListener(nc *nodeConn, ci string, reader io.Reader, closeCh *chan bool, 
 	return nl
 }
 
+// the state on the writer that gets reset when the connection is lost and then re-established.
+func (nl *networkListener) onReconnect(reader io.Reader, closeCh *chan bool) {
+	nl.reader = reader
+	nl.closeCh = closeCh
+}
+
 // listen listens for messages from the server and calls back a registered listener.
 // listen blocks on input from the server and should be run as a go routine.
 func (nl *networkListener) listen() {
 	for {
 		if nl.readClose() {
-			nl.wg.Done()
+			nl.close()
 			return
 		}
 		// can't do anything without a handle.  If reading the handle fails,
@@ -61,13 +68,15 @@ func (nl *networkListener) listen() {
 		buf, err := readMessage(nl.reader)
 		if err != nil {
 			if nl.readClose() {
-				nl.wg.Done()
+				// close() was called on the connection.
+				nl.close()
 				return
 			} else {
 				// have lost connection.  reestablish connection here and let this thread exit.
-				log.Printf("network listener lost connection to %v with %v\n", nl.ci, err)
-				nl.wg.Done()
-				nl.nc.reconnect()
+				// close the connection so nore more requests.
+				nl.nc.setOpen(false)
+				nl.close()
+				nl.nc.reconnectNL()
 				return
 			}
 		}
@@ -89,6 +98,19 @@ func (nl *networkListener) readClose() bool {
 	case <-time.After(5 * time.Millisecond):
 		return false
 	}
+}
+
+func (nl *networkListener) close() {
+	defer nl.wg.Done()
+	// if connection to server is lost then there won't be a response
+	// for any of the remaining requests.  Time them out.
+	err := errors.New("connection lost")
+	nl.requestMutex.Lock()
+	defer nl.requestMutex.Unlock()
+	for _, req := range nl.requests {
+		req.getChan() <- err.(voltResponse)
+	}
+	nl.requests = make(map[int64]*networkRequest)
 }
 
 // reads and deserializes a response from the server.
@@ -116,19 +138,12 @@ func (nl *networkListener) readResponse(r io.Reader, handle int64) {
 		return
 	}
 
-	nl.requestMutex.Lock()
-	req := nl.requests[handle]
-	delete(nl.requests, handle)
-	nl.requestMutex.Unlock()
-
-	// TODO should also gurad on req? (race with expiration thread)
-	// can happen if client reconnects?
+	// remove the associated request as soon as the handle is found.
+	req := nl.removeRequest(handle)
 	if req == nil {
 		log.Panic("Unexpected handle", handle)
 		return
 	}
-
-	req.getNodeConn().decrementQueuedBytes(req.numBytes)
 	if err != nil {
 		req.getChan() <- err.(voltResponse)
 	} else if req.isQuery() {
@@ -156,10 +171,17 @@ func (nl *networkListener) registerRequest(nc *nodeConn, pi *procedureInvocation
 }
 
 // need to have a lock on the map when this is invoked.
-func (nl *networkListener) removeRequest(handle int64) {
+func (nl *networkListener) removeRequest(handle int64) *networkRequest {
+	var req *networkRequest
+
 	nl.requestMutex.Lock()
-	delete(nl.requests, handle)
-	nl.requestMutex.Unlock()
+	defer nl.requestMutex.Unlock()
+	req = nl.requests[handle]
+	if req != nil {
+		req.getNodeConn().decrementQueuedBytes(req.numBytes)
+		delete(nl.requests, handle)
+	}
+	return req
 }
 
 func (nl *networkListener) start() {

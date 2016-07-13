@@ -46,13 +46,20 @@ func newNetworkWriter(writer io.Writer, ch <-chan *procedureInvocation, closeCh 
 	return nw
 }
 
+// the state on the writer that gets reset when the connection is lost and then re-established.
+func (nw *networkWriter) onReconnect(writer io.Writer, closeCh *chan bool) {
+	nw.writer = writer
+	nw.closeCh = closeCh
+	nw.bp = false
+}
+
 func (nw *networkWriter) writePIs() {
 
 	for {
 		select {
 		case pi := <-nw.piCh:
 			nw.serializePI(pi)
-		case <-time.After(time.Millisecond * 10):
+		case <-time.After(time.Microsecond * 10):
 			if nw.readClose() {
 				nw.wg.Done()
 				return
