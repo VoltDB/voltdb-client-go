@@ -93,26 +93,56 @@ func (nl *networkListener) readClose() bool {
 
 // reads and deserializes a response from the server.
 func (nl *networkListener) readResponse(r io.Reader, handle int64) {
+	var err error
+	rsp, err := deserializeResponse(r, handle)
 
-	rsp := deserializeResponse(r, handle)
+	// handling special response
+	// TODO add sentPing() for checke liveness
+	if handle == PING_HANDLE {
+		// nl.outstandingping = false
+		return
+	}
+	if handle == ASYNC_TOPO_HANDLE {
+		if err != nil {
+			nl.nc.dist.handleSubscribe(err.(voltResponse))
+		} else {
+			if rows, err := deserializeRows(r, rsp); err != nil {
+				nl.nc.dist.handleSubscribe(err.(voltResponse))
+			} else {
+				nl.nc.dist.handleSubscribe(rows)
+			}
+
+		}
+		return
+	}
 
 	nl.requestMutex.Lock()
 	req := nl.requests[handle]
-	// can happen if client reconnects?
-	if req == nil {
-		nl.requestMutex.Unlock()
-		return
-	}
 	delete(nl.requests, handle)
 	nl.requestMutex.Unlock()
 
+	// TODO should also gurad on req? (race with expiration thread)
+	// can happen if client reconnects?
+	if req == nil {
+		log.Panic("Unexpected handle", handle)
+		return
+	}
+
 	req.getNodeConn().decrementQueuedBytes(req.numBytes)
-	if req.isQuery() {
-		rows := deserializeRows(r, rsp)
-		req.getChan() <- rows
+	if err != nil {
+		req.getChan() <- err.(voltResponse)
+	} else if req.isQuery() {
+		if rows, err := deserializeRows(r, rsp); err != nil {
+			req.getChan() <- err.(voltResponse)
+		} else {
+			req.getChan() <- rows
+		}
 	} else {
-		result := deserializeResult(r, rsp)
-		req.getChan() <- result
+		if result, err := deserializeResult(r, rsp); err != nil {
+			req.getChan() <- err.(voltResponse)
+		} else {
+			req.getChan() <- result
+		}
 	}
 }
 

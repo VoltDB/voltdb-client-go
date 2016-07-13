@@ -170,13 +170,13 @@ func (vr VoltRows) AdvanceToRow(rowIndex int32) bool {
 }
 
 // Advances to the next table.  Returns false if there isn't a next table.
-func (vr VoltRows) AdvanceTable() bool {
+func (vr *VoltRows) AdvanceTable() bool {
 	return vr.AdvanceToTable(vr.tableIndex + 1)
 }
 
 // Advances to the table indicated by the index.  Returns false if there is
 // no table at the given index.
-func (vr VoltRows) AdvanceToTable(tableIndex int16) bool {
+func (vr *VoltRows) AdvanceToTable(tableIndex int16) bool {
 	if tableIndex >= vr.getNumTables() || tableIndex < 0 {
 		return false
 	}

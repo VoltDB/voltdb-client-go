@@ -31,6 +31,7 @@ import (
 	"database/sql"
 
 	"github.com/VoltDB/voltdb-client-go/voltdbclient"
+	"strings"
 )
 
 // handy, rather than typing this out several times
@@ -399,7 +400,7 @@ func handleResults(res driver.Result) (success int) {
 }
 
 func connect(servers string) *voltdbclient.VoltConn {
-	conn, err := voltdbclient.OpenConn(servers)
+	conn, err := voltdbclient.OpenConn((strings.Split(servers,","))
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
