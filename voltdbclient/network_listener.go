@@ -68,10 +68,13 @@ func (nl *networkListener) listen() {
 		buf, err := readMessage(nl.reader)
 		if err != nil {
 			if nl.readClose() {
+				// close() was called on the connection.
 				nl.close()
 				return
 			} else {
 				// have lost connection.  reestablish connection here and let this thread exit.
+				// close the connection so nore more requests.
+				nl.nc.setOpen(false)
 				nl.close()
 				nl.nc.reconnectNL()
 				return
@@ -137,22 +140,23 @@ func (nl *networkListener) readResponse(r io.Reader, handle int64) {
 
 	// remove the associated request as soon as the handle is found.
 	req := nl.removeRequest(handle)
-
-	if req != nil {
-		if err != nil {
+	if req == nil {
+		log.Panic("Unexpected handle", handle)
+		return
+	}
+	if err != nil {
+		req.getChan() <- err.(voltResponse)
+	} else if req.isQuery() {
+		if rows, err := deserializeRows(r, rsp); err != nil {
 			req.getChan() <- err.(voltResponse)
-		} else if req.isQuery() {
-			if rows, err := deserializeRows(r, rsp); err != nil {
-				req.getChan() <- err.(voltResponse)
-			} else {
-				req.getChan() <- rows
-			}
 		} else {
-			if result, err := deserializeResult(r, rsp); err != nil {
-				req.getChan() <- err.(voltResponse)
-			} else {
-				req.getChan() <- result
-			}
+			req.getChan() <- rows
+		}
+	} else {
+		if result, err := deserializeResult(r, rsp); err != nil {
+			req.getChan() <- err.(voltResponse)
+		} else {
+			req.getChan() <- result
 		}
 	}
 }

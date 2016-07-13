@@ -252,7 +252,7 @@ func (d *distributer) getConnByRR(timeout time.Duration) (*nodeConn, error) {
 		d.ncIndex++
 		d.ncIndex = d.ncIndex % d.ncLen
 		nc := d.ncs[d.ncIndex]
-		if nc.isOpen() {
+		if nc.isOpen() && !nc.hasBP() {
 			if time.Now().Sub(start) > timeout {
 				return nil, errors.New("timeout")
 			} else {
@@ -546,11 +546,5 @@ func (d *distributer) getProcedureInfo() {
 func panicIfnotNil(str string, err error) {
 	if err != nil {
 		log.Panic(str, err)
-	}
-}
-
-func (d *distributer) TestClose() {
-	for _, nc := range d.ncs {
-		nc.TestClose()
 	}
 }

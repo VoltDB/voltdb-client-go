@@ -43,17 +43,14 @@ type connectionData struct {
 type nodeConn struct {
 	dist          *distributer
 	connInfo      string
-	reader        io.Reader
 	connData      *connectionData
 	asyncsChannel chan voltResponse
 	asyncs        map[int64]*voltAsyncResponse
 	asyncsMutex   *sync.Mutex
 	nl            *networkListener
-	nlCloseCh     chan bool
 
 	nw        *networkWriter
 	nwCh      chan<- *procedureInvocation
-	nwCloseCh chan bool
 
 	// queued bytes will be read/written by the main client thread and also
 	// by the network listener thread.
@@ -85,11 +82,11 @@ func (nc *nodeConn) close() (err error) {
 		nc.openMutex.Unlock()
 	}
 
-	close(nc.nwCloseCh)
-	nc.nlCloseCh <- true
+	close(*nc.nw.closeCh)
+	*nc.nl.closeCh <- true
 
-	if nc.reader != nil {
-		tcpConn := nc.reader.(*net.TCPConn)
+	if nc.nl.reader != nil {
+		tcpConn := nc.nl.reader.(*net.TCPConn)
 		err = tcpConn.Close()
 	}
 	nc.nw.wg.Wait()
@@ -104,32 +101,37 @@ func (nc *nodeConn) isOpen() bool {
 	return open
 }
 
+func (nc* nodeConn) setOpen(open bool) {
+	nc.openMutex.RLock()
+	nc.open = open
+	nc.openMutex.RUnlock()
+}
+
 func (nc *nodeConn) connect() error {
 	tcpConn, connData, err := nc.networkConnect()
 	if err != nil {
 		return err
 	}
 
-	nc.reader = tcpConn
 	nc.connData = connData
 
-	nc.nlCloseCh = make(chan bool, 1)
+	nlCloseCh := make(chan bool, 1)
 	nlwg := sync.WaitGroup{}
-	nlwg.Add(1)
-	nc.nl = newListener(nc, nc.connInfo, tcpConn, &nc.nwCloseCh, &nlwg)
+	nc.nl = newListener(nc, nc.connInfo, tcpConn, &nlCloseCh, &nlwg)
 
 	// The buffer won't be allocated up front, so it's ok to make this big.
 	// In practice the buffer will be limited by back pressure
 	ch := make(chan *procedureInvocation, 1000)
 	nc.nwCh = ch
-	nc.nwCloseCh = make(chan bool)
+	nwCloseCh := make(chan bool)
 	nwwg := sync.WaitGroup{}
-	nwwg.Add(1)
-	nc.nw = newNetworkWriter(tcpConn, ch, &nc.nwCloseCh, &nwwg)
+	nc.nw = newNetworkWriter(tcpConn, ch, &nwCloseCh, &nwwg)
 
 	nc.queuedBytes = 0
 
+	nlwg.Add(1)
 	nc.nl.start()
+	nwwg.Add(1)
 	nc.nw.start()
 	go nc.processAsyncs()
 
@@ -142,10 +144,10 @@ func (nc *nodeConn) connect() error {
 // called when the network listener loses connection.
 func (nc *nodeConn) reconnectNL() {
 
-	if nc.reader != nil {
-		tcpConn := nc.reader.(*net.TCPConn)
+	if nc.nl.reader != nil {
+		tcpConn := nc.nl.reader.(*net.TCPConn)
 		_ = tcpConn.Close()
-		nc.reader = nil
+		nc.nl.reader = nil
 	}
 	nc.queuedBytes = 0
 
@@ -156,14 +158,13 @@ func (nc *nodeConn) reconnectNL() {
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		nc.reader = tcpConn
 		nc.connData = connData
 
-		nc.nlCloseCh = make(chan bool, 1)
-		nc.nl.onReconnect(tcpConn, &nc.nwCloseCh)
+		nlCloseCh := make(chan bool, 1)
+		nc.nl.onReconnect(tcpConn, &nlCloseCh)
 
-		nc.nwCloseCh = make(chan bool)
-		nc.nw.onReconnect(tcpConn, &nc.nwCloseCh)
+		nwCloseCh := make(chan bool)
+		nc.nw.onReconnect(tcpConn, &nwCloseCh)
 
 		nc.nl.wg.Add(1)
 		nc.nl.start()
@@ -175,6 +176,7 @@ func (nc *nodeConn) reconnectNL() {
 		nc.openMutex.Unlock()
 		break
 	}
+	nc.setOpen(true)
 }
 
 func (nc *nodeConn) networkConnect() (*net.TCPConn, *connectionData, error) {
@@ -450,11 +452,4 @@ type nullValue struct {
 
 func (nv *nullValue) getColType() int8 {
 	return nv.colType
-}
-
-func (nc *nodeConn) TestClose() {
-	if nc.reader != nil {
-		tcpConn := nc.reader.(*net.TCPConn)
-		_ = tcpConn.Close()
-	}
 }
