@@ -18,7 +18,6 @@
 // A simple example that demonstrates the use of asynchronous Query and Exec calls.
 package main
 
-import _ "net/http/pprof"
 import (
 	"database/sql/driver"
 	"fmt"
@@ -26,7 +25,6 @@ import (
 	"log"
 	"math/rand"
 	"os"
-	"sync"
 )
 
 func main() {
@@ -61,7 +59,7 @@ func main() {
 	}
 	conn.Drain()
 
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 2000; i++ {
 		key := keys[rand.Intn(5)]
 		err := conn.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
 		if err != nil {
