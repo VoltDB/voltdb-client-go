@@ -18,6 +18,8 @@
 package voltdbclient
 
 import (
+	"bytes"
+	"errors"
 	"io"
 	"log"
 	"sync"
@@ -48,37 +50,34 @@ func newListener(nc *nodeConn, ci string, reader io.Reader, closeCh *chan bool, 
 	return nl
 }
 
+// the state on the writer that gets reset when the connection is lost and then re-established.
+func (nl *networkListener) onReconnect(reader io.Reader, closeCh *chan bool) {
+	nl.reader = reader
+	nl.closeCh = closeCh
+}
+
 // listen listens for messages from the server and calls back a registered listener.
 // listen blocks on input from the server and should be run as a go routine.
 func (nl *networkListener) listen() {
 	for {
 		if nl.readClose() {
-			nl.wg.Done()
+			nl.close()
 			return
 		}
 		// can't do anything without a handle.  If reading the handle fails,
 		// then log and drop the message.
-		buf, err := readMessage(nl.reader)
+		err := nl.readResponse(nl.reader)
 		if err != nil {
 			if nl.readClose() {
-				nl.wg.Done()
+				nl.close()
 				return
 			} else {
 				// have lost connection.  reestablish connection here and let this thread exit.
-				log.Printf("network listener lost connection to %v with %v\n", nl.ci, err)
-				nl.wg.Done()
-				nl.nc.reconnect()
+				nl.close()
+				nl.nc.reconnectNL()
 				return
 			}
 		}
-		handle, err := readLong(buf)
-		// can't do anything without a handle.  If reading the handle fails,
-		// then log and drop the message.
-		if err != nil {
-			log.Printf("For %v error reading handle %v\n", nl.ci, err)
-			continue
-		}
-		nl.readResponse(buf, handle)
 	}
 }
 
@@ -91,29 +90,62 @@ func (nl *networkListener) readClose() bool {
 	}
 }
 
-// reads and deserializes a response from the server.
-func (nl *networkListener) readResponse(r io.Reader, handle int64) {
-
-	rsp := deserializeResponse(r, handle)
-
+func (nl *networkListener) close() {
+	defer nl.wg.Done()
+	// if connection to server is lost then there won't be a response
+	// for any of the remaining requests.  Time them out.
+	err := errors.New("connection lost")
 	nl.requestMutex.Lock()
-	req := nl.requests[handle]
-	// can happen if client reconnects?
-	if req == nil {
-		nl.requestMutex.Unlock()
-		return
+	defer nl.requestMutex.Unlock()
+	for handle, req := range nl.requests {
+		vr := newVoltResponseInfoError(handle, err)
+		req.getChan() <- vr
 	}
-	delete(nl.requests, handle)
-	nl.requestMutex.Unlock()
+	nl.requests = make(map[int64]*networkRequest)
+}
 
-	req.getNodeConn().decrementQueuedBytes(req.numBytes)
-	if req.isQuery() {
-		rows := deserializeRows(r, rsp)
-		req.getChan() <- rows
-	} else {
-		result := deserializeResult(r, rsp)
-		req.getChan() <- result
+// reads and deserializes a response from the server.
+func (nl *networkListener) readResponse(r io.Reader) error {
+
+	// return an error and reconnect to the server for the
+	// first two cases - failed to read the message.
+	size, err := readMessageHdr(r)
+	if err != nil {
+		return err
 	}
+	data := make([]byte, size)
+	if _, err = io.ReadFull(r, data); err != nil {
+		return err
+	}
+	buf := bytes.NewBuffer(data)
+
+	// for malformed messages just drop the message, not the
+	// connection
+	if _, err = readByte(buf); err != nil {
+		log.Printf("Dropped malformed message, bad version\n")
+		return nil
+	}
+
+	handle, err := readLong(buf)
+	if err != nil {
+		log.Printf("Dropped malformed message, bad handle\n")
+		return nil
+	}
+
+	// remove the associated request as soon as the handle is found.
+	req := nl.removeRequest(handle)
+
+	if req != nil {
+		rsp := deserializeResponse(buf, handle)
+		if req.isQuery() {
+			rows := deserializeRows(buf, rsp)
+			req.getChan() <- rows
+		} else {
+			result := deserializeResult(buf, rsp)
+			req.getChan() <- result
+		}
+	}
+	return nil
 }
 
 func (nl *networkListener) registerRequest(nc *nodeConn, pi *procedureInvocation) <-chan voltResponse {
@@ -126,10 +158,17 @@ func (nl *networkListener) registerRequest(nc *nodeConn, pi *procedureInvocation
 }
 
 // need to have a lock on the map when this is invoked.
-func (nl *networkListener) removeRequest(handle int64) {
+func (nl *networkListener) removeRequest(handle int64) *networkRequest {
+	var req *networkRequest
+
 	nl.requestMutex.Lock()
-	delete(nl.requests, handle)
-	nl.requestMutex.Unlock()
+	defer nl.requestMutex.Unlock()
+	req = nl.requests[handle]
+	if req != nil {
+		req.getNodeConn().decrementQueuedBytes(req.numBytes)
+		delete(nl.requests, handle)
+	}
+	return req
 }
 
 func (nl *networkListener) start() {

@@ -25,7 +25,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"runtime"
 	"sync"
 	"time"
 )
@@ -44,18 +43,16 @@ type connectionData struct {
 type nodeConn struct {
 	connInfo      string
 	reader        io.Reader
-	connData      connectionData
+	connData      *connectionData
 	asyncsChannel chan voltResponse
 	asyncs        map[int64]*voltAsyncResponse
 	asyncsMutex   *sync.Mutex
 	nl            *networkListener
 	nlCloseCh     chan bool
-	nlwg          *sync.WaitGroup
 
 	nw        *networkWriter
 	nwCh      chan<- *procedureInvocation
 	nwCloseCh chan bool
-	nwwg      *sync.WaitGroup
 
 	// queued bytes will be read/written by the main client thread and also
 	// by the network listener thread.
@@ -93,8 +90,8 @@ func (nc *nodeConn) close() (err error) {
 		tcpConn := nc.reader.(*net.TCPConn)
 		err = tcpConn.Close()
 	}
-	nc.nwwg.Wait()
-	nc.nlwg.Wait()
+	nc.nw.wg.Wait()
+	nc.nl.wg.Wait()
 	return err
 }
 
@@ -107,49 +104,31 @@ func (nc *nodeConn) isOpen() bool {
 }
 
 func (nc *nodeConn) connect() error {
-	raddr, err := net.ResolveTCPAddr("tcp", nc.connInfo)
-	if err != nil {
-		return fmt.Errorf("Error resolving %v.", nc.connInfo)
-	}
-	var tcpConn *net.TCPConn
-	if tcpConn, err = net.DialTCP("tcp", nil, raddr); err != nil {
-		return err
-	}
-	login, err := serializeLoginMessage("", "")
-	if err != nil {
-		return err
-	}
-	writeLoginMessage(tcpConn, &login)
-	if err != nil {
-		return err
-	}
-	connData, err := readLoginResponse(tcpConn)
+	tcpConn, connData, err := nc.networkConnect()
 	if err != nil {
 		return err
 	}
 
 	nc.reader = tcpConn
-	nc.connData = *connData
+	nc.connData = connData
 
 	nc.nlCloseCh = make(chan bool, 1)
-	wg := sync.WaitGroup{}
-	nc.nlwg = &wg
-	nc.nl = newListener(nc, nc.connInfo, tcpConn, &nc.nwCloseCh, nc.nlwg)
+	nlwg := sync.WaitGroup{}
+	nlwg.Add(1)
+	nc.nl = newListener(nc, nc.connInfo, tcpConn, &nc.nwCloseCh, &nlwg)
 
 	// The buffer won't be allocated up front, so it's ok to make this big.
 	// In practice the buffer will be limited by back pressure
 	ch := make(chan *procedureInvocation, 1000)
 	nc.nwCh = ch
 	nc.nwCloseCh = make(chan bool)
-	wg = sync.WaitGroup{}
-	nc.nwwg = &wg
-	nc.nw = newNetworkWriter(tcpConn, ch, &nc.nwCloseCh, nc.nwwg)
+	nwwg := sync.WaitGroup{}
+	nwwg.Add(1)
+	nc.nw = newNetworkWriter(tcpConn, ch, &nc.nwCloseCh, &nwwg)
 
 	nc.queuedBytes = 0
 
-	nc.nlwg.Add(1)
 	nc.nl.start()
-	nc.nwwg.Add(1)
 	nc.nw.start()
 	go nc.processAsyncs()
 
@@ -159,18 +138,69 @@ func (nc *nodeConn) connect() error {
 	return nil
 }
 
-func (nc *nodeConn) reconnect() {
-	for {
-		nc.close()
-		err := nc.connect()
-		if err == nil {
-			log.Printf("reconnected %v\n", nc.connInfo)
-			break
-		} else {
-			log.Printf("Failed to connect to host %v with %v retrying...\n", nc.connInfo, err)
-			time.Sleep(1 * time.Second)
-		}
+// called when the network listener loses connection.
+func (nc *nodeConn) reconnectNL() {
+
+	if nc.reader != nil {
+		tcpConn := nc.reader.(*net.TCPConn)
+		_ = tcpConn.Close()
+		nc.reader = nil
 	}
+	nc.queuedBytes = 0
+
+	for {
+		tcpConn, connData, err := nc.networkConnect()
+		if err != nil {
+			log.Println(fmt.Printf("Failed to reconnect to server with %s, retrying\n", err))
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		nc.reader = tcpConn
+		nc.connData = connData
+
+		nc.nlCloseCh = make(chan bool, 1)
+		nc.nl.onReconnect(tcpConn, &nc.nwCloseCh)
+
+		nc.nwCloseCh = make(chan bool)
+		nc.nw.onReconnect(tcpConn, &nc.nwCloseCh)
+
+		nc.nl.wg.Add(1)
+		nc.nl.start()
+		nc.nw.wg.Add(1)
+		nc.nw.start()
+
+		nc.openMutex.Lock()
+		nc.open = true
+		nc.openMutex.Unlock()
+		break
+	}
+}
+
+func (nc *nodeConn) networkConnect() (*net.TCPConn, *connectionData, error) {
+	raddr, err := net.ResolveTCPAddr("tcp", nc.connInfo)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Error resolving %v.", nc.connInfo)
+	}
+	tcpConn, err := net.DialTCP("tcp", nil, raddr)
+	if err != nil {
+		return nil, nil, err
+	}
+	login, err := serializeLoginMessage("", "")
+	if err != nil {
+		tcpConn.Close()
+		return nil, nil, err
+	}
+	writeLoginMessage(tcpConn, &login)
+	if err != nil {
+		tcpConn.Close()
+		return nil, nil, err
+	}
+	connData, err := readLoginResponse(tcpConn)
+	if err != nil {
+		tcpConn.Close()
+		return nil, nil, err
+	}
+	return tcpConn, connData, nil
 }
 
 func (nc *nodeConn) exec(pi *procedureInvocation) (driver.Result, error) {
@@ -267,10 +297,11 @@ func (nc *nodeConn) drain() {
 		nc.asyncsMutex.Lock()
 		numAsyncs = len(nc.asyncs)
 		nc.asyncsMutex.Unlock()
-		if numAsyncs == 0 {
+		numQueuedWrites := len(nc.nwCh)
+		if numAsyncs == 0 && numQueuedWrites == 0 {
 			break
 		}
-		runtime.Gosched()
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -286,26 +317,31 @@ func (nc *nodeConn) processAsyncs() {
 			continue
 		}
 
-		if async.isQuery() {
-			vrows := resp.(VoltRows)
-			if err := vrows.getError(); err != nil {
-				async.getArc().ConsumeError(err)
-			} else {
-				async.getArc().ConsumeRows(vrows)
-
-			}
+		err := resp.getError()
+		if err != nil {
+			async.getArc().ConsumeError(err)
 		} else {
-			vrslt := resp.(VoltResult)
-			if err := vrslt.getError(); err != nil {
-				async.getArc().ConsumeError(err)
+
+			if async.isQuery() {
+				vrows := resp.(VoltRows)
+				if err := vrows.getError(); err != nil {
+					async.getArc().ConsumeError(err)
+				} else {
+					async.getArc().ConsumeRows(vrows)
+
+				}
 			} else {
-				async.getArc().ConsumeResult(vrslt)
+				vrslt := resp.(VoltResult)
+				if err := vrslt.getError(); err != nil {
+					async.getArc().ConsumeError(err)
+				} else {
+					async.getArc().ConsumeResult(vrslt)
+				}
 			}
 		}
 		nc.asyncsMutex.Lock()
 		delete(nc.asyncs, handle)
 		nc.asyncsMutex.Unlock()
-
 	}
 }
 
@@ -317,9 +353,20 @@ func (nc *nodeConn) registerAsync(handle int64, vasr *voltAsyncResponse) {
 	nc.asyncsMutex.Lock()
 	nc.asyncs[handle] = vasr
 	nc.asyncsMutex.Unlock()
-	go func() {
-		nc.asyncsChannel <- <-vasr.channel()
-	}()
+	go func(ch <-chan voltResponse) {
+		select {
+		case vr := <-ch:
+			nc.asyncsChannel <- vr
+		case <-time.After(2 * time.Minute):
+			req := nc.nl.removeRequest(vasr.handle())
+			if req != nil {
+				err := errors.New("timeout")
+				vr := newVoltResponseInfoError(vasr.handle(), err)
+				nc.asyncsChannel <- vr
+			}
+		}
+		nc.asyncsChannel <- <-ch
+	}(vasr.channel())
 }
 
 func (nc *nodeConn) removeAsync(han int64) {

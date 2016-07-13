@@ -63,6 +63,13 @@ func newVoltResponseInfo(handle int64, status int8, statusString string, appStat
 	return vrsp
 }
 
+func newVoltResponseInfoError(handle int64, err error) *voltResponseInfo {
+	var vrsp = new(voltResponseInfo)
+	vrsp.handle = handle
+	vrsp.err = err
+	return vrsp
+}
+
 func (vrsp voltResponseInfo) getAppStatus() int8 {
 	return vrsp.appStatus
 }
