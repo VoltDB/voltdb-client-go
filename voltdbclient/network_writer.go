@@ -24,60 +24,27 @@ import (
 	"log"
 	"runtime"
 	"sync"
-	"time"
 )
 
 type networkWriter struct {
-	writer  io.Writer
-	piCh    <-chan *procedureInvocation
-	closeCh *chan bool
-	wg      *sync.WaitGroup
 	bp      bool
 	bpMutex sync.RWMutex
 }
 
-func newNetworkWriter(writer io.Writer, ch <-chan *procedureInvocation, closeCh *chan bool, wg *sync.WaitGroup) *networkWriter {
+func newNetworkWriter() *networkWriter {
 	var nw = new(networkWriter)
-	nw.writer = writer
-	nw.piCh = ch
-	nw.closeCh = closeCh
-	nw.wg = wg
 	nw.bp = false
 	return nw
 }
 
-// the state on the writer that gets reset when the connection is lost and then re-established.
-func (nw *networkWriter) onReconnect(writer io.Writer, closeCh *chan bool) {
-	nw.writer = writer
-	nw.closeCh = closeCh
-	nw.bp = false
-}
-
-func (nw *networkWriter) writePIs() {
-
-	for {
-		select {
-		case pi := <-nw.piCh:
-			nw.serializePI(pi)
-		case <-time.After(time.Microsecond * 10):
-			if nw.readClose() {
-				nw.wg.Done()
-				return
-			}
-		}
+func (nw *networkWriter) writePIs(writer io.Writer, ch <-chan *procedureInvocation, wg *sync.WaitGroup) {
+	for pi := range ch {
+		nw.serializePI(writer, pi)
 	}
+	wg.Done()
 }
 
-func (nw *networkWriter) readClose() bool {
-	select {
-	case <-*nw.closeCh:
-		return true
-	case <-time.After(5 * time.Millisecond):
-		return false
-	}
-}
-
-func (nw *networkWriter) serializePI(pi *procedureInvocation) {
+func (nw *networkWriter) serializePI(writer io.Writer, pi *procedureInvocation) {
 	var call bytes.Buffer
 	var err error
 
@@ -87,7 +54,7 @@ func (nw *networkWriter) serializePI(pi *procedureInvocation) {
 	if err = nw.serializeStatement(&call, pi); err != nil {
 		log.Printf("Error serializing procedure call %v\n", err)
 	} else {
-		io.Copy(nw.writer, &call)
+		io.Copy(writer, &call)
 	}
 }
 
@@ -132,8 +99,8 @@ func (nw *networkWriter) serializeArgs(writer io.Writer, args []driver.Value) (e
 	return
 }
 
-func (nw *networkWriter) start() {
-	go nw.writePIs()
+func (nw *networkWriter) start(writer io.Writer, ch <-chan *procedureInvocation, wg *sync.WaitGroup) {
+	go nw.writePIs(writer, ch, wg)
 }
 
 func (nw *networkWriter) hasBP() bool {

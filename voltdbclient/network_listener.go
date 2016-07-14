@@ -31,51 +31,39 @@ import (
 type networkListener struct {
 	nc           *nodeConn
 	ci           string
-	reader       io.Reader
 	requests     map[int64]*networkRequest
 	requestMutex sync.Mutex
-	closeCh      *chan bool
-	wg           *sync.WaitGroup
 }
 
-func newListener(nc *nodeConn, ci string, reader io.Reader, closeCh *chan bool, wg *sync.WaitGroup) *networkListener {
+func newListener(nc *nodeConn, ci string) *networkListener {
 	var nl = new(networkListener)
 	nl.nc = nc
 	nl.ci = ci
-	nl.reader = reader
 	nl.requests = make(map[int64]*networkRequest)
-	nl.closeCh = closeCh
-	nl.wg = wg
 	return nl
-}
-
-// the state on the writer that gets reset when the connection is lost and then re-established.
-func (nl *networkListener) onReconnect(reader io.Reader, closeCh *chan bool) {
-	nl.reader = reader
-	nl.closeCh = closeCh
 }
 
 // listen listens for messages from the server and calls back a registered listener.
 // listen blocks on input from the server and should be run as a go routine.
-func (nl *networkListener) listen() {
+func (nl *networkListener) listen(reader io.Reader, closeCh *chan bool, wg *sync.WaitGroup) {
 	for {
-		if nl.readClose() {
-			nl.close()
+		if nl.readClose(closeCh) {
+			nl.close(wg)
 			return
 		}
 		// can't do anything without a handle.  If reading the handle fails,
 		// then log and drop the message.
-		buf, err := readMessage(nl.reader)
+		buf, err := readMessage(reader)
 		if err != nil {
-			if nl.readClose() {
+			if nl.readClose(closeCh) {
 				// close() was called on the connection.
-				nl.close()
+				nl.close(wg)
 				return
 			} else {
 				// have lost connection.  reestablish connection here and let this thread exit.
 				// close the connection so nore more requests.
 				nl.nc.setOpen(false)
-				nl.close()
+				nl.close(wg)
 				nl.nc.reconnectNL()
 				return
 			}
@@ -91,17 +79,17 @@ func (nl *networkListener) listen() {
 	}
 }
 
-func (nl *networkListener) readClose() bool {
+func (nl *networkListener) readClose(closeCh *chan bool) bool {
 	select {
-	case <-*nl.closeCh:
+	case <-*closeCh:
 		return true
 	case <-time.After(5 * time.Millisecond):
 		return false
 	}
 }
 
-func (nl *networkListener) close() {
-	defer nl.wg.Done()
+func (nl *networkListener) close(wg *sync.WaitGroup) {
+	defer wg.Done()
 	// if connection to server is lost then there won't be a response
 	// for any of the remaining requests.  Time them out.
 	err := errors.New("connection lost")
@@ -184,8 +172,8 @@ func (nl *networkListener) removeRequest(handle int64) *networkRequest {
 	return req
 }
 
-func (nl *networkListener) start() {
-	go nl.listen()
+func (nl *networkListener) start(reader io.Reader, closeCh *chan bool, wg *sync.WaitGroup) {
+	go nl.listen(reader, closeCh, wg)
 }
 
 type networkRequest struct {

@@ -44,13 +44,18 @@ type nodeConn struct {
 	dist          *distributer
 	connInfo      string
 	connData      *connectionData
+	tcpConn       *net.TCPConn
 	asyncsChannel chan voltResponse
 	asyncs        map[int64]*voltAsyncResponse
 	asyncsMutex   *sync.Mutex
-	nl            *networkListener
 
-	nw        *networkWriter
-	nwCh      chan<- *procedureInvocation
+	nl        *networkListener
+	nlCloseCh chan bool
+	nlwg      sync.WaitGroup
+
+	nw   *networkWriter
+	nwCh chan<- *procedureInvocation
+	nwwg *sync.WaitGroup
 
 	// queued bytes will be read/written by the main client thread and also
 	// by the network listener thread.
@@ -82,15 +87,21 @@ func (nc *nodeConn) close() (err error) {
 		nc.openMutex.Unlock()
 	}
 
-	close(*nc.nw.closeCh)
-	*nc.nl.closeCh <- true
+	close(nc.asyncsChannel)
+	nc.stopNW()
 
-	if nc.nl.reader != nil {
-		tcpConn := nc.nl.reader.(*net.TCPConn)
-		err = tcpConn.Close()
+	// stop the network listener.  First send true over the
+	// close channel so that the listener knows its being
+	// closed and won't try to reconnect.
+	nc.nlCloseCh <- true
+	// close the tcp connection.  If the listener is blocked
+	// on a read this will unblock it.
+	if nc.tcpConn != nil {
+		err = nc.tcpConn.Close()
+		nc.tcpConn = nil
 	}
-	nc.nw.wg.Wait()
-	nc.nl.wg.Wait()
+	nc.nlwg.Wait()
+
 	return err
 }
 func (nc *nodeConn) isOpen() bool {
@@ -101,7 +112,7 @@ func (nc *nodeConn) isOpen() bool {
 	return open
 }
 
-func (nc* nodeConn) setOpen(open bool) {
+func (nc *nodeConn) setOpen(open bool) {
 	nc.openMutex.RLock()
 	nc.open = open
 	nc.openMutex.RUnlock()
@@ -114,26 +125,11 @@ func (nc *nodeConn) connect() error {
 	}
 
 	nc.connData = connData
+	nc.tcpConn = tcpConn
 
-	nlCloseCh := make(chan bool, 1)
-	nlwg := sync.WaitGroup{}
-	nc.nl = newListener(nc, nc.connInfo, tcpConn, &nlCloseCh, &nlwg)
-
-	// The buffer won't be allocated up front, so it's ok to make this big.
-	// In practice the buffer will be limited by back pressure
-	ch := make(chan *procedureInvocation, 1000)
-	nc.nwCh = ch
-	nwCloseCh := make(chan bool)
-	nwwg := sync.WaitGroup{}
-	nc.nw = newNetworkWriter(tcpConn, ch, &nwCloseCh, &nwwg)
-
-	nc.queuedBytes = 0
-
-	nlwg.Add(1)
-	nc.nl.start()
-	nwwg.Add(1)
-	nc.nw.start()
-	go nc.processAsyncs()
+	nc.nl = newListener(nc, nc.connInfo)
+	nc.startNL(nc.nl, tcpConn)
+	nc.startNW(tcpConn)
 
 	nc.openMutex.Lock()
 	nc.open = true
@@ -142,12 +138,15 @@ func (nc *nodeConn) connect() error {
 }
 
 // called when the network listener loses connection.
+// the 'processAsyncs' goroutine and channel stay in place over
+// a reconnect, they're not affected.
 func (nc *nodeConn) reconnectNL() {
 
-	if nc.nl.reader != nil {
-		tcpConn := nc.nl.reader.(*net.TCPConn)
-		_ = tcpConn.Close()
-		nc.nl.reader = nil
+	// lost connection, stop the network writer and close the connection.
+	nc.stopNW()
+	if nc.tcpConn != nil {
+		_ = nc.tcpConn.Close()
+		nc.tcpConn = nil
 	}
 	nc.queuedBytes = 0
 
@@ -158,18 +157,11 @@ func (nc *nodeConn) reconnectNL() {
 			time.Sleep(5 * time.Second)
 			continue
 		}
+		nc.tcpConn = tcpConn
 		nc.connData = connData
 
-		nlCloseCh := make(chan bool, 1)
-		nc.nl.onReconnect(tcpConn, &nlCloseCh)
-
-		nwCloseCh := make(chan bool)
-		nc.nw.onReconnect(tcpConn, &nwCloseCh)
-
-		nc.nl.wg.Add(1)
-		nc.nl.start()
-		nc.nw.wg.Add(1)
-		nc.nw.start()
+		nc.startNL(nc.nl, nc.tcpConn)
+		nc.startNW(nc.tcpConn)
 
 		nc.openMutex.Lock()
 		nc.open = true
@@ -177,6 +169,30 @@ func (nc *nodeConn) reconnectNL() {
 		break
 	}
 	nc.setOpen(true)
+}
+
+func (nc *nodeConn) startNL(nl *networkListener, tcpConn *net.TCPConn) {
+	nc.nlCloseCh = make(chan bool, 1)
+	nc.nlwg = sync.WaitGroup{}
+	nc.nlwg.Add(1)
+	go nc.processAsyncs()
+	nc.nl.start(tcpConn, &nc.nlCloseCh, &nc.nlwg)
+}
+
+// start the network writer.
+func (nc *nodeConn) startNW(tcpConn *net.TCPConn) {
+	piCh := make(chan *procedureInvocation, 1000)
+	nc.nwCh = piCh
+	nwwg := sync.WaitGroup{}
+	nc.nwwg = &nwwg
+	nc.nw = newNetworkWriter()
+	nwwg.Add(1)
+	nc.nw.start(tcpConn, piCh, &nwwg)
+}
+
+func (nc *nodeConn) stopNW() {
+	close(nc.nwCh)
+	nc.nwwg.Wait()
 }
 
 func (nc *nodeConn) networkConnect() (*net.TCPConn, *connectionData, error) {
@@ -315,15 +331,15 @@ func (nc *nodeConn) drain() {
 }
 
 func (nc *nodeConn) processAsyncs() {
-	for {
-		resp := <-nc.asyncsChannel
+	for resp := range nc.asyncsChannel {
 		handle := resp.getHandle()
 		nc.asyncsMutex.Lock()
 		async := nc.asyncs[handle]
 		nc.asyncsMutex.Unlock()
 		// can happen on reconnect...
 		if async == nil {
-			continue
+			log.Panic("Didn't find async with handle", handle)
+			return
 		}
 
 		switch resp.(type) {
