@@ -45,25 +45,27 @@ func newListener(nc *nodeConn, ci string) *networkListener {
 
 // listen listens for messages from the server and calls back a registered listener.
 // listen blocks on input from the server and should be run as a go routine.
-func (nl *networkListener) listen(reader io.Reader, closeCh *chan bool, wg *sync.WaitGroup) {
+func (nl *networkListener) listen(reader io.Reader, closeCh chan chan bool) {
 	for {
-		if nl.readClose(closeCh) {
-			nl.close(wg)
-			return
+		respCh := nl.readClose(closeCh)
+		if respCh != nil {
+			nl.close()
+			respCh <- true
 		}
 		// can't do anything without a handle.  If reading the handle fails,
 		// then log and drop the message.
 		buf, err := readMessage(reader)
 		if err != nil {
-			if nl.readClose(closeCh) {
-				// close() was called on the connection.
-				nl.close(wg)
+			respCh := nl.readClose(closeCh)
+			if respCh != nil {
+				nl.close()
+				respCh <- true
 				return
 			} else {
 				// have lost connection.  reestablish connection here and let this thread exit.
 				// close the connection so nore more requests.
 				nl.nc.setOpen(false)
-				nl.close(wg)
+				nl.close()
 				nl.nc.reconnectNL()
 				return
 			}
@@ -79,17 +81,16 @@ func (nl *networkListener) listen(reader io.Reader, closeCh *chan bool, wg *sync
 	}
 }
 
-func (nl *networkListener) readClose(closeCh *chan bool) bool {
+func (nl *networkListener) readClose(closeCh chan chan bool) chan bool {
 	select {
-	case <-*closeCh:
-		return true
+	case respCh := <-closeCh:
+		return respCh
 	case <-time.After(5 * time.Millisecond):
-		return false
+		return nil
 	}
 }
 
-func (nl *networkListener) close(wg *sync.WaitGroup) {
-	defer wg.Done()
+func (nl *networkListener) close() {
 	// if connection to server is lost then there won't be a response
 	// for any of the remaining requests.  Time them out.
 	err := errors.New("connection lost")
@@ -172,8 +173,12 @@ func (nl *networkListener) removeRequest(handle int64) *networkRequest {
 	return req
 }
 
-func (nl *networkListener) start(reader io.Reader, closeCh *chan bool, wg *sync.WaitGroup) {
-	go nl.listen(reader, closeCh, wg)
+func (nl *networkListener) start(reader io.Reader) chan chan bool {
+	// the channel that will be used to stop the listener
+	// has size one because can't block on reading from it.
+	closeCh := make(chan chan bool, 1)
+	go nl.listen(reader, closeCh)
+	return closeCh
 }
 
 type networkRequest struct {

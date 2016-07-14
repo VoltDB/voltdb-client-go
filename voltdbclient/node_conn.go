@@ -50,8 +50,7 @@ type nodeConn struct {
 	asyncsMutex   *sync.Mutex
 
 	nl        *networkListener
-	nlCloseCh chan bool
-	nlwg      sync.WaitGroup
+	nlCloseCh chan chan bool
 
 	nw   *networkWriter
 	nwCh chan<- *procedureInvocation
@@ -90,17 +89,19 @@ func (nc *nodeConn) close() (err error) {
 	close(nc.asyncsChannel)
 	nc.stopNW()
 
-	// stop the network listener.  First send true over the
+	// stop the network listener.  Send a response channel over the
 	// close channel so that the listener knows its being
 	// closed and won't try to reconnect.
-	nc.nlCloseCh <- true
+	respCh := make(chan bool)
+	nc.nlCloseCh <- respCh
 	// close the tcp connection.  If the listener is blocked
 	// on a read this will unblock it.
 	if nc.tcpConn != nil {
 		err = nc.tcpConn.Close()
 		nc.tcpConn = nil
 	}
-	nc.nlwg.Wait()
+	// wait for the listener to respond that it's been closed.
+	<-respCh
 
 	return err
 }
@@ -128,7 +129,7 @@ func (nc *nodeConn) connect() error {
 	nc.tcpConn = tcpConn
 
 	nc.nl = newListener(nc, nc.connInfo)
-	nc.startNL(nc.nl, tcpConn)
+	nc.nlCloseCh = nc.startNL(nc.nl, tcpConn)
 	nc.startNW(tcpConn)
 
 	nc.openMutex.Lock()
@@ -160,7 +161,7 @@ func (nc *nodeConn) reconnectNL() {
 		nc.tcpConn = tcpConn
 		nc.connData = connData
 
-		nc.startNL(nc.nl, nc.tcpConn)
+		nc.nlCloseCh = nc.startNL(nc.nl, nc.tcpConn)
 		nc.startNW(nc.tcpConn)
 
 		nc.openMutex.Lock()
@@ -171,12 +172,10 @@ func (nc *nodeConn) reconnectNL() {
 	nc.setOpen(true)
 }
 
-func (nc *nodeConn) startNL(nl *networkListener, tcpConn *net.TCPConn) {
-	nc.nlCloseCh = make(chan bool, 1)
-	nc.nlwg = sync.WaitGroup{}
-	nc.nlwg.Add(1)
+func (nc *nodeConn) startNL(nl *networkListener, tcpConn *net.TCPConn) chan chan bool {
 	go nc.processAsyncs()
-	nc.nl.start(tcpConn, &nc.nlCloseCh, &nc.nlwg)
+	nlCloseCh := nc.nl.start(tcpConn)
+	return nlCloseCh
 }
 
 // start the network writer.
