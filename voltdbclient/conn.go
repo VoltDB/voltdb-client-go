@@ -32,7 +32,6 @@
 package voltdbclient
 
 import (
-	"log"
 	"time"
 )
 
@@ -77,8 +76,7 @@ func OpenConn(cis []string) (*VoltConn, error) {
 		ncs[i] = nc
 		err := nc.connect()
 		if err != nil {
-			log.Printf("Failed to connect to host %v with %v\n", ci, err)
-			go nc.reconnect() // the goroutine exits when reconnect succeeds.
+			return nil, err
 		}
 		if vc.distributer.useClientAffinity {
 			vc.distributer.hostIdToConnection[int(nc.connData.hostId)] = nc
