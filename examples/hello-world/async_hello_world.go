@@ -37,6 +37,13 @@ func main() {
 	}
 	defer conn.Close()
 
+	// can also specify a latency target (milliseconds) when opening a connection.  The number of
+	// outstanding transactions is throttled until the latency target is met.
+	// conn, err := voltdbclient.OpenConnWithLatencyTarget([]string{"localhost:21212"}, 5)
+
+	// or can specify the max number of allowable outstanding transactions.
+	// conn, err := voltdbclient.OpenConnWithMaxOutstandingTxns([]string{"localhost:21212"}, 20)
+
 	conn.Exec("@AdHoc", []driver.Value{"DELETE FROM HELLOWORLD;"})
 	resCons := ResponseConsumer{}
 

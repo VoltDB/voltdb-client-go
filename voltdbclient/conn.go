@@ -55,13 +55,23 @@ const (
 // driver.Conn as well.  But a client can create many instances of a VoltConn.
 type VoltConn struct {
 	*distributer
-	cis []string
 }
 
 func newVoltConn(cis []string) *VoltConn {
 	var vc = new(VoltConn)
-	vc.cis = cis
 	vc.distributer = newDistributer()
+	return vc
+}
+
+func newVoltConnWithLatencyTarget(cis []string, latencyTarget int32) *VoltConn {
+	var vc = new(VoltConn)
+	vc.distributer = newDistributerWithLatencyTarget(latencyTarget)
+	return vc
+}
+
+func newVoltConnWithMaxOutstandingTxns(cis []string, maxOutTxns int) *VoltConn {
+	var vc = new(VoltConn)
+	vc.distributer = newDistributerWithMaxOutstandingTxns(maxOutTxns)
 	return vc
 }
 
@@ -70,21 +80,49 @@ func newVoltConn(cis []string) *VoltConn {
 // only one goroutine at a time.
 func OpenConn(cis []string) (*VoltConn, error) {
 	vc := newVoltConn(cis)
+	err := vc.makeConns(cis)
+	if err != nil {
+		return nil, err
+	}
+	return vc, nil
+}
+
+func OpenConnWithLatencyTarget(cis []string, latencyTarget int32) (*VoltConn, error) {
+	vc := newVoltConnWithLatencyTarget(cis, latencyTarget)
+	err := vc.makeConns(cis)
+	if err != nil {
+		return nil, err
+	}
+	return vc, nil
+}
+
+func OpenConnWithMaxOutstandingTxns(cis []string, maxOutTxns int) (*VoltConn, error) {
+	vc := newVoltConnWithMaxOutstandingTxns(cis, maxOutTxns)
+	err := vc.makeConns(cis)
+	if err != nil {
+		return nil, err
+	}
+	return vc, nil
+}
+
+func (vc *VoltConn) makeConns(cis []string) error {
 	ncs := make([]*nodeConn, len(cis))
 	for i, ci := range cis {
 		nc := newNodeConn(ci, vc.distributer)
 		ncs[i] = nc
 		err := nc.connect()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if vc.distributer.useClientAffinity {
 			vc.distributer.hostIdToConnection[int(nc.connData.hostId)] = nc
 		}
 	}
 	vc.setConns(ncs)
-	if vc.distributer.subscribedConnection == nil {
+	if vc.distributer.useClientAffinity {
 		vc.distributer.subscribeToNewNode()
 	}
-	return vc, nil
+
+	return nil
+
 }

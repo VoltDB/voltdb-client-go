@@ -37,8 +37,8 @@ func newNetworkWriter() *networkWriter {
 	return nw
 }
 
-func (nw *networkWriter) writePIs(writer io.Writer, ch <-chan *procedureInvocation, wg *sync.WaitGroup) {
-	for pi := range ch {
+func (nw *networkWriter) writePIs(writer io.Writer, piCh <-chan *procedureInvocation, wg *sync.WaitGroup) {
+	for pi := range piCh {
 		nw.serializePI(writer, pi)
 	}
 	wg.Done()
@@ -99,8 +99,13 @@ func (nw *networkWriter) serializeArgs(writer io.Writer, args []driver.Value) (e
 	return
 }
 
-func (nw *networkWriter) start(writer io.Writer, ch <-chan *procedureInvocation, wg *sync.WaitGroup) {
-	go nw.writePIs(writer, ch, wg)
+func (nw *networkWriter) connect(writer io.Writer, piCh <-chan *procedureInvocation, wg *sync.WaitGroup) {
+	go nw.writePIs(writer, piCh, wg)
+}
+
+func (nw *networkWriter) disconnect(piCh chan *procedureInvocation) {
+	close(piCh)
+
 }
 
 func (nw *networkWriter) hasBP() bool {

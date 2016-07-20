@@ -18,14 +18,12 @@
 package voltdbclient
 
 import (
-	"bytes"
 	"database/sql/driver"
 	"encoding/binary"
 	"encoding/json"
 	"strconv"
 
 	"errors"
-	"sort"
 
 	"github.com/spaolacci/murmur3"
 )
@@ -54,9 +52,12 @@ type hashinater interface {
 
 type hashinaterElastic struct {
 	// sorted array store token index
-	a []int
+	//a []int
 	// unsorted map store token to partition
-	m map[int]int
+	//m map[int]int
+
+	// sorted array of token2partition pair
+	tp Token2PartitionSlice
 }
 
 func newHashinaterElastic(hashConfigFormat int, cooked bool, hashConfig []byte) (h *hashinaterElastic, err error) {
@@ -88,6 +89,7 @@ func (h *hashinaterElastic) getHashedPartitionForParameter(partitionParameterTyp
 	// TODO Handle Special cases:
 	// 1) if the user supplied a string for a number column,
 	// try to do the conversion.
+	//fmt.Println("partition value", partitionValue, valueToBytes(partitionValue))
 	return h.hashinateBytes(valueToBytes(partitionValue))
 }
 
@@ -100,12 +102,15 @@ func (h hashinaterElastic) hashinateBytes(b []byte) (partition int, err error) {
 	}
 
 	v1, _ := murmur3.Sum128(b)
-
+	//fmt.Println("b.a", h.a[0])
+	// fmt.Println("b.m", h.m)
 	//Shift so that we use the higher order bits in case we want to use the lower order ones later
 	//Also use the h1 higher order bits because it provided much better performance in voter, consistent too
 	hash := int(v1 >> 32) // golang do logic shift on unsigned integer
-	token := sort.SearchInts(h.a, hash)
-	return h.m[token], nil
+	// token := sort.SearchInts(h.a, hash)
+	partition = SearchToken2Partitions(h.tp, hash)
+	//fmt.Println("murmur hash", b, hash, token, h.a[token-1],h.m[h.a[token-1]])
+	return partition, nil
 }
 
 // TODO move this function to proper place (volttype, voltserializer ?)
@@ -121,12 +126,17 @@ func valueToBytes(v driver.Value) []byte {
 	case string:
 		return []byte(v.(string))
 	default: // should exclude other none int type ?
-		buf := new(bytes.Buffer)
-		err := binary.Write(buf, binary.LittleEndian, v)
-		if err != nil {
-			panicIfnotNil("binary.Write failed:", err)
-		}
-		return buf.Bytes()
+		/*
+			buf := new(bytes.Buffer)
+			err := binary.Write(buf, binary.LittleEndian, v)
+			if err != nil {
+				panicIfnotNil("binary.Write failed:", err)
+			}
+			return buf.Bytes()
+		*/
+		bs := make([]byte, 4)
+		binary.LittleEndian.PutUint32(bs, 31415926)
+		return bs
 	}
 }
 
@@ -142,8 +152,9 @@ func (h *hashinaterElastic) unmarshalJSONConfig(bytes []byte) (err error) {
 		return
 	}
 
-	h.a = make([]int, 0, 8)
-	h.m = make(map[int]int)
+	// h.a = make([]int, 0, 8)
+	// h.m = make(map[int]int)
+	h.tp = make(Token2PartitionSlice, 128)
 	// Copy the values
 
 	var ki int
@@ -152,10 +163,9 @@ func (h *hashinaterElastic) unmarshalJSONConfig(bytes []byte) (err error) {
 		if err != nil {
 			return
 		}
-		h.m[ki] = v
-		h.a = append(h.a, ki)
+		h.tp = append(h.tp, token2Partition{ki, v})
 	}
-	sort.Ints(h.a)
+	h.tp.Sort()
 
 	return
 }

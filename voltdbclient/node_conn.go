@@ -41,19 +41,16 @@ type connectionData struct {
 }
 
 type nodeConn struct {
-	dist          *distributer
-	connInfo      string
-	connData      *connectionData
-	tcpConn       *net.TCPConn
-	asyncsChannel chan voltResponse
-	asyncs        map[int64]*voltAsyncResponse
-	asyncsMutex   *sync.Mutex
+	dist     *distributer
+	connInfo string
+	connData *connectionData
+	tcpConn  *net.TCPConn
 
 	nl        *networkListener
 	nlCloseCh chan chan bool
 
 	nw   *networkWriter
-	nwCh chan<- *procedureInvocation
+	piCh chan *procedureInvocation
 	nwwg *sync.WaitGroup
 
 	// queued bytes will be read/written by the main client thread and also
@@ -67,28 +64,18 @@ type nodeConn struct {
 
 func newNodeConn(ci string, dist *distributer) *nodeConn {
 	var nc = new(nodeConn)
-
 	nc.connInfo = ci
-	nc.asyncsChannel = make(chan voltResponse)
-	nc.asyncs = make(map[int64]*voltAsyncResponse)
-	nc.asyncsMutex = &sync.Mutex{}
 	nc.dist = dist
+	nc.nl = newNetworkListener(nc, ci)
+	nc.nw = newNetworkWriter()
 	return nc
 }
 
-func (nc *nodeConn) close() (err error) {
-	nc.openMutex.Lock()
-	if !nc.open {
-		nc.openMutex.Unlock()
+// when the node conn is closed by its owning distributer
+func (nc *nodeConn) close() error {
+	if !nc.setClosed() {
 		return nil
-	} else {
-		nc.open = false
-		nc.openMutex.Unlock()
 	}
-
-	close(nc.asyncsChannel)
-	nc.stopNW()
-
 	// stop the network listener.  Send a response channel over the
 	// close channel so that the listener knows its being
 	// closed and won't try to reconnect.
@@ -97,14 +84,30 @@ func (nc *nodeConn) close() (err error) {
 	// close the tcp connection.  If the listener is blocked
 	// on a read this will unblock it.
 	if nc.tcpConn != nil {
-		err = nc.tcpConn.Close()
+		_ = nc.tcpConn.Close()
 		nc.tcpConn = nil
 	}
 	// wait for the listener to respond that it's been closed.
 	<-respCh
-
-	return err
+	nc.disconnect()
+	return nil
 }
+
+func (nc *nodeConn) handleDisconnect() {
+	nc.setClosed()
+	nc.tcpConn = nil
+	nc.disconnect()
+	nc.reconnect()
+}
+
+// when the node conn is closing because it lost connection.  determined by
+// its nl.
+func (nc *nodeConn) disconnect() {
+	nc.nw.disconnect(nc.piCh)
+	nc.nwwg.Wait()
+	nc.nl.disconnect()
+}
+
 func (nc *nodeConn) isOpen() bool {
 	var open bool
 	nc.openMutex.RLock()
@@ -113,10 +116,23 @@ func (nc *nodeConn) isOpen() bool {
 	return open
 }
 
-func (nc *nodeConn) setOpen(open bool) {
+// returns true if the nc is currently open,
+// false if it wasn't open.
+func (nc *nodeConn) setClosed() bool {
 	nc.openMutex.RLock()
-	nc.open = open
-	nc.openMutex.RUnlock()
+	defer nc.openMutex.RUnlock()
+	if !nc.open {
+		return false
+	}
+	nc.open = false
+	return true
+}
+
+func (nc *nodeConn) setOpen() {
+	nc.openMutex.RLock()
+	nc.open = true
+	defer nc.openMutex.RUnlock()
+
 }
 
 func (nc *nodeConn) connect() error {
@@ -128,9 +144,8 @@ func (nc *nodeConn) connect() error {
 	nc.connData = connData
 	nc.tcpConn = tcpConn
 
-	nc.nl = newListener(nc, nc.connInfo)
-	nc.nlCloseCh = nc.startNL(nc.nl, tcpConn)
-	nc.startNW(tcpConn)
+	nc.nlCloseCh = nc.nl.connect(tcpConn)
+	nc.connectNW(tcpConn)
 
 	nc.openMutex.Lock()
 	nc.open = true
@@ -141,15 +156,7 @@ func (nc *nodeConn) connect() error {
 // called when the network listener loses connection.
 // the 'processAsyncs' goroutine and channel stay in place over
 // a reconnect, they're not affected.
-func (nc *nodeConn) reconnectNL() {
-
-	// lost connection, stop the network writer and close the connection.
-	nc.stopNW()
-	if nc.tcpConn != nil {
-		_ = nc.tcpConn.Close()
-		nc.tcpConn = nil
-	}
-	nc.queuedBytes = 0
+func (nc *nodeConn) reconnect() {
 
 	for {
 		tcpConn, connData, err := nc.networkConnect()
@@ -161,37 +168,25 @@ func (nc *nodeConn) reconnectNL() {
 		nc.tcpConn = tcpConn
 		nc.connData = connData
 
-		nc.nlCloseCh = nc.startNL(nc.nl, nc.tcpConn)
-		nc.startNW(nc.tcpConn)
+		nc.nlCloseCh = nc.nl.connect(nc.tcpConn)
+		nc.connectNW(nc.tcpConn)
 
 		nc.openMutex.Lock()
 		nc.open = true
 		nc.openMutex.Unlock()
 		break
 	}
-	nc.setOpen(true)
-}
-
-func (nc *nodeConn) startNL(nl *networkListener, tcpConn *net.TCPConn) chan chan bool {
-	go nc.processAsyncs()
-	nlCloseCh := nc.nl.start(tcpConn)
-	return nlCloseCh
+	nc.setOpen()
 }
 
 // start the network writer.
-func (nc *nodeConn) startNW(tcpConn *net.TCPConn) {
+func (nc *nodeConn) connectNW(tcpConn *net.TCPConn) {
 	piCh := make(chan *procedureInvocation, 1000)
-	nc.nwCh = piCh
+	nc.piCh = piCh
 	nwwg := sync.WaitGroup{}
 	nc.nwwg = &nwwg
-	nc.nw = newNetworkWriter()
 	nwwg.Add(1)
-	nc.nw.start(tcpConn, piCh, &nwwg)
-}
-
-func (nc *nodeConn) stopNW() {
-	close(nc.nwCh)
-	nc.nwwg.Wait()
+	nc.nw.connect(tcpConn, piCh, &nwwg)
 }
 
 func (nc *nodeConn) networkConnect() (*net.TCPConn, *connectionData, error) {
@@ -221,60 +216,81 @@ func (nc *nodeConn) networkConnect() (*net.TCPConn, *connectionData, error) {
 	return tcpConn, connData, nil
 }
 
-func (nc *nodeConn) exec(pi *procedureInvocation) (driver.Result, error) {
+func (nc *nodeConn) exec(pi *procedureInvocation, respRcvd func(int32)) (driver.Result, error) {
 	if !nc.open {
 		return nil, errors.New("Connection is closed")
 	}
-	c := nc.nl.registerRequest(nc, pi)
+	c := nc.nl.registerSyncRequest(nc, pi)
 	nc.incrementQueuedBytes(pi.getLen())
-	nc.nwCh <- pi
+	nc.piCh <- pi
 
 	select {
 	case resp := <-c:
 		switch resp.(type) {
 		case VoltResult:
+			if respRcvd != nil {
+				respRcvd(resp.getClusterRoundTripTime())
+			}
 			return resp.(VoltResult), nil
 		case VoltError:
+			if respRcvd != nil {
+				respRcvd(-1)
+			}
 			return nil, resp.(VoltError)
 		default:
+			if respRcvd != nil {
+				respRcvd(-1)
+			}
 			return nil, VoltError{error: errors.New("unexpected response type")}
 		}
 	case <-time.After(pi.timeout):
+		if respRcvd != nil {
+			respRcvd(int32(pi.timeout.Seconds() * 1000))
+		}
 		return nil, VoltError{voltResponse: voltResponseInfo{status: int8(CONNECTION_TIMEOUT)}, error: errors.New("timeout")}
 	}
 }
 
-func (nc *nodeConn) execAsync(resCons AsyncResponseConsumer, pi *procedureInvocation) error {
+func (nc *nodeConn) execAsync(resCons AsyncResponseConsumer, pi *procedureInvocation, respRcvd func(int32)) error {
 	if !nc.open {
 		return errors.New("Connection is closed")
 	}
-	c := nc.nl.registerRequest(nc, pi)
-	vasr := newVoltAsyncResponse(nc, pi.handle, c, false, resCons)
-	nc.registerAsync(pi.handle, vasr)
+	nc.nl.registerAsyncRequest(nc, pi, resCons, respRcvd)
 	nc.incrementQueuedBytes(pi.getLen())
-	nc.nwCh <- pi
+	nc.piCh <- pi
 	return nil
 }
 
-func (nc *nodeConn) query(pi *procedureInvocation) (driver.Rows, error) {
+func (nc *nodeConn) query(pi *procedureInvocation, respRcvd func(int32)) (driver.Rows, error) {
 	if !nc.open {
 		return nil, errors.New("Connection is closed")
 	}
-	c := nc.nl.registerRequest(nc, pi)
+	c := nc.nl.registerSyncRequest(nc, pi)
 	nc.incrementQueuedBytes(pi.getLen())
-	nc.nwCh <- pi
+	nc.piCh <- pi
 	select {
 	case resp := <-c:
 		switch resp.(type) {
 		case VoltRows:
+			if respRcvd != nil {
+				respRcvd(resp.getClusterRoundTripTime())
+			}
 			return resp.(VoltRows), nil
 		case VoltError:
+			if respRcvd != nil {
+				respRcvd(-1)
+			}
 			return nil, resp.(VoltError)
 		default:
+			if respRcvd != nil {
+				respRcvd(-1)
+			}
 			return nil, VoltError{error: errors.New("unexpected response type")}
 		}
 	case <-time.After(pi.timeout):
-		// TODO: make an error type for timeout
+		if respRcvd != nil {
+			respRcvd(int32(pi.timeout.Seconds() * 1000))
+		}
 		return nil, VoltError{voltResponse: voltResponseInfo{status: int8(CONNECTION_TIMEOUT)}, error: errors.New("timeout")}
 	}
 }
@@ -283,15 +299,13 @@ func (nc *nodeConn) query(pi *procedureInvocation) (driver.Rows, error) {
 // until the query is sent over the network to the server.  The eventual
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.
-func (nc *nodeConn) queryAsync(rowsCons AsyncResponseConsumer, pi *procedureInvocation) error {
+func (nc *nodeConn) queryAsync(rowsCons AsyncResponseConsumer, pi *procedureInvocation, respRcvd func(int32)) error {
 	if !nc.open {
 		return errors.New("Connection is closed")
 	}
-	c := nc.nl.registerRequest(nc, pi)
-	vasr := newVoltAsyncResponse(nc, pi.handle, c, true, rowsCons)
-	nc.registerAsync(pi.handle, vasr)
+	nc.nl.registerAsyncRequest(nc, pi, rowsCons, respRcvd)
 	nc.incrementQueuedBytes(pi.getLen())
-	nc.nwCh <- pi
+	nc.piCh <- pi
 	return nil
 }
 
@@ -316,73 +330,18 @@ func (nc *nodeConn) getQueuedBytes() int {
 }
 
 func (nc *nodeConn) drain() {
-	var numAsyncs int
 	for {
-		nc.asyncsMutex.Lock()
-		numAsyncs = len(nc.asyncs)
-		nc.asyncsMutex.Unlock()
-		numQueuedWrites := len(nc.nwCh)
-		if numAsyncs == 0 && numQueuedWrites == 0 {
+		numRequests := nc.nl.numOutstandingRequests()
+		numQueuedWrites := len(nc.piCh)
+		if numRequests == 0 && numQueuedWrites == 0 {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 }
 
-func (nc *nodeConn) processAsyncs() {
-	for resp := range nc.asyncsChannel {
-		handle := resp.getHandle()
-		nc.asyncsMutex.Lock()
-		async := nc.asyncs[handle]
-		nc.asyncsMutex.Unlock()
-		// can happen on reconnect...
-		if async == nil {
-			log.Panic("Didn't find async with handle", handle)
-			return
-		}
-
-		switch resp.(type) {
-		case VoltRows:
-			async.getArc().ConsumeRows(resp.(VoltRows))
-		case VoltResult:
-			async.getArc().ConsumeResult(resp.(VoltResult))
-		case VoltError:
-			async.getArc().ConsumeError(resp.(VoltError))
-		default:
-			log.Panic("unexpected response type", resp)
-		}
-		nc.asyncsMutex.Lock()
-		delete(nc.asyncs, handle)
-		nc.asyncsMutex.Unlock()
-	}
-}
-
 func (nc *nodeConn) hasBP() bool {
 	return nc.getQueuedBytes() >= maxQueuedBytes
-}
-
-func (nc *nodeConn) registerAsync(handle int64, vasr *voltAsyncResponse) {
-	nc.asyncsMutex.Lock()
-	nc.asyncs[handle] = vasr
-	nc.asyncsMutex.Unlock()
-	go func(ch <-chan voltResponse) {
-		select {
-		case vr := <-ch:
-			nc.asyncsChannel <- vr
-		case <-time.After(2 * time.Minute):
-			req := nc.nl.removeRequest(vasr.handle())
-			if req != nil {
-				err := errors.New("timeout")
-				nc.asyncsChannel <- err.(voltResponse)
-			}
-		}
-	}(vasr.channel())
-}
-
-func (nc *nodeConn) removeAsync(han int64) {
-	nc.asyncsMutex.Lock()
-	delete(nc.asyncs, han)
-	nc.asyncsMutex.Unlock()
 }
 
 func writeLoginMessage(writer io.Writer, buf *bytes.Buffer) {
@@ -423,40 +382,6 @@ type AsyncResponseConsumer interface {
 	ConsumeResult(driver.Result)
 	// This method is invoked when Rows is returned by an async Query.
 	ConsumeRows(driver.Rows)
-}
-
-type voltAsyncResponse struct {
-	conn *nodeConn
-	han  int64
-	ch   <-chan voltResponse
-	isQ  bool
-	arc  AsyncResponseConsumer
-}
-
-func newVoltAsyncResponse(conn *nodeConn, han int64, ch <-chan voltResponse, isQuery bool, arc AsyncResponseConsumer) *voltAsyncResponse {
-	var vasr = new(voltAsyncResponse)
-	vasr.conn = conn
-	vasr.han = han
-	vasr.ch = ch
-	vasr.isQ = isQuery
-	vasr.arc = arc
-	return vasr
-}
-
-func (vasr *voltAsyncResponse) getArc() AsyncResponseConsumer {
-	return vasr.arc
-}
-
-func (vasr *voltAsyncResponse) channel() <-chan voltResponse {
-	return vasr.ch
-}
-
-func (vasr *voltAsyncResponse) handle() int64 {
-	return vasr.han
-}
-
-func (vasr *voltAsyncResponse) isQuery() bool {
-	return vasr.isQ
 }
 
 // Null Value type

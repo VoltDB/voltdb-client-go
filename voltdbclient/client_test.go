@@ -24,16 +24,14 @@ import (
 	"io/ioutil"
 	"math/big"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
 
 func CallOnClosedConn(t *testing.T) {
-	cd := connectionData{0, 0, 0, ""}
-	conn := nodeConn{"", nil, cd, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, sync.Mutex{}, false, sync.RWMutex{}}
+	conn := newNodeConn("", nil)
 	pi := newProcedureInvocation(0, true, "HELLOWORLD.select", []driver.Value{}, time.Minute*2)
-	_, err := conn.query(pi)
+	_, err := conn.query(pi, func(int32) {})
 	if err == nil {
 		t.Errorf("Expected error calling procedure on closed Conn")
 	}
@@ -44,10 +42,10 @@ func ReadDataTypes(t *testing.T) {
 	check(t, err)
 	r := bytes.NewReader(b)
 
-	nl := newListener(nil, "", r, nil, nil)
+	nl := newNetworkListener(nil, "")
 	var handle int64 = 1
 	pi := newProcedureInvocation(handle, true, "HELLOWORLD.select", []driver.Value{}, time.Minute*2)
-	ch := nl.registerRequest(nil, pi)
+	ch := nl.registerSyncRequest(nil, pi)
 
 	nl.readResponse(r, handle)
 	vr := <-ch

@@ -28,8 +28,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/VoltDB/voltdb-client-go/voltdbclient"
 	"strings"
+
+	"github.com/VoltDB/voltdb-client-go/voltdbclient"
 )
 
 // handy, rather than typing this out several times
@@ -65,6 +66,7 @@ func clear(v interface{}) {
 var (
 	periodicStats, fullStats *benchmarkStats
 	cpuprofile               = ""
+	memprofile               = ""
 	config                   *voterConfig
 	ticker                   *time.Ticker
 	timeStart                time.Time
@@ -185,7 +187,6 @@ func placeVotesSql(join chan int, duration time.Duration) {
 func placeVotesSync(join chan int, duration time.Duration) {
 	volt := connect(config.servers)
 	defer volt.Close()
-
 	timeout := time.After(duration)
 
 	ops := 0
@@ -211,6 +212,7 @@ func placeVotesSync(join chan int, duration time.Duration) {
 func placeVotesAsync(join chan int, duration time.Duration) {
 	volt := connect(config.servers)
 	defer volt.Close()
+	// volt := bm.conn
 
 	timeout := time.After(duration)
 
@@ -328,7 +330,7 @@ func handleVoteReturnCode(rows driver.Rows) (success int) {
 }
 
 func connect(servers string) *voltdbclient.VoltConn {
-	conn, err := voltdbclient.OpenConn(strings.Split(servers,","))
+	conn, err := voltdbclient.OpenConn(strings.Split(servers, ","))
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
@@ -343,6 +345,18 @@ func setupProfiler() {
 			log.Fatal(err)
 		}
 		pprof.StartCPUProfile(f)
+	}
+}
+
+func takeMemProfile() {
+	if memprofile != "" {
+		f, err := os.Create(memprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.WriteHeapProfile(f)
+		f.Close()
+		return
 	}
 }
 
@@ -429,6 +443,7 @@ func printResults(timeElapsed time.Duration) {
 
 func main() {
 	flag.StringVar(&cpuprofile, "cpuprofile", "", "name of profile file to write")
+	flag.StringVar(&memprofile, "memprofile", "", "write memory profile to this file")
 	var err error
 	config, err = NewVoterConfig()
 	if err != nil {

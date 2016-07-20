@@ -17,17 +17,41 @@
 
 package voltdbclient
 
-import "math"
-
-const (
-	PING_HANDLE       = math.MaxInt64
-	ASYNC_TOPO_HANDLE = PING_HANDLE - 1
+import (
+	"errors"
+	"time"
 )
 
-const (
-	PARTITIONID_BITS = 14
+type empty struct{}
+type semaphore chan empty
 
-	// maximum values for the txn id fields
-	PARTITIONID_MAX_VALUE = (1 << PARTITIONID_BITS) - 1
-	MP_INIT_PID           = PARTITIONID_MAX_VALUE
-)
+type txnLimiter struct {
+	txnSems semaphore
+}
+
+func newTxnLimiter() *txnLimiter {
+	var tl = new(txnLimiter)
+	tl.txnSems = make(semaphore, 10)
+	return tl
+}
+
+func newTxnLimiterWithMaxOutTxns(maxOutTxns int) *txnLimiter {
+	var tl = new(txnLimiter)
+	tl.txnSems = make(semaphore, maxOutTxns)
+	return tl
+}
+
+// interface for rateLimiter
+func (tl *txnLimiter) limit(timeout time.Duration) error {
+	select {
+	case tl.txnSems <- empty{}:
+		return nil
+	case <-time.After(timeout):
+		return errors.New("timeout waiting for transaction permit.")
+	}
+}
+
+// interface for rateLimiter
+func (tl *txnLimiter) responseReceived(latency int32) {
+	_ = <-tl.txnSems
+}

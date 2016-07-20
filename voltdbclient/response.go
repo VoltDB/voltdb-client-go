@@ -145,44 +145,44 @@ func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse, volterr e
 	// of optional fields includes 'statusString', 'appStatusString', and 'exceptionLength'.
 	fieldsPresent, err := readUint8(r)
 	if err != nil {
-		return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, 0, "", 0, "", 0, 0)), error: err}
+		return nil, VoltError{voltResponse: nil, error: err}
 	}
 
 	status, err := readByte(r)
 	if err != nil {
-		return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, 0, "", 0, "", 0, 0)), error: err}
+		return nil, VoltError{voltResponse: nil, error: err}
 	}
 	var statusString string
 	if ResponseStatus(status) != SUCCESS {
 		if fieldsPresent&(1<<5) != 0 {
 			statusString, err = readString(r)
 			if err != nil {
-				return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, status, "", 0, "", 0, 0)), error: err}
+				return nil, VoltError{voltResponse: nil, error: err}
 			}
 		}
 		errString := fmt.Sprintf("Bad status %s %s\n", ResponseStatus(status).String(), statusString)
-		return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, status, statusString, 0, "", 0, 0)), error: errors.New(errString)}
+		return nil, VoltError{voltResponse: nil, error: errors.New(errString)}
 	}
 
 	appStatus, err := readByte(r)
 	if err != nil {
-		return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, status, statusString, 0, "", 0, 0)), error: err}
+		return nil, VoltError{voltResponse: nil, error: err}
 	}
 	var appStatusString string
 	if appStatus != 0 && appStatus != math.MinInt8 {
 		if fieldsPresent&(1<<7) != 0 {
 			appStatusString, err = readString(r)
 			if err != nil {
-				return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, status, statusString, appStatus, "", 0, 0)), error: err}
+				return nil, VoltError{voltResponse: nil, error: err}
 			}
 		}
 		errString := fmt.Sprintf("Bad app status %d %s\n", appStatus, appStatusString)
-		return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, status, statusString, 0, "", 0, 0)), error: errors.New(errString)}
+		return nil, VoltError{voltResponse: nil, error: errors.New(errString)}
 	}
 
 	clusterRoundTripTime, err := readInt(r)
 	if err != nil {
-		return nil, VoltError{voltResponse: *(newVoltResponseInfo(handle, status, statusString, appStatus, appStatusString, 0, 0)), error: err}
+		return nil, VoltError{voltResponse: nil, error: err}
 	}
 
 	numTables, err := readShort(r)

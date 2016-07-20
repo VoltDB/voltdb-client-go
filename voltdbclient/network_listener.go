@@ -33,13 +33,13 @@ type networkListener struct {
 	ci           string
 	requests     map[int64]*networkRequest
 	requestMutex sync.Mutex
+	asyncsCh     chan asyncVoltResponse
 }
 
-func newListener(nc *nodeConn, ci string) *networkListener {
+func newNetworkListener(nc *nodeConn, ci string) *networkListener {
 	var nl = new(networkListener)
 	nl.nc = nc
 	nl.ci = ci
-	nl.requests = make(map[int64]*networkRequest)
 	return nl
 }
 
@@ -47,10 +47,11 @@ func newListener(nc *nodeConn, ci string) *networkListener {
 // listen blocks on input from the server and should be run as a go routine.
 func (nl *networkListener) listen(reader io.Reader, closeCh chan chan bool) {
 	for {
+		// the owning node conn told nl to disconnect
 		respCh := nl.readClose(closeCh)
 		if respCh != nil {
-			nl.close()
 			respCh <- true
+			return
 		}
 		// can't do anything without a handle.  If reading the handle fails,
 		// then log and drop the message.
@@ -58,15 +59,13 @@ func (nl *networkListener) listen(reader io.Reader, closeCh chan chan bool) {
 		if err != nil {
 			respCh := nl.readClose(closeCh)
 			if respCh != nil {
-				nl.close()
+				// node conn told nl to stop
 				respCh <- true
 				return
 			} else {
-				// have lost connection.  reestablish connection here and let this thread exit.
-				// close the connection so nore more requests.
-				nl.nc.setOpen(false)
-				nl.close()
-				nl.nc.reconnectNL()
+				// have lost connection.  tell the owning node conn to disconnect
+				// and to reconnect.
+				nl.nc.handleDisconnect()
 				return
 			}
 		}
@@ -90,16 +89,28 @@ func (nl *networkListener) readClose(closeCh chan chan bool) chan bool {
 	}
 }
 
-func (nl *networkListener) close() {
+func (nl *networkListener) disconnect() {
 	// if connection to server is lost then there won't be a response
 	// for any of the remaining requests.  Time them out.
 	err := errors.New("connection lost")
 	nl.requestMutex.Lock()
 	defer nl.requestMutex.Unlock()
 	for _, req := range nl.requests {
-		req.getChan() <- err.(voltResponse)
+		verr := VoltError{voltResponse: nil, error: err}
+		req.getChan() <- voltResponse(verr)
 	}
-	nl.requests = make(map[int64]*networkRequest)
+	nl.requests = nil
+	close(nl.asyncsCh)
+	nl.asyncsCh = nil
+}
+
+// blocks until there are no outstanding asyncs to process
+func (nl *networkListener) numOutstandingRequests() int {
+	var numOutstanding int
+	nl.requestMutex.Lock()
+	numOutstanding = len(nl.requests)
+	nl.requestMutex.Unlock()
+	return numOutstanding
 }
 
 // reads and deserializes a response from the server.
@@ -115,12 +126,12 @@ func (nl *networkListener) readResponse(r io.Reader, handle int64) {
 	}
 	if handle == ASYNC_TOPO_HANDLE {
 		if err != nil {
-			nl.nc.dist.handleSubscribe(err.(voltResponse))
+			nl.nc.dist.handleSubscribeError(err)
 		} else {
 			if rows, err := deserializeRows(r, rsp); err != nil {
-				nl.nc.dist.handleSubscribe(err.(voltResponse))
+				nl.nc.dist.handleSubscribeError(err)
 			} else {
-				nl.nc.dist.handleSubscribe(rows)
+				nl.nc.dist.handleSubscribeRow(rows)
 			}
 
 		}
@@ -130,7 +141,8 @@ func (nl *networkListener) readResponse(r io.Reader, handle int64) {
 	// remove the associated request as soon as the handle is found.
 	req := nl.removeRequest(handle)
 	if req == nil {
-		log.Panic("Unexpected handle", handle)
+		// there's a race here with timeout.  A request can be timed out and
+		// then a response received.  In this case drop the response.
 		return
 	}
 	if err != nil {
@@ -150,13 +162,46 @@ func (nl *networkListener) readResponse(r io.Reader, handle int64) {
 	}
 }
 
-func (nl *networkListener) registerRequest(nc *nodeConn, pi *procedureInvocation) <-chan voltResponse {
+func (nl *networkListener) registerSyncRequest(nc *nodeConn, pi *procedureInvocation) <-chan voltResponse {
 	ch := make(chan voltResponse, 1)
-	nr := newNetworkRequest(nc, ch, pi.isQuery, pi.getLen())
+	nr := newSyncRequest(nc, ch, pi.isQuery, pi.getLen())
 	nl.requestMutex.Lock()
 	nl.requests[pi.handle] = nr
 	nl.requestMutex.Unlock()
 	return ch
+}
+
+func (nl *networkListener) registerAsyncRequest(nc *nodeConn, pi *procedureInvocation, arc AsyncResponseConsumer, respRcvd func(int32)) {
+	handle := pi.handle
+	ch := make(chan voltResponse, 1)
+	nr := newAsyncRequest(nc, ch, pi.isQuery, arc, pi.getLen())
+	nl.requestMutex.Lock()
+	nl.requests[handle] = nr
+	nl.requestMutex.Unlock()
+
+	go func(ch <-chan voltResponse) {
+		select {
+		case vr := <-ch:
+			if respRcvd != nil {
+				respRcvd(vr.getClusterRoundTripTime())
+			}
+			avr := asyncVoltResponse{vr, arc}
+			nl.asyncsCh <- avr
+		case <-time.After(2 * time.Minute):
+			if respRcvd != nil {
+				// timeout in milliseconds
+				respRcvd(int32(2 * time.Minute.Seconds() * 1000))
+			}
+			req := nl.removeRequest(handle)
+
+			if req != nil {
+				err := errors.New("timeout")
+				verr := VoltError{voltResponse: nil, error: err}
+				avr := asyncVoltResponse{verr, arc}
+				nl.asyncsCh <- avr
+			}
+		}
+	}(ch)
 }
 
 // need to have a lock on the map when this is invoked.
@@ -173,33 +218,74 @@ func (nl *networkListener) removeRequest(handle int64) *networkRequest {
 	return req
 }
 
-func (nl *networkListener) start(reader io.Reader) chan chan bool {
-	// the channel that will be used to stop the listener
-	// has size one because can't block on reading from it.
+func (nl *networkListener) connect(reader io.Reader) chan chan bool {
+	nl.requests = make(map[int64]*networkRequest)
+	nl.asyncsCh = make(chan asyncVoltResponse)
+	go nl.processAsyncs()
 	closeCh := make(chan chan bool, 1)
 	go nl.listen(reader, closeCh)
 	return closeCh
+}
+
+func (nl *networkListener) processAsyncs() {
+	for avr := range nl.asyncsCh {
+		vr := avr.vr
+		arc := avr.arc
+		switch vr.(type) {
+		case VoltRows:
+			arc.ConsumeRows(vr.(VoltRows))
+		case VoltResult:
+			arc.ConsumeResult(vr.(VoltResult))
+		case VoltError:
+			arc.ConsumeError(vr.(VoltError))
+		default:
+			log.Panic("unexpected response type", vr)
+		}
+	}
 }
 
 type networkRequest struct {
 	nc    *nodeConn
 	query bool
 	ch    chan voltResponse
+	sync  bool
+	arc   AsyncResponseConsumer
 	// the size of the serialized request written to the server.
 	numBytes int
 }
 
-func newNetworkRequest(nc *nodeConn, ch chan voltResponse, isQuery bool, numBytes int) *networkRequest {
+func newSyncRequest(nc *nodeConn, ch chan voltResponse, isQuery bool, numBytes int) *networkRequest {
 	var nr = new(networkRequest)
 	nr.nc = nc
 	nr.query = isQuery
 	nr.ch = ch
+	nr.sync = true
+	nr.arc = nil
 	nr.numBytes = numBytes
 	return nr
 }
 
+func newAsyncRequest(nc *nodeConn, ch chan voltResponse, isQuery bool, arc AsyncResponseConsumer, numBytes int) *networkRequest {
+	var nr = new(networkRequest)
+	nr.nc = nc
+	nr.query = isQuery
+	nr.ch = ch
+	nr.sync = false
+	nr.arc = arc
+	nr.numBytes = numBytes
+	return nr
+}
+
+func (nr *networkRequest) getArc() AsyncResponseConsumer {
+	return nr.arc
+}
+
 func (nr *networkRequest) getNodeConn() *nodeConn {
 	return nr.nc
+}
+
+func (nr *networkRequest) isSync() bool {
+	return nr.sync
 }
 
 func (nr *networkRequest) isQuery() bool {
@@ -212,4 +298,10 @@ func (nr *networkRequest) getChan() chan voltResponse {
 
 func (nr *networkRequest) getNumBytes() int {
 	return nr.numBytes
+}
+
+// wrap these two things together so that they can go on the asyncs channel.
+type asyncVoltResponse struct {
+	vr  voltResponse
+	arc AsyncResponseConsumer
 }

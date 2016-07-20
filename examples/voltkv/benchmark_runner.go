@@ -400,7 +400,7 @@ func handleResults(res driver.Result) (success int) {
 }
 
 func connect(servers string) *voltdbclient.VoltConn {
-	conn, err := voltdbclient.OpenConn((strings.Split(servers,","))
+	conn, err := voltdbclient.OpenConn(strings.Split(servers, ","))
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
