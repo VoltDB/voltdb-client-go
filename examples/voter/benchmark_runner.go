@@ -28,8 +28,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"strings"
-
 	"github.com/VoltDB/voltdb-client-go/voltdbclient"
 )
 
@@ -147,7 +145,7 @@ func (bm *benchmark) runBenchmark() {
 }
 
 func openAndPingDB(servers string) *sql.DB {
-	db, err := sql.Open(VOLTDB_DRIVER, servers+"/"+VOLTDB_DRIVER)
+	db, err := sql.Open(VOLTDB_DRIVER, servers)
 	if err != nil {
 		fmt.Println("open")
 		log.Fatal(err)
@@ -330,7 +328,7 @@ func handleVoteReturnCode(rows driver.Rows) (success int) {
 }
 
 func connect(servers string) *voltdbclient.VoltConn {
-	conn, err := voltdbclient.OpenConn(strings.Split(servers, ","))
+	conn, err := voltdbclient.OpenConn(servers)
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)

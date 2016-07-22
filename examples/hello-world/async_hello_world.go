@@ -30,7 +30,7 @@ import (
 func main() {
 
 	// create one connection, save the async results and wait on them explicitly.
-	conn, err := voltdbclient.OpenConn([]string{"localhost:21212"})
+	conn, err := voltdbclient.OpenConn("localhost:21212")
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)

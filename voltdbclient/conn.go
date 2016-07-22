@@ -32,13 +32,13 @@
 package voltdbclient
 
 import (
+	"strings"
 	"time"
 )
 
 const (
 	// Default time out for queries.
 	DEFAULT_QUERY_TIMEOUT time.Duration = 2 * time.Minute
-	// TODO No timeout for system procedure call?
 )
 
 // VoltConn represents a connection to VoltDB that can be used to execute
@@ -78,7 +78,8 @@ func newVoltConnWithMaxOutstandingTxns(cis []string, maxOutTxns int) *VoltConn {
 // OpenConn returns a new connection to the VoltDB server.  The name is a
 // string in a driver-specific format.  The returned connection can be used by
 // only one goroutine at a time.
-func OpenConn(cis []string) (*VoltConn, error) {
+func OpenConn(ci string) (*VoltConn, error) {
+	cis := strings.Split(ci, ",")
 	vc := newVoltConn(cis)
 	err := vc.makeConns(cis)
 	if err != nil {
@@ -87,7 +88,8 @@ func OpenConn(cis []string) (*VoltConn, error) {
 	return vc, nil
 }
 
-func OpenConnWithLatencyTarget(cis []string, latencyTarget int32) (*VoltConn, error) {
+func OpenConnWithLatencyTarget(ci string, latencyTarget int32) (*VoltConn, error) {
+	cis := strings.Split(ci, ",")
 	vc := newVoltConnWithLatencyTarget(cis, latencyTarget)
 	err := vc.makeConns(cis)
 	if err != nil {
@@ -96,7 +98,8 @@ func OpenConnWithLatencyTarget(cis []string, latencyTarget int32) (*VoltConn, er
 	return vc, nil
 }
 
-func OpenConnWithMaxOutstandingTxns(cis []string, maxOutTxns int) (*VoltConn, error) {
+func OpenConnWithMaxOutstandingTxns(ci string, maxOutTxns int) (*VoltConn, error) {
+	cis := strings.Split(ci, ",")
 	vc := newVoltConnWithMaxOutstandingTxns(cis, maxOutTxns)
 	err := vc.makeConns(cis)
 	if err != nil {

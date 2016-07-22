@@ -31,7 +31,6 @@ import (
 	"database/sql"
 
 	"github.com/VoltDB/voltdb-client-go/voltdbclient"
-	"strings"
 )
 
 // handy, rather than typing this out several times
@@ -142,7 +141,7 @@ func (bm *benchmark) runBenchmark() {
 }
 
 func openAndPingDB(servers string) *sql.DB {
-	db, err := sql.Open(VOLTDB_DRIVER, servers+"/"+VOLTDB_DRIVER)
+	db, err := sql.Open(VOLTDB_DRIVER, servers)
 	if err != nil {
 		fmt.Println("open")
 		log.Fatal(err)
@@ -400,7 +399,7 @@ func handleResults(res driver.Result) (success int) {
 }
 
 func connect(servers string) *voltdbclient.VoltConn {
-	conn, err := voltdbclient.OpenConn(strings.Split(servers, ","))
+	conn, err := voltdbclient.OpenConn(servers)
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
