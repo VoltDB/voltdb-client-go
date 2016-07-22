@@ -114,10 +114,15 @@ func (h hashinaterElastic) hashinateBytes(b []byte) (partition int, err error) {
 }
 
 // TODO move this function to proper place (volttype, voltserializer ?)
+/** Converts the object into bytes for hashing.
+ return a byte array representation of obj
+	* OR nil if the obj is nullValue or any other Volt representation
+	* of a null value. */
 func valueToBytes(v driver.Value) []byte {
 	if v == nil {
 		return nil
 	}
+	var value uint64
 	switch v.(type) {
 	case nullValue:
 		return nil
@@ -125,19 +130,21 @@ func valueToBytes(v driver.Value) []byte {
 		return v.([]byte)
 	case string:
 		return []byte(v.(string))
-	default: // should exclude other none int type ?
-		/*
-			buf := new(bytes.Buffer)
-			err := binary.Write(buf, binary.LittleEndian, v)
-			if err != nil {
-				panicIfnotNil("binary.Write failed:", err)
-			}
-			return buf.Bytes()
-		*/
-		bs := make([]byte, 4)
-		binary.LittleEndian.PutUint32(bs, 31415926)
-		return bs
+	case byte:
+		value = uint64(v.(byte))
+	case int8:
+		value = uint64(v.(int8))
+	case int16:
+		value = uint64(v.(int16))
+	case int32:
+		value = uint64(v.(int32))
+	case int64:
+		value = uint64(v.(int64))
 	}
+
+	bs := make([]byte, 8)
+	binary.LittleEndian.PutUint64(bs, value)
+	return bs
 }
 
 // until go 1.7, go lang won't support non-string type keys for (un-)marshal

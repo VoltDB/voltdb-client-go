@@ -266,33 +266,42 @@ func (d *distributer) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, query st
 func (d *distributer) getConn(pi *procedureInvocation) (*nodeConn, error) {
 
 	d.assertOpen()
-	nc, _, _ := d.getConnByCA(pi)
-	if nc != nil {
-		return nc, nil
-	} else {
-		return d.getConnByRR(pi.timeout)
+	start := time.Now()
+	for {
+		if time.Now().Sub(start) > pi.timeout {
+			return nil, errors.New("timeout")
+		}
+		nc, backpressure, err := d.getConnByCA(pi)
+		if err != nil {
+			return nil, err
+		}
+		if !backpressure && nc != nil {
+			return nc, nil
+		}
+		nc, backpressure, err = d.getConnByRR()
+		if err != nil {
+			return nil, err
+		}
+		if !backpressure && nc != nil {
+			return nc, nil
+		}
 	}
 }
 
-func (d *distributer) getConnByRR(timeout time.Duration) (*nodeConn, error) {
-	start := time.Now()
+func (d *distributer) getConnByRR() (*nodeConn, bool, error) {
 	d.ncMutex.Lock()
 	defer d.ncMutex.Unlock()
 	for i := 0; i < d.ncLen; i++ {
 		d.ncIndex++
 		d.ncIndex = d.ncIndex % d.ncLen
 		nc := d.ncs[d.ncIndex]
-		if nc.isOpen() {
-			if time.Now().Sub(start) > timeout {
-				return nil, errors.New("timeout")
-			} else {
-				return nc, nil
-			}
+		if nc.isOpen() && !nc.hasBP() {
+			return nc, false, nil
 		}
 	}
 	// if went through the loop without finding an open connection
-	// without backpressure then return nil.
-	return nil, nil
+	// without backpressure then return true for backpressure.
+	return nil, true, nil
 }
 
 // Try to find optimal connection using client affinity

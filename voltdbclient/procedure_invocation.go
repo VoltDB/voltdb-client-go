@@ -63,6 +63,10 @@ func (pi *procedureInvocation) calcLen() int {
 
 func (pi *procedureInvocation) calcParamLen(param interface{}) int {
 	// add one to each because the type itself takes one byte
+	// nil is 1
+	if param == nil {
+		return 1
+	}
 	v := reflect.ValueOf(param)
 	switch v.Kind() {
 	case reflect.Bool:
@@ -80,7 +84,7 @@ func (pi *procedureInvocation) calcParamLen(param interface{}) int {
 	case reflect.String:
 		return 5 + v.Len()
 	case reflect.Slice:
-		return 1 + v.Len()
+		return 5 + v.Len()
 	case reflect.Struct:
 		panic("Can't marshal a struct")
 	case reflect.Ptr:

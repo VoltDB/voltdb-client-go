@@ -84,7 +84,7 @@ func (nl *networkListener) readClose(closeCh chan chan bool) chan bool {
 	select {
 	case respCh := <-closeCh:
 		return respCh
-	case <-time.After(5 * time.Millisecond):
+	case <-time.After(1 * time.Nanosecond):
 		return nil
 	}
 }
@@ -96,7 +96,7 @@ func (nl *networkListener) disconnect() {
 	nl.requestMutex.Lock()
 	defer nl.requestMutex.Unlock()
 	for _, req := range nl.requests {
-		verr := VoltError{voltResponse: nil, error: err}
+		verr := VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 		req.getChan() <- voltResponse(verr)
 	}
 	nl.requests = nil
@@ -196,7 +196,7 @@ func (nl *networkListener) registerAsyncRequest(nc *nodeConn, pi *procedureInvoc
 
 			if req != nil {
 				err := errors.New("timeout")
-				verr := VoltError{voltResponse: nil, error: err}
+				verr := VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 				avr := asyncVoltResponse{verr, arc}
 				nl.asyncsCh <- avr
 			}

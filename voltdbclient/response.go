@@ -26,12 +26,12 @@ import (
 )
 
 type voltResponse interface {
-	getAppStatus() int8
+	getAppStatus() ResponseStatus
 	getAppStatusString() string
 	getClusterRoundTripTime() int32
 	getHandle() int64
 	getNumTables() int16
-	getStatus() int8
+	getStatus() ResponseStatus
 	getStatusString() string
 }
 
@@ -44,15 +44,15 @@ type VoltError struct {
 // helds a processed response, either a VoltResult or a VoltRows
 type voltResponseInfo struct {
 	handle               int64
-	status               int8
+	status               ResponseStatus
 	statusString         string
-	appStatus            int8
+	appStatus            ResponseStatus
 	appStatusString      string
 	clusterRoundTripTime int32
 	numTables            int16
 }
 
-func newVoltResponseInfo(handle int64, status int8, statusString string, appStatus int8, appStatusString string, clusterRoundTripTime int32, numTables int16) *voltResponseInfo {
+func newVoltResponseInfo(handle int64, status ResponseStatus, statusString string, appStatus ResponseStatus, appStatusString string, clusterRoundTripTime int32, numTables int16) *voltResponseInfo {
 	var vrsp = new(voltResponseInfo)
 	vrsp.handle = handle
 	vrsp.status = status
@@ -64,7 +64,31 @@ func newVoltResponseInfo(handle int64, status int8, statusString string, appStat
 	return vrsp
 }
 
-func (vrsp voltResponseInfo) getAppStatus() int8 {
+func emptyVoltResponseInfo() voltResponseInfo {
+	var vrsp = new(voltResponseInfo)
+	vrsp.handle = 0
+	vrsp.status = SUCCESS
+	vrsp.statusString = ""
+	vrsp.appStatus = UNINITIALIZED_APP_STATUS_CODE
+	vrsp.appStatusString = ""
+	vrsp.clusterRoundTripTime = -1
+	vrsp.numTables = 0
+	return *vrsp
+}
+
+func emptyVoltResponseInfoWithLatency(rtt int32) voltResponseInfo {
+	var vrsp = new(voltResponseInfo)
+	vrsp.handle = 0
+	vrsp.status = SUCCESS
+	vrsp.statusString = ""
+	vrsp.appStatus = UNINITIALIZED_APP_STATUS_CODE
+	vrsp.appStatusString = ""
+	vrsp.clusterRoundTripTime = rtt
+	vrsp.numTables = 0
+	return *vrsp
+}
+
+func (vrsp voltResponseInfo) getAppStatus() ResponseStatus {
 	return vrsp.appStatus
 }
 
@@ -84,7 +108,7 @@ func (vrsp voltResponseInfo) getNumTables() int16 {
 	return vrsp.numTables
 }
 
-func (vrsp voltResponseInfo) getStatus() int8 {
+func (vrsp voltResponseInfo) getStatus() ResponseStatus {
 	return vrsp.status
 }
 
@@ -145,54 +169,56 @@ func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse, volterr e
 	// of optional fields includes 'statusString', 'appStatusString', and 'exceptionLength'.
 	fieldsPresent, err := readUint8(r)
 	if err != nil {
-		return nil, VoltError{voltResponse: nil, error: err}
+		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 	}
 
-	status, err := readByte(r)
+	b, err := readByte(r)
+	status := ResponseStatus(b)
 	if err != nil {
-		return nil, VoltError{voltResponse: nil, error: err}
+		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 	}
 	var statusString string
-	if ResponseStatus(status) != SUCCESS {
+	if status != SUCCESS {
 		if fieldsPresent&(1<<5) != 0 {
 			statusString, err = readString(r)
 			if err != nil {
-				return nil, VoltError{voltResponse: nil, error: err}
+				return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 			}
 		}
 		errString := fmt.Sprintf("Bad status %s %s\n", ResponseStatus(status).String(), statusString)
-		return nil, VoltError{voltResponse: nil, error: errors.New(errString)}
+		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: errors.New(errString)}
 	}
 
-	appStatus, err := readByte(r)
+	b, err = readByte(r)
+	appStatus := ResponseStatus(b)
 	if err != nil {
-		return nil, VoltError{voltResponse: nil, error: err}
+		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 	}
 	var appStatusString string
 	if appStatus != 0 && appStatus != math.MinInt8 {
 		if fieldsPresent&(1<<7) != 0 {
 			appStatusString, err = readString(r)
 			if err != nil {
-				return nil, VoltError{voltResponse: nil, error: err}
+				return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 			}
 		}
 		errString := fmt.Sprintf("Bad app status %d %s\n", appStatus, appStatusString)
-		return nil, VoltError{voltResponse: nil, error: errors.New(errString)}
+		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: errors.New(errString)}
 	}
 
 	clusterRoundTripTime, err := readInt(r)
 	if err != nil {
-		return nil, VoltError{voltResponse: nil, error: err}
+		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 	}
 
 	numTables, err := readShort(r)
 	if err != nil {
-		return *(newVoltRows(rsp, nil)), VoltError{error: err}
+		return *(newVoltRows(rsp, nil)), VoltError{voltResponse: emptyVoltResponseInfoWithLatency(clusterRoundTripTime), error: err}
 	}
 
 	if numTables < 0 {
 		err := errors.New("Negative value for numTables")
-		return *(newVoltRows(rsp, nil)), VoltError{error: err}
+		return *(newVoltRows(rsp, nil)), VoltError{voltResponse: emptyVoltResponseInfoWithLatency(clusterRoundTripTime), error: err}
 	}
 
 	return *(newVoltResponseInfo(handle, status, statusString, appStatus, appStatusString, clusterRoundTripTime, numTables)), nil

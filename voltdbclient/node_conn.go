@@ -228,26 +228,19 @@ func (nc *nodeConn) exec(pi *procedureInvocation, respRcvd func(int32)) (driver.
 	case resp := <-c:
 		switch resp.(type) {
 		case VoltResult:
-			if respRcvd != nil {
-				respRcvd(resp.getClusterRoundTripTime())
-			}
+			respRcvd(resp.getClusterRoundTripTime())
 			return resp.(VoltResult), nil
 		case VoltError:
-			if respRcvd != nil {
-				respRcvd(-1)
-			}
+			respRcvd(-1)
 			return nil, resp.(VoltError)
 		default:
-			if respRcvd != nil {
-				respRcvd(-1)
-			}
-			return nil, VoltError{error: errors.New("unexpected response type")}
+			panic("unexpected response type")
 		}
 	case <-time.After(pi.timeout):
 		if respRcvd != nil {
 			respRcvd(int32(pi.timeout.Seconds() * 1000))
 		}
-		return nil, VoltError{voltResponse: voltResponseInfo{status: int8(CONNECTION_TIMEOUT)}, error: errors.New("timeout")}
+		return nil, VoltError{voltResponse: voltResponseInfo{status: CONNECTION_TIMEOUT, clusterRoundTripTime: -1}, error: errors.New("timeout")}
 	}
 }
 
@@ -282,16 +275,13 @@ func (nc *nodeConn) query(pi *procedureInvocation, respRcvd func(int32)) (driver
 			}
 			return nil, resp.(VoltError)
 		default:
-			if respRcvd != nil {
-				respRcvd(-1)
-			}
-			return nil, VoltError{error: errors.New("unexpected response type")}
+			panic("unexpected response type")
 		}
 	case <-time.After(pi.timeout):
 		if respRcvd != nil {
 			respRcvd(int32(pi.timeout.Seconds() * 1000))
 		}
-		return nil, VoltError{voltResponse: voltResponseInfo{status: int8(CONNECTION_TIMEOUT)}, error: errors.New("timeout")}
+		return nil, VoltError{voltResponse: voltResponseInfo{status: CONNECTION_TIMEOUT, clusterRoundTripTime: -1}, error: errors.New("timeout")}
 	}
 }
 

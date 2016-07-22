@@ -101,10 +101,19 @@ func deserializeLoginResponse(r io.Reader) (connData *connectionData, err error)
 }
 
 func marshallParam(buf io.Writer, param interface{}) (err error) {
-	v := reflect.ValueOf(param)
-	t := reflect.TypeOf(param)
-	marshallValue(buf, v, t)
-	return
+	if param == nil {
+		marshallNil(buf)
+		return
+	} else {
+		v := reflect.ValueOf(param)
+		t := reflect.TypeOf(param)
+		err = marshallValue(buf, v, t)
+		return
+	}
+}
+
+func marshallNil(buf io.Writer) {
+	writeByte(buf, VT_NULL)
 }
 
 func marshallValue(buf io.Writer, v reflect.Value, t reflect.Type) (err error) {
