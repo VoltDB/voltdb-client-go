@@ -41,7 +41,7 @@ type connectionData struct {
 }
 
 type nodeConn struct {
-	dist     *distributer
+	dist     *distributor
 	connInfo string
 	connData *connectionData
 	tcpConn  *net.TCPConn
@@ -62,7 +62,7 @@ type nodeConn struct {
 	openMutex sync.RWMutex
 }
 
-func newNodeConn(ci string, dist *distributer) *nodeConn {
+func newNodeConn(ci string, dist *distributor) *nodeConn {
 	var nc = new(nodeConn)
 	nc.connInfo = ci
 	nc.dist = dist

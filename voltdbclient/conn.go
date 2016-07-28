@@ -54,24 +54,24 @@ const (
 // A VoltConn should not be shared among goroutines; this is true of
 // driver.Conn as well.  But a client can create many instances of a VoltConn.
 type VoltConn struct {
-	*distributer
+	*distributor
 }
 
 func newVoltConn(cis []string) *VoltConn {
 	var vc = new(VoltConn)
-	vc.distributer = newDistributer()
+	vc.distributor = newDistributor()
 	return vc
 }
 
 func newVoltConnWithLatencyTarget(cis []string, latencyTarget int32) *VoltConn {
 	var vc = new(VoltConn)
-	vc.distributer = newDistributerWithLatencyTarget(latencyTarget)
+	vc.distributor = newDistributorWithLatencyTarget(latencyTarget)
 	return vc
 }
 
 func newVoltConnWithMaxOutstandingTxns(cis []string, maxOutTxns int) *VoltConn {
 	var vc = new(VoltConn)
-	vc.distributer = newDistributerWithMaxOutstandingTxns(maxOutTxns)
+	vc.distributor = newDistributorWithMaxOutstandingTxns(maxOutTxns)
 	return vc
 }
 
@@ -111,19 +111,19 @@ func OpenConnWithMaxOutstandingTxns(ci string, maxOutTxns int) (*VoltConn, error
 func (vc *VoltConn) makeConns(cis []string) error {
 	ncs := make([]*nodeConn, len(cis))
 	for i, ci := range cis {
-		nc := newNodeConn(ci, vc.distributer)
+		nc := newNodeConn(ci, vc.distributor)
 		ncs[i] = nc
 		err := nc.connect()
 		if err != nil {
 			return err
 		}
-		if vc.distributer.useClientAffinity {
-			vc.distributer.hostIdToConnection[int(nc.connData.hostId)] = nc
+		if vc.distributor.useClientAffinity {
+			vc.distributor.hostIdToConnection[int(nc.connData.hostId)] = nc
 		}
 	}
 	vc.setConns(ncs)
-	if vc.distributer.useClientAffinity {
-		vc.distributer.subscribeToNewNode()
+	if vc.distributor.useClientAffinity {
+		vc.distributor.subscribeToNewNode()
 	}
 
 	return nil

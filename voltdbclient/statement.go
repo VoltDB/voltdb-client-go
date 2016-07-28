@@ -31,10 +31,10 @@ var (
 type VoltStatement struct {
 	query    string
 	numInput int
-	d        *distributer
+	d        *distributor
 }
 
-func newVoltStatement(d *distributer, query string) *VoltStatement {
+func newVoltStatement(d *distributor, query string) *VoltStatement {
 	var vs = new(VoltStatement)
 	vs.d = d
 	vs.query = query
