@@ -34,7 +34,6 @@ import (
 type distributer struct {
 	handle   int64
 	sHandle  int64
-	hanMutex sync.Mutex
 	ncs      []*nodeConn
 	// next conn to look at when finding by round robin.
 	ncIndex int
@@ -367,15 +366,6 @@ func (d *distributer) getConnByCA(pi *procedureInvocation) (cxn *nodeConn, backp
 }
 
 func (d *distributer) getNextHandle() int64 {
-	/*
-		d.hanMutex.Lock()
-		defer d.hanMutex.Unlock()
-		d.handle++
-		if d.handle == math.MaxInt64 {
-			d.handle = 0
-		}
-		return d.handle
-	*/
 	return atomic.AddInt64(&d.handle, 1)
 }
 
