@@ -62,7 +62,7 @@ var (
 
 type benchmark struct {
 	proc *payLoadProcessor
-	conn *voltdbclient.VoltConn
+	conn *voltdbclient.Conn
 }
 
 func NewBenchmark() (*benchmark, error) {
@@ -398,7 +398,7 @@ func handleResults(res driver.Result) (success int) {
 	return 1
 }
 
-func connect(servers string) *voltdbclient.VoltConn {
+func connect(servers string) *voltdbclient.Conn {
 	conn, err := voltdbclient.OpenConn(servers)
 	if err != nil {
 		log.Fatal(err)

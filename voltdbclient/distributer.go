@@ -30,8 +30,13 @@ import (
 	"time"
 )
 
+const (
+	// Default time out for queries.
+	DEFAULT_QUERY_TIMEOUT time.Duration = 2 * time.Minute
+)
+
 // the set of currently active connections
-type distributer struct {
+type Conn struct {
 	handle   int64
 	sHandle  int64
 	ncs      []*nodeConn
@@ -56,45 +61,90 @@ type distributer struct {
 	procedureInfos     map[string]procedure
 }
 
-func newDistributer() *distributer {
-	var d = new(distributer)
-	d.handle = 0
-	d.sHandle = -1
-	d.ncIndex = 0
-	d.open = atomic.Value{}
-	d.open.Store(true)
-	d.rl = newTxnLimiter()
-	d.useClientAffinity = true
-	d.fetchedCatalog = true
-	d.ignoreBackpressure = false
-	d.partitionMasters = make(map[int]*nodeConn)
-	d.partitionReplicas = make(map[int][]*nodeConn)
-	d.hostIdToConnection = make(map[int]*nodeConn)
-	d.procedureInfos = make(map[string]procedure)
-	return d
+func newConn(cis []string) (*Conn, error) {
+	var c = new(Conn)
+	c.handle = 0
+	c.sHandle = -1
+	c.ncIndex = 0
+	c.open = atomic.Value{}
+	c.open.Store(true)
+	c.rl = newTxnLimiter()
+	c.useClientAffinity = true
+	c.fetchedCatalog = true
+	c.ignoreBackpressure = false
+	c.partitionMasters = make(map[int]*nodeConn)
+	c.partitionReplicas = make(map[int][]*nodeConn)
+	c.hostIdToConnection = make(map[int]*nodeConn)
+	c.procedureInfos = make(map[string]procedure)
+
+	err := c.makeNodeConns(cis)
+	if err != nil {
+		return nil,err
+	}
+	return c, nil
 }
 
-func newDistributerWithLatencyTarget(latencyTarget int32) *distributer {
-	d := newDistributer()
-	d.rl = newLatencyLimiter(latencyTarget)
-	return d
+// OpenConn returns a new connection to the VoltDB server.  The name is a
+// string in a driver-specific format.  The returned connection can be used by
+// only one goroutine at a time.
+func OpenConn(ci string) (*Conn, error) {
+	cis := strings.Split(ci, ",")
+	return newConn(cis)
 }
 
-func newDistributerWithMaxOutstandingTxns(maxOutTxns int) *distributer {
-	d := newDistributer()
-	d.rl = newTxnLimiterWithMaxOutTxns(maxOutTxns)
-	return d
+// OpenConn returns a new connection to the VoltDB server.  This connection
+// will try to meet the specified latency target, potentially by throttling
+// the rate at which asynchronous transactions are submitted.
+func OpenConnWithLatencyTarget(ci string, latencyTarget int32) (*Conn, error) {
+	cis := strings.Split(ci, ",")
+	c, err := newConn(cis)
+	if err != nil {
+		return nil, err
+	}
+	c.rl = newLatencyLimiter(latencyTarget)
+	return c, nil
 }
 
-func (d *distributer) setConns(ncs []*nodeConn) {
-	d.ncs = ncs
-	d.ncLen = len(ncs)
+// OpenConn returns a new connection to the VoltDB server.  This connection
+// will limit the number of outstanding transactions as indicated.  An
+// outstanding transaction is a transaction that has been sent to the server
+// but for which no response has been received.
+func OpenConnWithMaxOutstandingTxns(ci string, maxOutTxns int) (*Conn, error) {
+	cis := strings.Split(ci, ",")
+	c, err := newConn(cis)
+	if err != nil {
+		return nil, err
+	}
+	c.rl = newTxnLimiterWithMaxOutTxns(maxOutTxns)
+	return c, nil
 }
+
+func (c *Conn) makeNodeConns(cis []string) error {
+	ncs := make([]*nodeConn, len(cis))
+	for i, ci := range cis {
+		nc := newNodeConn(ci, c)
+		ncs[i] = nc
+		err := nc.connect()
+		if err != nil {
+			return err
+		}
+		if c.useClientAffinity {
+			c.hostIdToConnection[int(nc.connData.hostId)] = nc
+		}
+	}
+	c.ncs = ncs
+	c.ncLen = len(ncs)
+	if c.useClientAffinity {
+		c.subscribeToNewNode()
+	}
+	return nil
+}
+
 
 // Begin starts a transaction.  VoltDB runs in auto commit mode, and so Begin
 // returns an error.
-func (d *distributer) Begin() (driver.Tx, error) {
-	d.assertOpen()
+func (c *Conn) Begin() (driver.Tx, error) {
+	c.assertOpen()
 	return nil, errors.New("VoltDB does not support transactions, VoltDB autocommits")
 }
 
@@ -102,125 +152,125 @@ func (d *distributer) Begin() (driver.Tx, error) {
 // are meant to be long lived; it should not be necessary to continually close
 // and reopen connections.  Close would typically be called using a defer.
 // Operations using a closed connection cause a panic.
-func (d *distributer) Close() (err error) {
-	if d.isClosed() {
+func (c *Conn) Close() (err error) {
+	if c.isClosed() {
 		return
 	}
-	d.setClosed()
+	c.setClosed()
 
 	// once this is closed there shouldn't be any additional activity against
 	// the connections.  They're touched here without getting a lock.
-	for _, nc := range d.ncs {
+	for _, nc := range c.ncs {
 		err := nc.close()
 		if err != nil {
 			log.Printf("Failed to close connection with %v\n", err)
 		}
 	}
-	d.ncs = nil
+	c.ncs = nil
 	return nil
 }
 
 // Drain blocks until all outstanding asynchronous requests have been satisfied.
 // Asynchronous requests are processed in a background thread; this call blocks the
 // current thread until that background thread has finished with all asynchronous requests.
-func (d *distributer) Drain() {
-	d.assertOpen()
+func (c *Conn) Drain() {
+	c.assertOpen()
 
 	wg := sync.WaitGroup{}
-	wg.Add(len(d.ncs))
+	wg.Add(len(c.ncs))
 
 	// drain can't work if the set of connections can change
 	// while it's running.  Hold the lock for the duration, some
 	// asyncs may time out.  The user thread is blocked on drain.
-	for _, nc := range d.ncs {
-		d.drainNode(nc, &wg)
+	for _, nc := range c.ncs {
+		c.drainNode(nc, &wg)
 	}
 	wg.Wait()
 }
 
-func (d *distributer) drainNode(nc *nodeConn, wg *sync.WaitGroup) {
+func (c *Conn) drainNode(nc *nodeConn, wg *sync.WaitGroup) {
 	go func(nc *nodeConn, wg *sync.WaitGroup) {
 		nc.drain()
 		wg.Done()
 	}(nc, wg)
 }
 
-func (d *distributer) assertOpen() {
-	if !(d.open.Load().(bool)) {
+func (c *Conn) assertOpen() {
+	if !(c.open.Load().(bool)) {
 		panic("Tried to use closed connection pool")
 	}
 }
 
-func (d *distributer) isClosed() bool {
-	return !(d.open.Load().(bool))
+func (c *Conn) isClosed() bool {
+	return !(c.open.Load().(bool))
 }
 
-func (d *distributer) setClosed() {
-	d.open.Store(false)
+func (c *Conn) setClosed() {
+	c.open.Store(false)
 }
 
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // Exec is available on both VoltConn and on VoltStatement.  Uses DEFAULT_QUERY_TIMEOUT.
-func (d *distributer) Exec(query string, args []driver.Value) (driver.Result, error) {
-	return d.ExecTimeout(query, args, DEFAULT_QUERY_TIMEOUT)
+func (c *Conn) Exec(query string, args []driver.Value) (driver.Result, error) {
+	return c.ExecTimeout(query, args, DEFAULT_QUERY_TIMEOUT)
 }
 
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // Exec is available on both VoltConn and on VoltStatement.  Specifies a duration for timeout.
-func (d *distributer) ExecTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Result, error) {
-	pi := newProcedureInvocation(d.getNextHandle(), false, query, args, timeout)
-	nc, err := d.getConn(pi)
+func (c *Conn) ExecTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Result, error) {
+	pi := newProcedureInvocation(c.getNextHandle(), false, query, args, timeout)
+	nc, err := c.getConn(pi)
 	if err != nil {
 		return nil, err
 	}
-	err = d.rl.limit(timeout)
+	err = c.rl.limit(timeout)
 	if err != nil {
 		return nil, err
 	}
-	return nc.exec(pi, d.rl.responseReceived)
+	return nc.exec(pi, c.rl.responseReceived)
 }
 
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // ExecAsync is analogous to Exec but is run asynchronously.  That is, an
 // invocation of this method blocks only until a request is sent to the VoltDB
 // server.  Uses DEFAULT_QUERY_TIMEOUT.
-func (d *distributer) ExecAsync(resCons AsyncResponseConsumer, query string, args []driver.Value) error {
-	return d.ExecAsyncTimeout(resCons, query, args, DEFAULT_QUERY_TIMEOUT)
+func (c *Conn) ExecAsync(resCons AsyncResponseConsumer, query string, args []driver.Value) error {
+	return c.ExecAsyncTimeout(resCons, query, args, DEFAULT_QUERY_TIMEOUT)
 }
 
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // ExecAsync is analogous to Exec but is run asynchronously.  That is, an
 // invocation of this method blocks only until a request is sent to the VoltDB
 // server.  Specifies a duration for timeout.
-func (d *distributer) ExecAsyncTimeout(resCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
-	pi := newProcedureInvocation(d.getNextHandle(), false, query, args, timeout)
-	nc, err := d.getConn(pi)
+func (c *Conn) ExecAsyncTimeout(resCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
+	pi := newProcedureInvocation(c.getNextHandle(), false, query, args, timeout)
+	nc, err := c.getConn(pi)
 	if err != nil {
 		return err
 	}
-	err = d.rl.limit(timeout)
+	err = c.rl.limit(timeout)
 	if err != nil {
 		return err
 	}
-	return nc.execAsync(resCons, pi, d.rl.responseReceived)
+	return nc.execAsync(resCons, pi, c.rl.responseReceived)
 }
 
 // Prepare creates a prepared statement for later queries or executions.
 // The Statement returned by Prepare is bound to this VoltConn.
-func (d *distributer) Prepare(query string) (driver.Stmt, error) {
-	stmt := newVoltStatement(d, query)
+func (c *Conn) Prepare(query string) (driver.Stmt, error) {
+	stmt := newVoltStatement(c, query)
 	return *stmt, nil
 }
 
 // Query executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
 // Uses DEFAULT_QUERY_TIMEOUT.
-func (d *distributer) Query(query string, args []driver.Value) (driver.Rows, error) {
-	return d.QueryTimeout(query, args, DEFAULT_QUERY_TIMEOUT)
+func (c *Conn) Query(query string, args []driver.Value) (driver.Rows, error) {
+	return c.QueryTimeout(query, args, DEFAULT_QUERY_TIMEOUT)
 }
 
 // Query executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
 // Specifies a duration for timeout.
-func (d *distributer) QueryTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Rows, error) {
+func (d *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Rows, error) {
 	pi := newProcedureInvocation(d.getNextHandle(), true, query, args, timeout)
 	nc, err := d.getConn(pi)
 	if err != nil {
@@ -237,47 +287,47 @@ func (d *distributer) QueryTimeout(query string, args []driver.Value, timeout ti
 // until the query is sent over the network to the server.  The eventual
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.  Uses DEFAULT_QUERY_TIMEOUT.
-func (d *distributer) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []driver.Value) error {
-	return d.QueryAsyncTimeout(rowsCons, query, args, DEFAULT_QUERY_TIMEOUT)
+func (c *Conn) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []driver.Value) error {
+	return c.QueryAsyncTimeout(rowsCons, query, args, DEFAULT_QUERY_TIMEOUT)
 }
 
 // QueryAsync executes a query asynchronously.  The invoking thread will block
 // until the query is sent over the network to the server.  The eventual
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.  Specifies a duration for timeout.
-func (d *distributer) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
-	pi := newProcedureInvocation(d.getNextHandle(), true, query, args, timeout)
-	nc, err := d.getConn(pi)
+func (c *Conn) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
+	pi := newProcedureInvocation(c.getNextHandle(), true, query, args, timeout)
+	nc, err := c.getConn(pi)
 	if err != nil {
 		return err
 	}
 	if nc == nil {
 		return errors.New("no valid connection found")
 	}
-	err = d.rl.limit(timeout)
+	err = c.rl.limit(timeout)
 	if err != nil {
 		return err
 	}
-	return nc.queryAsync(rowsCons, pi, d.rl.responseReceived)
+	return nc.queryAsync(rowsCons, pi, c.rl.responseReceived)
 }
 
 // Get a connection from the hashinator.  If not, get one by round robin.  If not return nil.
-func (d *distributer) getConn(pi *procedureInvocation) (*nodeConn, error) {
+func (c *Conn) getConn(pi *procedureInvocation) (*nodeConn, error) {
 
-	d.assertOpen()
+	c.assertOpen()
 	start := time.Now()
 	for {
 		if time.Now().Sub(start) > pi.timeout {
 			return nil, errors.New("timeout")
 		}
-		nc, backpressure, err := d.getConnByCA(pi)
+		nc, backpressure, err := c.getConnByCA(pi)
 		if err != nil {
 			return nil, err
 		}
 		if !backpressure && nc != nil {
 			return nc, nil
 		}
-		nc, backpressure, err = d.getConnByRR()
+		nc, backpressure, err = c.getConnByRR()
 		if err != nil {
 			return nil, err
 		}
@@ -287,13 +337,13 @@ func (d *distributer) getConn(pi *procedureInvocation) (*nodeConn, error) {
 	}
 }
 
-func (d *distributer) getConnByRR() (*nodeConn, bool, error) {
-	d.ncMutex.Lock()
-	defer d.ncMutex.Unlock()
-	for i := 0; i < d.ncLen; i++ {
-		d.ncIndex++
-		d.ncIndex = d.ncIndex % d.ncLen
-		nc := d.ncs[d.ncIndex]
+func (c *Conn) getConnByRR() (*nodeConn, bool, error) {
+	c.ncMutex.Lock()
+	defer c.ncMutex.Unlock()
+	for i := 0; i < c.ncLen; i++ {
+		c.ncIndex++
+		c.ncIndex = c.ncIndex % c.ncLen
+		nc := c.ncs[c.ncIndex]
 		if nc.isOpen() && !nc.hasBP() {
 			return nc, false, nil
 		}
@@ -307,22 +357,22 @@ func (d *distributer) getConnByRR() (*nodeConn, bool, error) {
 // return picked connection if found else nil
 // also return backpressure
 // this method is not thread safe
-func (d *distributer) getConnByCA(pi *procedureInvocation) (cxn *nodeConn, backpressure bool, err error) {
+func (c *Conn) getConnByCA(pi *procedureInvocation) (cxn *nodeConn, backpressure bool, err error) {
 	backpressure = true
 
-	if d.ncLen == 0 {
+	if c.ncLen == 0 {
 		return cxn, backpressure, errors.New("No connections.")
 	}
 
 	// Check if the master for the partition is known.
-	if d.useClientAffinity && d.h != nil {
+	if c.useClientAffinity && c.h != nil {
 		var hashedPartition int = -1
 
-		if procedureInfo, ok := d.procedureInfos[pi.query]; ok {
+		if procedureInfo, ok := c.procedureInfos[pi.query]; ok {
 			hashedPartition = MP_INIT_PID
 			// User may have passed too few parameters to allow dispatching.
 			if procedureInfo.SinglePartition && procedureInfo.PartitionParameter < pi.getPassedParamCount() {
-				if hashedPartition, err = d.h.getHashedPartitionForParameter(procedureInfo.PartitionParameterType,
+				if hashedPartition, err = c.h.getHashedPartitionForParameter(procedureInfo.PartitionParameterType,
 					pi.getPartitionParamValue(procedureInfo.PartitionParameter)); err != nil {
 					return
 				}
@@ -331,9 +381,9 @@ func (d *distributer) getConnByCA(pi *procedureInvocation) (cxn *nodeConn, backp
 
 			// If the procedure is read only and single part, load balance across replicas
 			if procedureInfo.SinglePartition && procedureInfo.ReadOnly {
-				d.partitonMutex.RLock()
-				partitionReplica := d.partitionReplicas[hashedPartition]
-				d.partitonMutex.RUnlock()
+				c.partitonMutex.RLock()
+				partitionReplica := c.partitionReplicas[hashedPartition]
+				c.partitonMutex.RUnlock()
 				if len(partitionReplica) > 0 {
 					cxn = partitionReplica[rand.Intn(len(partitionReplica))]
 					if cxn.hasBP() {
@@ -345,16 +395,16 @@ func (d *distributer) getConnByCA(pi *procedureInvocation) (cxn *nodeConn, backp
 							}
 						}
 					}
-					if !cxn.hasBP() || d.ignoreBackpressure {
+					if !cxn.hasBP() || c.ignoreBackpressure {
 						backpressure = false
 					}
 				}
 			} else {
 				// Writes have to go to the master
-				d.partitonMutex.RLock()
-				cxn = d.partitionMasters[hashedPartition]
-				d.partitonMutex.RUnlock()
-				if (cxn != nil && !cxn.hasBP()) || d.ignoreBackpressure {
+				c.partitonMutex.RLock()
+				cxn = c.partitionMasters[hashedPartition]
+				c.partitonMutex.RUnlock()
+				if (cxn != nil && !cxn.hasBP()) || c.ignoreBackpressure {
 					backpressure = false
 				}
 			}
@@ -365,12 +415,12 @@ func (d *distributer) getConnByCA(pi *procedureInvocation) (cxn *nodeConn, backp
 	return
 }
 
-func (d *distributer) getNextHandle() int64 {
-	return atomic.AddInt64(&d.handle, 1)
+func (c *Conn) getNextHandle() int64 {
+	return atomic.AddInt64(&c.handle, 1)
 }
 
-func (d *distributer) getNextSystemHandle() int64 {
-	return atomic.AddInt64(&d.sHandle, -1)
+func (c *Conn) getNextSystemHandle() int64 {
+	return atomic.AddInt64(&c.sHandle, -1)
 }
 
 type procedure struct {
@@ -392,11 +442,11 @@ func (proc *procedure) setDefaults() {
  * Handles subscrible update
  */
 type SubscribeTopoRC struct {
-	d *distributer
+	c *Conn
 }
 
 func (rc SubscribeTopoRC) ConsumeError(err error) {
-	rc.d.handleSubscribeError(err)
+	rc.c.handleSubscribeError(err)
 }
 
 func (rc SubscribeTopoRC) ConsumeResult(res driver.Result) {
@@ -405,14 +455,14 @@ func (rc SubscribeTopoRC) ConsumeResult(res driver.Result) {
 func (rc SubscribeTopoRC) ConsumeRows(rows driver.Rows) {
 }
 
-func (d *distributer) handleSubscribeError(err error) {
+func (c *Conn) handleSubscribeError(err error) {
 	rsp := err.(VoltError)
 	log.Printf("Subscribe received error, %#v", rsp)
 	//Fast path subscribing retry if the connection was lost before getting a response
 	if ResponseStatus(rsp.getStatus()) == CONNECTION_LOST {
-		if d.ncLen > 0 {
+		if c.ncLen > 0 {
 			//TODO rate limit resent
-			d.subscribeToNewNode()
+			c.subscribeToNewNode()
 		} else {
 			return
 		}
@@ -424,20 +474,20 @@ func (d *distributer) handleSubscribeError(err error) {
 	// d.subscribeToNewNode()
 
 	// TODO subscriptionRequestPending should be atomic
-	d.subscriptionRequestPending = false
+	c.subscriptionRequestPending = false
 }
 
-func (d *distributer) handleSubscribeRow(rows VoltRows) {
+func (c *Conn) handleSubscribeRow(rows VoltRows) {
 	//TODO go client current don't understand the binary_format hash config
 	// need to fetch again
-	d.getTopoStatistics()
+	c.getTopoStatistics()
 }
 
 /**
  * Handles procedure updates for client affinity
  */
 type TopoStatisticsRC struct {
-	d *distributer
+	c *Conn
 }
 
 func (rc TopoStatisticsRC) ConsumeError(err error) {
@@ -448,10 +498,10 @@ func (rc TopoStatisticsRC) ConsumeResult(res driver.Result) {
 }
 
 func (rc TopoStatisticsRC) ConsumeRows(rows driver.Rows) {
-	rc.d.updateAffinityTopology(rows.(VoltRows))
+	rc.c.updateAffinityTopology(rows.(VoltRows))
 }
 
-func (d *distributer) updateAffinityTopology(rows VoltRows) (err error) {
+func (c *Conn) updateAffinityTopology(rows VoltRows) (err error) {
 	if !rows.isValidTable() {
 		return errors.New("Not a validated topo statistic.")
 	}
@@ -471,15 +521,15 @@ func (d *distributer) updateAffinityTopology(rows VoltRows) (err error) {
 	case ELASTIC:
 		configFormat := JSON_FORMAT
 		cooked := true // json format is by default cooked
-		if d.h, err = newHashinaterElastic(configFormat, cooked, hashConfig.([]byte)); err != nil {
+		if c.h, err = newHashinaterElastic(configFormat, cooked, hashConfig.([]byte)); err != nil {
 			return err
 		}
 	default:
 		return errors.New("Not support Legacy hashinator.")
 	}
-	d.partitonMutex.Lock()
-	d.partitionMasters = make(map[int]*nodeConn)
-	d.partitionReplicas = make(map[int][]*nodeConn)
+	c.partitonMutex.Lock()
+	c.partitionMasters = make(map[int]*nodeConn)
+	c.partitionReplicas = make(map[int][]*nodeConn)
 
 	//First table contains the description of partition ids master/slave relationships
 	rows.AdvanceToTable(0)
@@ -502,22 +552,22 @@ func (d *distributer) updateAffinityTopology(rows VoltRows) (err error) {
 			site = strings.TrimSpace(site)
 			hostId, hostIdErr := strconv.Atoi(strings.Split(site, ":")[0])
 			panicIfnotNil("Error get hostId", hostIdErr)
-			if _, ok := d.hostIdToConnection[hostId]; ok {
-				connections = append(connections, d.hostIdToConnection[hostId])
+			if _, ok := c.hostIdToConnection[hostId]; ok {
+				connections = append(connections, c.hostIdToConnection[hostId])
 			}
 		}
-		d.partitionReplicas[int(partition.(int32))] = connections
+		c.partitionReplicas[int(partition.(int32))] = connections
 
 		// leaderHost, leaderHostErr := rows.GetStringByName("Leader")
 		leaderHost, leaderHostErr := rows.GetString(2)
 		panicIfnotNil("Error get leaderHost", leaderHostErr)
 		leaderHostId, leaderHostIdErr := strconv.Atoi(strings.Split(leaderHost.(string), ":")[0])
 		panicIfnotNil("Error get leaderHostId", leaderHostIdErr)
-		if _, ok := d.hostIdToConnection[leaderHostId]; ok {
-			d.partitionMasters[int(partition.(int32))] = d.hostIdToConnection[leaderHostId]
+		if _, ok := c.hostIdToConnection[leaderHostId]; ok {
+			c.partitionMasters[int(partition.(int32))] = c.hostIdToConnection[leaderHostId]
 		}
 	}
-	d.partitonMutex.Unlock()
+	c.partitonMutex.Unlock()
 	return nil
 }
 
@@ -525,7 +575,7 @@ func (d *distributer) updateAffinityTopology(rows VoltRows) (err error) {
  * Handles procedure updates for client affinity
  */
 type ProcedureInfoRC struct {
-	d *distributer
+	c *Conn
 }
 
 func (rc ProcedureInfoRC) ConsumeError(err error) {
@@ -536,12 +586,12 @@ func (rc ProcedureInfoRC) ConsumeResult(res driver.Result) {
 }
 
 func (rc ProcedureInfoRC) ConsumeRows(rows driver.Rows) {
-	rc.d.updateProcedurePartitioning(rows.(VoltRows))
-	rc.d.fetchedCatalog = false
+	rc.c.updateProcedurePartitioning(rows.(VoltRows))
+	rc.c.fetchedCatalog = false
 }
 
-func (d *distributer) updateProcedurePartitioning(rows VoltRows) error {
-	d.procedureInfos = make(map[string]procedure)
+func (c *Conn) updateProcedurePartitioning(rows VoltRows) error {
+	c.procedureInfos = make(map[string]procedure)
 	for rows.AdvanceRow() {
 		// proc information embedded in JSON object in remarks column
 		remarks, remarksErr := rows.GetVarbinary(6)
@@ -553,61 +603,61 @@ func (d *distributer) updateProcedurePartitioning(rows VoltRows) error {
 		// log.Println("remarks", string(remarks.([]byte)), "proc after unmarshal", proc)
 		panicIfnotNil("Error parse remarks ", procErr)
 		proc.setDefaults()
-		d.procedureInfos[procedureName.(string)] = proc
+		c.procedureInfos[procedureName.(string)] = proc
 	}
 	return nil
 }
 
 // Subscribe to receive async updates on a new node connection.
-func (d *distributer) subscribeToNewNode() {
-	d.subscriptionRequestPending = true
-	d.subscribedConnection = d.getConnByRand()
+func (c *Conn) subscribeToNewNode() {
+	c.subscriptionRequestPending = true
+	c.subscribedConnection = c.getConnByRand()
 
 	//Subscribe to topology updates before retrieving the current topo
 	//so there isn't potential for lost updates
-	d.subscribeTopo()
+	c.subscribeTopo()
 
-	d.getTopoStatistics()
+	c.getTopoStatistics()
 
-	d.getProcedureInfo()
+	c.getProcedureInfo()
 }
 
-func (d *distributer) getConnByRand() (cxn *nodeConn) {
-	if d.ncLen > 0 {
-		cxn = d.ncs[rand.Intn(d.ncLen)]
+func (c *Conn) getConnByRand() (cxn *nodeConn) {
+	if c.ncLen > 0 {
+		cxn = c.ncs[rand.Intn(c.ncLen)]
 	}
 	return
 }
 
-func (d *distributer) subscribeTopo() {
-	if d.subscribedConnection == nil || !d.subscribedConnection.isOpen() {
-		d.subscribeToNewNode()
+func (c *Conn) subscribeTopo() {
+	if c.subscribedConnection == nil || !c.subscribedConnection.isOpen() {
+		c.subscribeToNewNode()
 		return
 	}
-	SubscribeTopoPi := newProcedureInvocation(d.getNextSystemHandle(), true, "@Subscribe", []driver.Value{"TOPOLOGY"}, DEFAULT_QUERY_TIMEOUT)
-	d.subscribedConnection.queryAsync(SubscribeTopoRC{d}, SubscribeTopoPi, nil)
+	SubscribeTopoPi := newProcedureInvocation(c.getNextSystemHandle(), true, "@Subscribe", []driver.Value{"TOPOLOGY"}, DEFAULT_QUERY_TIMEOUT)
+	c.subscribedConnection.queryAsync(SubscribeTopoRC{c}, SubscribeTopoPi, nil)
 }
 
-func (d *distributer) getTopoStatistics() {
+func (c *Conn) getTopoStatistics() {
 	// TODO add sysHandle to procedureInvocation
 	// system call procedure should bypass timeout and backpressure
-	if d.subscribedConnection == nil || !d.subscribedConnection.isOpen() {
-		d.subscribeToNewNode()
+	if c.subscribedConnection == nil || !c.subscribedConnection.isOpen() {
+		c.subscribeToNewNode()
 		return
 	}
-	topoStatisticsPi := newProcedureInvocation(d.getNextSystemHandle(), true, "@Statistics", []driver.Value{"TOPO", int32(JSON_FORMAT)}, DEFAULT_QUERY_TIMEOUT)
-	d.subscribedConnection.queryAsync(TopoStatisticsRC{d}, topoStatisticsPi, nil)
+	topoStatisticsPi := newProcedureInvocation(c.getNextSystemHandle(), true, "@Statistics", []driver.Value{"TOPO", int32(JSON_FORMAT)}, DEFAULT_QUERY_TIMEOUT)
+	c.subscribedConnection.queryAsync(TopoStatisticsRC{c}, topoStatisticsPi, nil)
 }
 
-func (d *distributer) getProcedureInfo() {
-	if d.subscribedConnection == nil || !d.subscribedConnection.isOpen() {
-		d.subscribeToNewNode()
+func (c *Conn) getProcedureInfo() {
+	if c.subscribedConnection == nil || !c.subscribedConnection.isOpen() {
+		c.subscribeToNewNode()
 		return
 	}
 	//Don't need to retrieve procedure updates every time we do a new subscription
-	if d.fetchedCatalog {
-		procedureInfoPi := newProcedureInvocation(d.getNextSystemHandle(), true, "@SystemCatalog", []driver.Value{"PROCEDURES"}, DEFAULT_QUERY_TIMEOUT)
-		d.subscribedConnection.queryAsync(ProcedureInfoRC{d}, procedureInfoPi, nil)
+	if c.fetchedCatalog {
+		procedureInfoPi := newProcedureInvocation(c.getNextSystemHandle(), true, "@SystemCatalog", []driver.Value{"PROCEDURES"}, DEFAULT_QUERY_TIMEOUT)
+		c.subscribedConnection.queryAsync(ProcedureInfoRC{c}, procedureInfoPi, nil)
 	}
 }
 
