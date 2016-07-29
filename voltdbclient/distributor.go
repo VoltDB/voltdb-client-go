@@ -45,7 +45,7 @@ type Conn struct {
 	ncLen   int
 	ncMutex sync.Mutex
 	open    atomic.Value
-	h       hashinater
+	h       hashinator
 	rl      rateLimiter
 
 	subscribedConnection       *nodeConn // The connection we have issued our subscriptions to.
@@ -145,7 +145,7 @@ func (c *Conn) makeNodeConns(cis []string) error {
 // returns an error.
 func (c *Conn) Begin() (driver.Tx, error) {
 	c.assertOpen()
-	return nil, errors.New("VoltDB does not support transactions, VoltDB autocommits")
+	return nil, errors.New("VoltDB does not support client side transaction control.")
 }
 
 // Close closes the connection to the VoltDB server.  Connections to the server
@@ -521,7 +521,7 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (err error) {
 	case ELASTIC:
 		configFormat := JSON_FORMAT
 		cooked := true // json format is by default cooked
-		if c.h, err = newHashinaterElastic(configFormat, cooked, hashConfig.([]byte)); err != nil {
+		if c.h, err = newHashinatorElastic(configFormat, cooked, hashConfig.([]byte)); err != nil {
 			return err
 		}
 	default:

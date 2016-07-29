@@ -31,3 +31,14 @@ const (
 	PARTITIONID_MAX_VALUE = (1 << PARTITIONID_BITS) - 1
 	MP_INIT_PID           = PARTITIONID_MAX_VALUE
 )
+
+// Hash Type
+const (
+	ELASTIC = "ELASTIC"
+)
+
+// Hash Config Format
+const (
+	BINARAY_FORMAT = 0
+	JSON_FORMAT    = 1
+)

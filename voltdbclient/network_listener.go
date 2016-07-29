@@ -126,12 +126,12 @@ func (nl *networkListener) readResponse(r io.Reader, handle int64) {
 	}
 	if handle == ASYNC_TOPO_HANDLE {
 		if err != nil {
-			nl.nc.dist.handleSubscribeError(err)
+			nl.nc.conn.handleSubscribeError(err)
 		} else {
 			if rows, err := deserializeRows(r, rsp); err != nil {
-				nl.nc.dist.handleSubscribeError(err)
+				nl.nc.conn.handleSubscribeError(err)
 			} else {
-				nl.nc.dist.handleSubscribeRow(rows)
+				nl.nc.conn.handleSubscribeRow(rows)
 			}
 
 		}
