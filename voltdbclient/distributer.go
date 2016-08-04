@@ -50,6 +50,7 @@ type distributer struct {
 	fetchedCatalog     bool
 	ignoreBackpressure bool
 	useClientAffinity  bool
+	sendReadsToReplicasBytDefaultIfCAEnabled  bool
 	partitonMutex      sync.RWMutex
 	partitionMasters   map[int]*nodeConn
 	partitionReplicas  map[int][]*nodeConn
@@ -68,6 +69,7 @@ func newDistributer() *distributer {
 	d.useClientAffinity = true
 	d.fetchedCatalog = true
 	d.ignoreBackpressure = false
+	d.sendReadsToReplicasBytDefaultIfCAEnabled = false
 	d.partitionMasters = make(map[int]*nodeConn)
 	d.partitionReplicas = make(map[int][]*nodeConn)
 	d.hostIdToConnection = make(map[int]*nodeConn)
@@ -331,7 +333,8 @@ func (d *distributer) getConnByCA(pi *procedureInvocation) (cxn *nodeConn, backp
 			}
 
 			// If the procedure is read only and single part, load balance across replicas
-			if procedureInfo.SinglePartition && procedureInfo.ReadOnly {
+			// This is probably slower for SAFE consistency.
+			if procedureInfo.SinglePartition && procedureInfo.ReadOnly  && d.sendReadsToReplicasBytDefaultIfCAEnabled {
 				d.partitonMutex.RLock()
 				partitionReplica := d.partitionReplicas[hashedPartition]
 				d.partitonMutex.RUnlock()
@@ -351,7 +354,7 @@ func (d *distributer) getConnByCA(pi *procedureInvocation) (cxn *nodeConn, backp
 					}
 				}
 			} else {
-				// Writes have to go to the master
+				// Writes and Safe Reads have to go to the master
 				d.partitonMutex.RLock()
 				cxn = d.partitionMasters[hashedPartition]
 				d.partitonMutex.RUnlock()
