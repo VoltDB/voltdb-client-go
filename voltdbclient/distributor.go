@@ -54,6 +54,7 @@ type Conn struct {
 	fetchedCatalog     bool
 	ignoreBackpressure bool
 	useClientAffinity  bool
+	sendReadsToReplicasBytDefaultIfCAEnabled  bool
 	partitonMutex      sync.RWMutex
 	partitionMasters   map[int]*nodeConn
 	partitionReplicas  map[int][]*nodeConn
@@ -72,6 +73,7 @@ func newConn(cis []string) (*Conn, error) {
 	c.useClientAffinity = true
 	c.fetchedCatalog = true
 	c.ignoreBackpressure = false
+	c.sendReadsToReplicasBytDefaultIfCAEnabled = false
 	c.partitionMasters = make(map[int]*nodeConn)
 	c.partitionReplicas = make(map[int][]*nodeConn)
 	c.hostIdToConnection = make(map[int]*nodeConn)
@@ -380,7 +382,8 @@ func (c *Conn) getConnByCA(pi *procedureInvocation) (cxn *nodeConn, backpressure
 			}
 
 			// If the procedure is read only and single part, load balance across replicas
-			if procedureInfo.SinglePartition && procedureInfo.ReadOnly {
+			// This is probably slower for SAFE consistency.
+			if procedureInfo.SinglePartition && procedureInfo.ReadOnly  && c.sendReadsToReplicasBytDefaultIfCAEnabled {
 				c.partitonMutex.RLock()
 				partitionReplica := c.partitionReplicas[hashedPartition]
 				c.partitonMutex.RUnlock()
@@ -400,7 +403,7 @@ func (c *Conn) getConnByCA(pi *procedureInvocation) (cxn *nodeConn, backpressure
 					}
 				}
 			} else {
-				// Writes have to go to the master
+				// Writes and Safe Reads have to go to the master
 				c.partitonMutex.RLock()
 				cxn = c.partitionMasters[hashedPartition]
 				c.partitonMutex.RUnlock()
