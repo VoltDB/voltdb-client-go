@@ -73,7 +73,7 @@ var (
 
 type benchmark struct {
 	switchboard phoneCallGenerator
-	conn        *voltdbclient.VoltConn
+	conn        *voltdbclient.Conn
 }
 
 func NewBenchmark() (*benchmark, error) {
@@ -327,7 +327,7 @@ func handleVoteReturnCode(rows driver.Rows) (success int) {
 	return 0
 }
 
-func connect(servers string) *voltdbclient.VoltConn {
+func connect(servers string) *voltdbclient.Conn {
 	conn, err := voltdbclient.OpenConn(servers)
 	if err != nil {
 		log.Fatal(err)

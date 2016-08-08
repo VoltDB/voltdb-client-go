@@ -28,19 +28,7 @@ import (
 	"github.com/spaolacci/murmur3"
 )
 
-// Hash Type
-const (
-	LEGACY  = "LEGACY"
-	ELASTIC = "ELASTIC"
-)
-
-// Hash Config Format
-const (
-	BINARAY_FORMAT = 0
-	JSON_FORMAT    = 1
-)
-
-type hashinater interface {
+type hashinator interface {
 	getConfigurationType() string
 
 	/**
@@ -50,21 +38,16 @@ type hashinater interface {
 	getHashedPartitionForParameter(partitionParameterType int, partitionValue driver.Value) (hashedPartition int, err error)
 }
 
-type hashinaterElastic struct {
-	// sorted array store token index
-	//a []int
-	// unsorted map store token to partition
-	//m map[int]int
-
+type hashinatorElastic struct {
 	// sorted array of token2partition pair
 	tp Token2PartitionSlice
 }
 
-func newHashinaterElastic(hashConfigFormat int, cooked bool, hashConfig []byte) (h *hashinaterElastic, err error) {
+func newHashinatorElastic(hashConfigFormat int, cooked bool, hashConfig []byte) (h *hashinatorElastic, err error) {
 	if hashConfigFormat != JSON_FORMAT {
-		return nil, errors.New("Not support non JSON hash config.")
+		return nil, errors.New("Only support JSON format hashconfig.")
 	}
-	h = new(hashinaterElastic)
+	h = new(hashinatorElastic)
 	if cooked {
 		hashConfig, err = fromGzip(hashConfig)
 		if err != nil {
@@ -80,44 +63,34 @@ func newHashinaterElastic(hashConfigFormat int, cooked bool, hashConfig []byte) 
 	return h, nil
 }
 
-func (h *hashinaterElastic) getConfigurationType() string {
+func (h *hashinatorElastic) getConfigurationType() string {
 	return ELASTIC
 }
 
-func (h *hashinaterElastic) getHashedPartitionForParameter(partitionParameterType int, partitionValue driver.Value) (hashedPartition int, err error) {
-
-	// TODO Handle Special cases:
-	// 1) if the user supplied a string for a number column,
-	// try to do the conversion.
-	//fmt.Println("partition value", partitionValue, valueToBytes(partitionValue))
+func (h *hashinatorElastic) getHashedPartitionForParameter(partitionParameterType int, partitionValue driver.Value) (hashedPartition int, err error) {
 	return h.hashinateBytes(valueToBytes(partitionValue))
 }
 
 /**
- * Given an byte[] bytes, pick a partition to store the data.
+ * Given []bytes, pick a partition to store the data.
  */
-func (h hashinaterElastic) hashinateBytes(b []byte) (partition int, err error) {
+func (h hashinatorElastic) hashinateBytes(b []byte) (partition int, err error) {
 	if b == nil {
 		return 0, nil
 	}
 
 	v1, _ := murmur3.Sum128(b)
-	//fmt.Println("b.a", h.a[0])
-	// fmt.Println("b.m", h.m)
-	//Shift so that we use the higher order bits in case we want to use the lower order ones later
-	//Also use the h1 higher order bits because it provided much better performance in voter, consistent too
-	hash := int(v1 >> 32) // golang do logic shift on unsigned integer
-	// token := sort.SearchInts(h.a, hash)
+	hash := int(v1 >> 32)
 	partition = SearchToken2Partitions(h.tp, hash)
-	//fmt.Println("murmur hash", b, hash, token, h.a[token-1],h.m[h.a[token-1]])
 	return partition, nil
 }
 
-// TODO move this function to proper place (volttype, voltserializer ?)
-/** Converts the object into bytes for hashing.
- return a byte array representation of obj
-	* OR nil if the obj is nullValue or any other Volt representation
-	* of a null value. */
+/**
+ * Converts the object into bytes for hashing.
+ * return a byte array representation of obj
+ * OR nil if the obj is nullValue or any other Volt representation
+ * of a null value.
+ */
 func valueToBytes(v driver.Value) []byte {
 	if v == nil {
 		return nil
@@ -150,7 +123,7 @@ func valueToBytes(v driver.Value) []byte {
 // until go 1.7, go lang won't support non-string type keys for (un-)marshal
 // https://github.com/golang/go/commit/ffbd31e9f79ad8b6aaeceac1397678e237581064
 // need to one more loop for the conversation
-func (h *hashinaterElastic) unmarshalJSONConfig(bytes []byte) (err error) {
+func (h *hashinatorElastic) unmarshalJSONConfig(bytes []byte) (err error) {
 
 	// Unmarshal the string-keyed map
 	sk := make(map[string]int)
@@ -159,8 +132,6 @@ func (h *hashinaterElastic) unmarshalJSONConfig(bytes []byte) (err error) {
 		return
 	}
 
-	// h.a = make([]int, 0, 8)
-	// h.m = make(map[int]int)
 	h.tp = make(Token2PartitionSlice, 128)
 	// Copy the values
 

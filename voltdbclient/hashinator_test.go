@@ -10,12 +10,12 @@ import (
 
 var result int
 var jsonBytes []byte
-var h hashinater
+var h hashinator
 
-func BenchmarkHashinater(b *testing.B) {
+func BenchmarkHashinater_getHashedPartitionForParameter_int32(b *testing.B) {
 	var hashedPartition int
 	jsonBytes, _ := ioutil.ReadFile("./test_resources/jsonConfigC.bin")
-	h, _ := newHashinaterElastic(JSON_FORMAT, true, jsonBytes)
+	h, _ := newHashinatorElastic(JSON_FORMAT, true, jsonBytes)
 	partitionParameterType := int(VT_INT)
 	partitionValue := driver.Value(r.Int31())
 	b.ResetTimer()
@@ -29,7 +29,7 @@ func BenchmarkHashinater(b *testing.B) {
 func BenchmarkHashinater_getHashedPartitionForParameter_int64(b *testing.B) {
 	var hashedPartition int
 	jsonBytes, _ := ioutil.ReadFile("./test_resources/jsonConfigC.bin")
-	h, _ := newHashinaterElastic(JSON_FORMAT, true, jsonBytes)
+	h, _ := newHashinatorElastic(JSON_FORMAT, true, jsonBytes)
 	partitionParameterType := int(VT_LONG)
 	partitionValue := driver.Value(r.Int63())
 	b.ResetTimer()
@@ -43,7 +43,7 @@ func BenchmarkHashinater_getHashedPartitionForParameter_int64(b *testing.B) {
 func BenchmarkHashinater_getHashedPartitionForParameter_String(b *testing.B) {
 	var hashedPartition int
 	jsonBytes, _ := ioutil.ReadFile("./test_resources/jsonConfigC.bin")
-	h, _ := newHashinaterElastic(JSON_FORMAT, true, jsonBytes)
+	h, _ := newHashinatorElastic(JSON_FORMAT, true, jsonBytes)
 	partitionParameterType := int(VT_STRING)
 	partitionValue := driver.Value("123456789012345")
 	b.ResetTimer()
@@ -57,7 +57,7 @@ func BenchmarkHashinater_getHashedPartitionForParameter_String(b *testing.B) {
 func BenchmarkHashinater_getHashedPartitionForParameter_Bytes(b *testing.B) {
 	var hashedPartition int
 	jsonBytes, _ := ioutil.ReadFile("./test_resources/jsonConfigC.bin")
-	h, _ := newHashinaterElastic(JSON_FORMAT, true, jsonBytes)
+	h, _ := newHashinatorElastic(JSON_FORMAT, true, jsonBytes)
 	valueToHash := make([]byte, 1000)
 	_, _ = rand.Read(valueToHash)
 	partitionParameterType := int(VT_VARBIN)

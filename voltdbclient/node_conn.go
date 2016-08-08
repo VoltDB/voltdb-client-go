@@ -41,31 +41,31 @@ type connectionData struct {
 }
 
 type nodeConn struct {
-	dist     *distributer
-	connInfo string
-	connData *connectionData
-	tcpConn  *net.TCPConn
+	conn        *Conn
+	connInfo    string
+	connData    *connectionData
+	tcpConn     *net.TCPConn
 
-	nl        *networkListener
-	nlCloseCh chan chan bool
+	nl          *networkListener
+	nlCloseCh   chan chan bool
 
-	nw   *networkWriter
-	piCh chan *procedureInvocation
-	nwwg *sync.WaitGroup
+	nw          *networkWriter
+	piCh        chan *procedureInvocation
+	nwwg        *sync.WaitGroup
 
 	// queued bytes will be read/written by the main client thread and also
 	// by the network listener thread.
 	queuedBytes int
 	qbMutex     sync.Mutex
 
-	open      bool
-	openMutex sync.RWMutex
+	open        bool
+	openMutex   sync.RWMutex
 }
 
-func newNodeConn(ci string, dist *distributer) *nodeConn {
+func newNodeConn(ci string, conn *Conn) *nodeConn {
 	var nc = new(nodeConn)
 	nc.connInfo = ci
-	nc.dist = dist
+	nc.conn = conn
 	nc.nl = newNetworkListener(nc, ci)
 	nc.nw = newNetworkWriter()
 	return nc
