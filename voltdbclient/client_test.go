@@ -30,7 +30,7 @@ import (
 
 func CallOnClosedConn(t *testing.T) {
 	conn := newNodeConn("", nil)
-	pi := newProcedureInvocation(0, true, "HELLOWORLD.select", []driver.Value{}, time.Minute*2)
+	pi := newSyncProcedureInvocation(0, true, "HELLOWORLD.select", []driver.Value{}, time.Minute*2)
 	_, err := conn.query(pi, func(int32) {})
 	if err == nil {
 		t.Errorf("Expected error calling procedure on closed Conn")
@@ -44,7 +44,7 @@ func ReadDataTypes(t *testing.T) {
 
 	nl := newNetworkListener(nil, "")
 	var handle int64 = 1
-	pi := newProcedureInvocation(handle, true, "HELLOWORLD.select", []driver.Value{}, time.Minute*2)
+	pi := newSyncProcedureInvocation(handle, true, "HELLOWORLD.select", []driver.Value{}, time.Minute*2)
 	ch := nl.registerSyncRequest(nil, pi)
 
 	nl.readResponse(r, handle)

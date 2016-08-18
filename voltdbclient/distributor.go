@@ -44,6 +44,7 @@ type Conn struct {
 	ncIndex int
 	ncLen   int
 	ncMutex sync.Mutex
+	piCh    chan *procedureInvocation
 	open    atomic.Value
 	h       hashinator
 	rl      rateLimiter
@@ -123,10 +124,12 @@ func OpenConnWithMaxOutstandingTxns(ci string, maxOutTxns int) (*Conn, error) {
 
 func (c *Conn) makeNodeConns(cis []string) error {
 	ncs := make([]*nodeConn, len(cis))
+	c.piCh = make(chan *procedureInvocation, 1000)
 	for i, ci := range cis {
-		nc := newNodeConn(ci, c)
+		ncPiCh := make(chan *procedureInvocation, 1000)
+		nc := newNodeConn(ci, c, ncPiCh)
 		ncs[i] = nc
-		err := nc.connect()
+		err := nc.connect(c.piCh)
 		if err != nil {
 			return err
 		}
@@ -178,23 +181,15 @@ func (c *Conn) Close() (err error) {
 func (c *Conn) Drain() {
 	c.assertOpen()
 
-	wg := sync.WaitGroup{}
-	wg.Add(len(c.ncs))
-
-	// drain can't work if the set of connections can change
-	// while it's running.  Hold the lock for the duration, some
-	// asyncs may time out.  The user thread is blocked on drain.
-	for _, nc := range c.ncs {
-		c.drainNode(nc, &wg)
+	responseChs := make([]chan bool, c.ncLen)
+	for i, nc := range c.ncs {
+		responseCh := make(chan bool)
+		responseChs[i] = responseCh
+		nc.drain(responseCh)
 	}
-	wg.Wait()
-}
-
-func (c *Conn) drainNode(nc *nodeConn, wg *sync.WaitGroup) {
-	go func(nc *nodeConn, wg *sync.WaitGroup) {
-		nc.drain()
-		wg.Done()
-	}(nc, wg)
+	for _, responseCh := range responseChs {
+		<- responseCh
+	}
 }
 
 func (c *Conn) assertOpen() {
@@ -220,16 +215,24 @@ func (c *Conn) Exec(query string, args []driver.Value) (driver.Result, error) {
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // Exec is available on both VoltConn and on VoltStatement.  Specifies a duration for timeout.
 func (c *Conn) ExecTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Result, error) {
-	pi := newProcedureInvocation(c.getNextHandle(), false, query, args, timeout)
-	nc, err := c.getConn(pi)
-	if err != nil {
-		return nil, err
+
+	responseCh := make(chan voltResponse, 1)
+	pi := newSyncProcedureInvocation(c.getNextHandle(), false, query, args, responseCh, timeout)
+	c.submit(pi)
+
+	select {
+	case resp := <-pi.responseCh:
+		switch resp.(type) {
+		case VoltResult:
+			return resp.(VoltResult), nil
+		case VoltError:
+			return nil, resp.(VoltError)
+		default:
+			panic("unexpected response type")
+		}
+	case <-time.After(pi.timeout):
+		return nil, VoltError{voltResponse: voltResponseInfo{status: CONNECTION_TIMEOUT, clusterRoundTripTime: -1}, error: errors.New("timeout")}
 	}
-	err = c.rl.limit(timeout)
-	if err != nil {
-		return nil, err
-	}
-	return nc.exec(pi, c.rl.responseReceived)
 }
 
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
@@ -245,16 +248,9 @@ func (c *Conn) ExecAsync(resCons AsyncResponseConsumer, query string, args []dri
 // invocation of this method blocks only until a request is sent to the VoltDB
 // server.  Specifies a duration for timeout.
 func (c *Conn) ExecAsyncTimeout(resCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
-	pi := newProcedureInvocation(c.getNextHandle(), false, query, args, timeout)
-	nc, err := c.getConn(pi)
-	if err != nil {
-		return err
-	}
-	err = c.rl.limit(timeout)
-	if err != nil {
-		return err
-	}
-	return nc.execAsync(resCons, pi, c.rl.responseReceived)
+	responseCh := make(chan voltResponse, 1)
+	pi := newAsyncProcedureInvocation(c.getNextHandle(), false, query, args, responseCh, timeout, resCons)
+	return c.submit(pi)
 }
 
 // Prepare creates a prepared statement for later queries or executions.
@@ -272,17 +268,26 @@ func (c *Conn) Query(query string, args []driver.Value) (driver.Rows, error) {
 
 // Query executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
 // Specifies a duration for timeout.
-func (d *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Rows, error) {
-	pi := newProcedureInvocation(d.getNextHandle(), true, query, args, timeout)
-	nc, err := d.getConn(pi)
+func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Rows, error) {
+	responseCh := make(chan voltResponse, 1)
+	pi := newSyncProcedureInvocation(c.getNextHandle(), true, query, args, responseCh, timeout)
+	err := c.submit(pi)
 	if err != nil {
 		return nil, err
 	}
-	err = d.rl.limit(timeout)
-	if err != nil {
-		return nil, err
+	select {
+	case resp := <-pi.responseCh:
+		switch resp.(type) {
+		case VoltRows:
+			return resp.(VoltRows), nil
+		case VoltError:
+			return nil, resp.(VoltError)
+		default:
+			panic("unexpected response type")
+		}
+	case <-time.After(pi.timeout):
+		return nil, VoltError{voltResponse: voltResponseInfo{status: CONNECTION_TIMEOUT, clusterRoundTripTime: -1}, error: errors.New("timeout")}
 	}
-	return nc.query(pi, d.rl.responseReceived)
 }
 
 // QueryAsync executes a query asynchronously.  The invoking thread will block
@@ -298,61 +303,22 @@ func (c *Conn) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []d
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.  Specifies a duration for timeout.
 func (c *Conn) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
-	pi := newProcedureInvocation(c.getNextHandle(), true, query, args, timeout)
-	nc, err := c.getConn(pi)
+	responseCh := make(chan voltResponse, 1)
+	pi := newAsyncProcedureInvocation(c.getNextHandle(), true, query, args, responseCh, timeout, rowsCons)
+	return c.submit(pi)
+}
+
+func (c *Conn) submit(pi *procedureInvocation) error {
+	nc, backpressure, err := c.getConnByCA(pi)
 	if err != nil {
 		return err
 	}
-	if nc == nil {
-		return errors.New("no valid connection found")
+	if !backpressure && nc != nil {
+		nc.submit(pi)
+	} else {
+		c.piCh <- pi
 	}
-	err = c.rl.limit(timeout)
-	if err != nil {
-		return err
-	}
-	return nc.queryAsync(rowsCons, pi, c.rl.responseReceived)
-}
-
-// Get a connection from the hashinator.  If not, get one by round robin.  If not return nil.
-func (c *Conn) getConn(pi *procedureInvocation) (*nodeConn, error) {
-
-	c.assertOpen()
-	start := time.Now()
-	for {
-		if time.Now().Sub(start) > pi.timeout {
-			return nil, errors.New("timeout")
-		}
-		nc, backpressure, err := c.getConnByCA(pi)
-		if err != nil {
-			return nil, err
-		}
-		if !backpressure && nc != nil {
-			return nc, nil
-		}
-		nc, backpressure, err = c.getConnByRR()
-		if err != nil {
-			return nil, err
-		}
-		if !backpressure && nc != nil {
-			return nc, nil
-		}
-	}
-}
-
-func (c *Conn) getConnByRR() (*nodeConn, bool, error) {
-	c.ncMutex.Lock()
-	defer c.ncMutex.Unlock()
-	for i := 0; i < c.ncLen; i++ {
-		c.ncIndex++
-		c.ncIndex = c.ncIndex % c.ncLen
-		nc := c.ncs[c.ncIndex]
-		if nc.isOpen() && !nc.hasBP() {
-			return nc, false, nil
-		}
-	}
-	// if went through the loop without finding an open connection
-	// without backpressure then return true for backpressure.
-	return nil, true, nil
+	return nil
 }
 
 // Try to find optimal connection using client affinity
@@ -637,8 +603,9 @@ func (c *Conn) subscribeTopo() {
 		c.subscribeToNewNode()
 		return
 	}
-	SubscribeTopoPi := newProcedureInvocation(c.getNextSystemHandle(), true, "@Subscribe", []driver.Value{"TOPOLOGY"}, DEFAULT_QUERY_TIMEOUT)
-	c.subscribedConnection.queryAsync(SubscribeTopoRC{c}, SubscribeTopoPi, nil)
+	responseCh := make(chan voltResponse, 1)
+	SubscribeTopoPi := newAsyncProcedureInvocation(c.getNextSystemHandle(), true, "@Subscribe", []driver.Value{"TOPOLOGY"}, responseCh, DEFAULT_QUERY_TIMEOUT, SubscribeTopoRC{c})
+	c.subscribedConnection.submit(SubscribeTopoPi)
 }
 
 func (c *Conn) getTopoStatistics() {
@@ -648,8 +615,9 @@ func (c *Conn) getTopoStatistics() {
 		c.subscribeToNewNode()
 		return
 	}
-	topoStatisticsPi := newProcedureInvocation(c.getNextSystemHandle(), true, "@Statistics", []driver.Value{"TOPO", int32(JSON_FORMAT)}, DEFAULT_QUERY_TIMEOUT)
-	c.subscribedConnection.queryAsync(TopoStatisticsRC{c}, topoStatisticsPi, nil)
+	responseCh := make(chan voltResponse, 1)
+	topoStatisticsPi := newAsyncProcedureInvocation(c.getNextSystemHandle(), true, "@Statistics", []driver.Value{"TOPO", int32(JSON_FORMAT)}, responseCh, DEFAULT_QUERY_TIMEOUT, TopoStatisticsRC{c})
+	c.subscribedConnection.submit(topoStatisticsPi)
 }
 
 func (c *Conn) getProcedureInfo() {
@@ -659,8 +627,10 @@ func (c *Conn) getProcedureInfo() {
 	}
 	//Don't need to retrieve procedure updates every time we do a new subscription
 	if c.fetchedCatalog {
-		procedureInfoPi := newProcedureInvocation(c.getNextSystemHandle(), true, "@SystemCatalog", []driver.Value{"PROCEDURES"}, DEFAULT_QUERY_TIMEOUT)
-		c.subscribedConnection.queryAsync(ProcedureInfoRC{c}, procedureInfoPi, nil)
+		responseCh := make(chan voltResponse, 1)
+
+		procedureInfoPi := newAsyncProcedureInvocation(c.getNextSystemHandle(), true, "@SystemCatalog", []driver.Value{"PROCEDURES"}, responseCh, DEFAULT_QUERY_TIMEOUT, ProcedureInfoRC{c})
+		c.subscribedConnection.submit(procedureInfoPi)
 	}
 }
 

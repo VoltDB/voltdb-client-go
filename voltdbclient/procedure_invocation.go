@@ -29,17 +29,36 @@ type procedureInvocation struct {
 	isQuery bool // as opposed to an exec.
 	query   string
 	params  []driver.Value
+	responseCh chan voltResponse
 	timeout time.Duration
+	arc   AsyncResponseConsumer
+	async bool
 	slen    int // length of pi once serialized
 }
 
-func newProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, timeout time.Duration) *procedureInvocation {
+func newSyncProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, responseCh chan voltResponse, timeout time.Duration) *procedureInvocation {
 	var pi = new(procedureInvocation)
 	pi.handle = handle
 	pi.isQuery = isQuery
 	pi.query = query
 	pi.params = params
+	pi.responseCh = responseCh
 	pi.timeout = timeout
+	pi.async = false
+	pi.slen = -1
+	return pi
+}
+
+func newAsyncProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, responseCh chan voltResponse, timeout time.Duration, arc AsyncResponseConsumer) *procedureInvocation {
+	var pi = new(procedureInvocation)
+	pi.handle = handle
+	pi.isQuery = isQuery
+	pi.query = query
+	pi.params = params
+	pi.responseCh = responseCh
+	pi.timeout = timeout
+	pi.arc = arc
+	pi.async = true
 	pi.slen = -1
 	return pi
 }
@@ -100,4 +119,8 @@ func (pi procedureInvocation) getPassedParamCount() int {
 
 func (pi procedureInvocation) getPartitionParamValue(index int) driver.Value {
 	return pi.params[index]
+}
+
+func (pi procedureInvocation) isAsync() bool {
+	return pi.async
 }

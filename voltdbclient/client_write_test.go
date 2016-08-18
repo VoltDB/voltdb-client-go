@@ -33,7 +33,7 @@ func SimpleProcedureCall(t *testing.T) {
 	buf := bytes.NewBuffer(bs)
 	nw := newNetworkWriter()
 	var handle int64 = 51515
-	pi := newProcedureInvocation(handle, true, "HELLOWORLD.insert", []driver.Value{}, time.Minute*2)
+	pi := newSyncProcedureInvocation(handle, true, "HELLOWORLD.insert", []driver.Value{}, time.Minute*2)
 	nw.serializePI(buf, pi)
 	r := bytes.NewReader(buf.Bytes())
 	checkSimpleBuffer(t, r, 0, "HELLOWORLD.insert", 51515, 3, "Bonjour", "Monde", "French")
@@ -60,7 +60,7 @@ func InsertDifferentTypes(t *testing.T) {
 
 	var handle int64 = 61616
 	nw := newNetworkWriter()
-	pi := newProcedureInvocation(handle, true, "EXAMPLE_OF_TYPES.insert", []driver.Value{id, nid, name, data, status, typ, pan, bo, now}, time.Minute*2)
+	pi := newSyncProcedureInvocation(handle, true, "EXAMPLE_OF_TYPES.insert", []driver.Value{id, nid, name, data, status, typ, pan, bo, now}, time.Minute*2)
 	nw.serializePI(buf, pi)
 
 	// read the verification file into a buffer and compare the two buffers

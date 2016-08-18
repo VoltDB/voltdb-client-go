@@ -39,26 +39,26 @@ func newNetworkWriter() *networkWriter {
 
 func (nw *networkWriter) writePIs(writer io.Writer, piCh <-chan *procedureInvocation, wg *sync.WaitGroup) {
 	for pi := range piCh {
-		nw.serializePI(writer, pi)
+		serializePI(writer, pi)
 	}
 	wg.Done()
 }
 
-func (nw *networkWriter) serializePI(writer io.Writer, pi *procedureInvocation) {
+func serializePI(writer io.Writer, pi *procedureInvocation) {
 	var call bytes.Buffer
 	var err error
 
 	writeInt(&call, int32(pi.getLen()))
 
 	// Serialize the procedure call and its params.
-	if err = nw.serializeStatement(&call, pi); err != nil {
+	if err = serializeStatement(&call, pi); err != nil {
 		log.Printf("Error serializing procedure call %v\n", err)
 	} else {
 		io.Copy(writer, &call)
 	}
 }
 
-func (nw *networkWriter) serializeStatement(writer io.Writer, pi *procedureInvocation) (err error) {
+func serializeStatement(writer io.Writer, pi *procedureInvocation) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(runtime.Error); ok {
@@ -78,14 +78,14 @@ func (nw *networkWriter) serializeStatement(writer io.Writer, pi *procedureInvoc
 	if err = writeLong(writer, pi.handle); err != nil {
 		return
 	}
-	err = nw.serializeArgs(writer, pi.params)
+	err = serializeArgs(writer, pi.params)
 	if err != nil {
 		return
 	}
 	return
 }
 
-func (nw *networkWriter) serializeArgs(writer io.Writer, args []driver.Value) (err error) {
+func serializeArgs(writer io.Writer, args []driver.Value) (err error) {
 	// parameter_count short
 	// (type byte, parameter)*
 	if err = writeShort(writer, int16(len(args))); err != nil {

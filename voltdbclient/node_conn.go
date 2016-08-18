@@ -20,7 +20,6 @@ package voltdbclient
 import (
 	"bytes"
 	"database/sql/driver"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -47,28 +46,30 @@ type nodeConn struct {
 	tcpConn     *net.TCPConn
 
 	nl          *networkListener
+	drainCh     chan chan bool
+	bpCh        chan chan bool
 	nlCloseCh   chan chan bool
 
-	nw          *networkWriter
-	piCh        chan *procedureInvocation
-	nwwg        *sync.WaitGroup
-
-	// queued bytes will be read/written by the main client thread and also
-	// by the network listener thread.
-	queuedBytes int
-	qbMutex     sync.Mutex
+	// channel for pi's meant specifically for this connection.
+	ncPiCh      chan *procedureInvocation
 
 	open        bool
 	openMutex   sync.RWMutex
 }
 
-func newNodeConn(ci string, conn *Conn) *nodeConn {
+func newNodeConn(ci string, conn *Conn, ncPiCh chan *procedureInvocation) *nodeConn {
 	var nc = new(nodeConn)
 	nc.connInfo = ci
 	nc.conn = conn
-	nc.nl = newNetworkListener(nc, ci)
-	nc.nw = newNetworkWriter()
+	nc.ncPiCh = ncPiCh
+	nc.bpCh = make(chan chan bool)
+	nc.drainCh = make(chan chan bool)
+	nc.nl = newNetworkListener(nc, ci, nc.ncPiCh)
 	return nc
+}
+
+func (nc *nodeConn) submit(pi *procedureInvocation) {
+	nc.ncPiCh <- pi
 }
 
 // when the node conn is closed by its owning distributer
@@ -81,6 +82,7 @@ func (nc *nodeConn) close() error {
 	// closed and won't try to reconnect.
 	respCh := make(chan bool)
 	nc.nlCloseCh <- respCh
+
 	// close the tcp connection.  If the listener is blocked
 	// on a read this will unblock it.
 	if nc.tcpConn != nil {
@@ -93,19 +95,10 @@ func (nc *nodeConn) close() error {
 	return nil
 }
 
-func (nc *nodeConn) handleDisconnect() {
-	nc.setClosed()
-	nc.tcpConn = nil
-	nc.disconnect()
-	nc.reconnect()
-}
-
 // when the node conn is closing because it lost connection.  determined by
 // its nl.
 func (nc *nodeConn) disconnect() {
-	nc.nw.disconnect(nc.piCh)
-	nc.nwwg.Wait()
-	nc.nl.disconnect()
+	// nc.nl.disconnect()
 }
 
 func (nc *nodeConn) isOpen() bool {
@@ -135,7 +128,7 @@ func (nc *nodeConn) setOpen() {
 
 }
 
-func (nc *nodeConn) connect() error {
+func (nc *nodeConn) connect(piCh <-chan *procedureInvocation) error {
 	tcpConn, connData, err := nc.networkConnect()
 	if err != nil {
 		return err
@@ -144,8 +137,14 @@ func (nc *nodeConn) connect() error {
 	nc.connData = connData
 	nc.tcpConn = tcpConn
 
-	nc.nlCloseCh = nc.nl.connect(tcpConn)
-	nc.connectNW(tcpConn)
+	responseCh := make(chan *bytes.Buffer, 10)
+	go nc.nl.listen(tcpConn, responseCh)
+
+	nc.nlCloseCh = make(chan chan bool, 1)
+	nc.drainCh = make(chan chan bool, 1)
+
+	go nc.nl.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh, nc.nlCloseCh)
+
 
 	nc.openMutex.Lock()
 	nc.open = true
@@ -156,7 +155,7 @@ func (nc *nodeConn) connect() error {
 // called when the network listener loses connection.
 // the 'processAsyncs' goroutine and channel stay in place over
 // a reconnect, they're not affected.
-func (nc *nodeConn) reconnect() {
+func (nc *nodeConn) reconnect(piCh <-chan *procedureInvocation) {
 
 	for {
 		tcpConn, connData, err := nc.networkConnect()
@@ -168,8 +167,10 @@ func (nc *nodeConn) reconnect() {
 		nc.tcpConn = tcpConn
 		nc.connData = connData
 
-		nc.nlCloseCh = nc.nl.connect(nc.tcpConn)
-		nc.connectNW(nc.tcpConn)
+		responseCh := make(chan *bytes.Buffer, 10)
+		go nc.nl.listen(tcpConn, responseCh)
+		nc.nlCloseCh = make(chan chan bool, 1)
+		go nc.nl.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh, nc.nlCloseCh)
 
 		nc.openMutex.Lock()
 		nc.open = true
@@ -177,16 +178,6 @@ func (nc *nodeConn) reconnect() {
 		break
 	}
 	nc.setOpen()
-}
-
-// start the network writer.
-func (nc *nodeConn) connectNW(tcpConn *net.TCPConn) {
-	piCh := make(chan *procedureInvocation, 1000)
-	nc.piCh = piCh
-	nwwg := sync.WaitGroup{}
-	nc.nwwg = &nwwg
-	nwwg.Add(1)
-	nc.nw.connect(tcpConn, piCh, &nwwg)
 }
 
 func (nc *nodeConn) networkConnect() (*net.TCPConn, *connectionData, error) {
@@ -216,122 +207,14 @@ func (nc *nodeConn) networkConnect() (*net.TCPConn, *connectionData, error) {
 	return tcpConn, connData, nil
 }
 
-func (nc *nodeConn) exec(pi *procedureInvocation, respRcvd func(int32)) (driver.Result, error) {
-	if !nc.open {
-		return nil, errors.New("Connection is closed")
-	}
-	c := nc.nl.registerSyncRequest(nc, pi)
-	nc.incrementQueuedBytes(pi.getLen())
-	nc.piCh <- pi
-
-	select {
-	case resp := <-c:
-		switch resp.(type) {
-		case VoltResult:
-			respRcvd(resp.getClusterRoundTripTime())
-			return resp.(VoltResult), nil
-		case VoltError:
-			respRcvd(-1)
-			return nil, resp.(VoltError)
-		default:
-			panic("unexpected response type")
-		}
-	case <-time.After(pi.timeout):
-		if respRcvd != nil {
-			respRcvd(int32(pi.timeout.Seconds() * 1000))
-		}
-		return nil, VoltError{voltResponse: voltResponseInfo{status: CONNECTION_TIMEOUT, clusterRoundTripTime: -1}, error: errors.New("timeout")}
-	}
-}
-
-func (nc *nodeConn) execAsync(resCons AsyncResponseConsumer, pi *procedureInvocation, respRcvd func(int32)) error {
-	if !nc.open {
-		return errors.New("Connection is closed")
-	}
-	nc.nl.registerAsyncRequest(nc, pi, resCons, respRcvd)
-	nc.incrementQueuedBytes(pi.getLen())
-	nc.piCh <- pi
-	return nil
-}
-
-func (nc *nodeConn) query(pi *procedureInvocation, respRcvd func(int32)) (driver.Rows, error) {
-	if !nc.open {
-		return nil, errors.New("Connection is closed")
-	}
-	c := nc.nl.registerSyncRequest(nc, pi)
-	nc.incrementQueuedBytes(pi.getLen())
-	nc.piCh <- pi
-	select {
-	case resp := <-c:
-		switch resp.(type) {
-		case VoltRows:
-			if respRcvd != nil {
-				respRcvd(resp.getClusterRoundTripTime())
-			}
-			return resp.(VoltRows), nil
-		case VoltError:
-			if respRcvd != nil {
-				respRcvd(-1)
-			}
-			return nil, resp.(VoltError)
-		default:
-			panic("unexpected response type")
-		}
-	case <-time.After(pi.timeout):
-		if respRcvd != nil {
-			respRcvd(int32(pi.timeout.Seconds() * 1000))
-		}
-		return nil, VoltError{voltResponse: voltResponseInfo{status: CONNECTION_TIMEOUT, clusterRoundTripTime: -1}, error: errors.New("timeout")}
-	}
-}
-
-// QueryAsync executes a query asynchronously.  The invoking thread will block
-// until the query is sent over the network to the server.  The eventual
-// response will be handled by the given AsyncResponseConsumer, this processing
-// happens in the 'response' thread.
-func (nc *nodeConn) queryAsync(rowsCons AsyncResponseConsumer, pi *procedureInvocation, respRcvd func(int32)) error {
-	if !nc.open {
-		return errors.New("Connection is closed")
-	}
-	nc.nl.registerAsyncRequest(nc, pi, rowsCons, respRcvd)
-	nc.incrementQueuedBytes(pi.getLen())
-	nc.piCh <- pi
-	return nil
-}
-
-func (nc *nodeConn) incrementQueuedBytes(numBytes int) {
-	nc.qbMutex.Lock()
-	nc.queuedBytes += numBytes
-	nc.qbMutex.Unlock()
-}
-
-func (nc *nodeConn) decrementQueuedBytes(numBytes int) {
-	nc.qbMutex.Lock()
-	nc.queuedBytes -= numBytes
-	nc.qbMutex.Unlock()
-}
-
-func (nc *nodeConn) getQueuedBytes() int {
-	var qb int
-	nc.qbMutex.Lock()
-	qb = nc.queuedBytes
-	nc.qbMutex.Unlock()
-	return qb
-}
-
-func (nc *nodeConn) drain() {
-	for {
-		numRequests := nc.nl.numOutstandingRequests()
-		numQueuedWrites := len(nc.piCh)
-		if numRequests == 0 && numQueuedWrites == 0 {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+func (nc *nodeConn) drain(respCh chan bool) {
+	nc.drainCh <- respCh
 }
 
 func (nc *nodeConn) hasBP() bool {
-	return nc.getQueuedBytes() >= maxQueuedBytes
+	respCh := make(chan bool)
+	nc.bpCh<- respCh
+	return <-respCh
 }
 
 func writeLoginMessage(writer io.Writer, buf *bytes.Buffer) {
