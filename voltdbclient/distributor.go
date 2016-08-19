@@ -35,11 +35,12 @@ const (
 	DEFAULT_QUERY_TIMEOUT time.Duration = 2 * time.Minute
 )
 
+var handle int64 = 0
+var sHandle int64 = -1
+
 // the set of currently active connections
 type Conn struct {
-	handle   int64
-	sHandle  int64
-	ncs      []*nodeConn
+	ncs []*nodeConn
 	// next conn to look at when finding by round robin.
 	ncIndex int
 	ncLen   int
@@ -52,21 +53,19 @@ type Conn struct {
 	subscribedConnection       *nodeConn // The connection we have issued our subscriptions to.
 	subscriptionRequestPending bool
 
-	fetchedCatalog     bool
-	ignoreBackpressure bool
-	useClientAffinity  bool
-	sendReadsToReplicasBytDefaultIfCAEnabled  bool
-	partitonMutex      sync.RWMutex
-	partitionMasters   map[int]*nodeConn
-	partitionReplicas  map[int][]*nodeConn
-	hostIdToConnection map[int]*nodeConn
-	procedureInfos     map[string]procedure
+	fetchedCatalog                           bool
+	ignoreBackpressure                       bool
+	useClientAffinity                        bool
+	sendReadsToReplicasBytDefaultIfCAEnabled bool
+	partitonMutex                            sync.RWMutex
+	partitionMasters                         map[int]*nodeConn
+	partitionReplicas                        map[int][]*nodeConn
+	hostIdToConnection                       map[int]*nodeConn
+	procedureInfos                           map[string]procedure
 }
 
 func newConn(cis []string) (*Conn, error) {
 	var c = new(Conn)
-	c.handle = 0
-	c.sHandle = -1
 	c.ncIndex = 0
 	c.open = atomic.Value{}
 	c.open.Store(true)
@@ -82,7 +81,7 @@ func newConn(cis []string) (*Conn, error) {
 
 	err := c.makeNodeConns(cis)
 	if err != nil {
-		return nil,err
+		return nil, err
 	}
 	return c, nil
 }
@@ -145,7 +144,6 @@ func (c *Conn) makeNodeConns(cis []string) error {
 	return nil
 }
 
-
 // Begin starts a transaction.  VoltDB runs in auto commit mode, and so Begin
 // returns an error.
 func (c *Conn) Begin() (driver.Tx, error) {
@@ -188,7 +186,7 @@ func (c *Conn) Drain() {
 		nc.drain(responseCh)
 	}
 	for _, responseCh := range responseChs {
-		<- responseCh
+		<-responseCh
 	}
 }
 
@@ -204,121 +202,6 @@ func (c *Conn) isClosed() bool {
 
 func (c *Conn) setClosed() {
 	c.open.Store(false)
-}
-
-// Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
-// Exec is available on both VoltConn and on VoltStatement.  Uses DEFAULT_QUERY_TIMEOUT.
-func (c *Conn) Exec(query string, args []driver.Value) (driver.Result, error) {
-	return c.ExecTimeout(query, args, DEFAULT_QUERY_TIMEOUT)
-}
-
-// Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
-// Exec is available on both VoltConn and on VoltStatement.  Specifies a duration for timeout.
-func (c *Conn) ExecTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Result, error) {
-
-	responseCh := make(chan voltResponse, 1)
-	pi := newSyncProcedureInvocation(c.getNextHandle(), false, query, args, responseCh, timeout)
-	c.submit(pi)
-
-	select {
-	case resp := <-pi.responseCh:
-		switch resp.(type) {
-		case VoltResult:
-			return resp.(VoltResult), nil
-		case VoltError:
-			return nil, resp.(VoltError)
-		default:
-			panic("unexpected response type")
-		}
-	case <-time.After(pi.timeout):
-		return nil, VoltError{voltResponse: voltResponseInfo{status: CONNECTION_TIMEOUT, clusterRoundTripTime: -1}, error: errors.New("timeout")}
-	}
-}
-
-// Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
-// ExecAsync is analogous to Exec but is run asynchronously.  That is, an
-// invocation of this method blocks only until a request is sent to the VoltDB
-// server.  Uses DEFAULT_QUERY_TIMEOUT.
-func (c *Conn) ExecAsync(resCons AsyncResponseConsumer, query string, args []driver.Value) error {
-	return c.ExecAsyncTimeout(resCons, query, args, DEFAULT_QUERY_TIMEOUT)
-}
-
-// Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
-// ExecAsync is analogous to Exec but is run asynchronously.  That is, an
-// invocation of this method blocks only until a request is sent to the VoltDB
-// server.  Specifies a duration for timeout.
-func (c *Conn) ExecAsyncTimeout(resCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
-	responseCh := make(chan voltResponse, 1)
-	pi := newAsyncProcedureInvocation(c.getNextHandle(), false, query, args, responseCh, timeout, resCons)
-	return c.submit(pi)
-}
-
-// Prepare creates a prepared statement for later queries or executions.
-// The Statement returned by Prepare is bound to this VoltConn.
-func (c *Conn) Prepare(query string) (driver.Stmt, error) {
-	stmt := newVoltStatement(c, query)
-	return *stmt, nil
-}
-
-// Query executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
-// Uses DEFAULT_QUERY_TIMEOUT.
-func (c *Conn) Query(query string, args []driver.Value) (driver.Rows, error) {
-	return c.QueryTimeout(query, args, DEFAULT_QUERY_TIMEOUT)
-}
-
-// Query executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
-// Specifies a duration for timeout.
-func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Rows, error) {
-	responseCh := make(chan voltResponse, 1)
-	pi := newSyncProcedureInvocation(c.getNextHandle(), true, query, args, responseCh, timeout)
-	err := c.submit(pi)
-	if err != nil {
-		return nil, err
-	}
-	select {
-	case resp := <-pi.responseCh:
-		switch resp.(type) {
-		case VoltRows:
-			return resp.(VoltRows), nil
-		case VoltError:
-			return nil, resp.(VoltError)
-		default:
-			panic("unexpected response type")
-		}
-	case <-time.After(pi.timeout):
-		return nil, VoltError{voltResponse: voltResponseInfo{status: CONNECTION_TIMEOUT, clusterRoundTripTime: -1}, error: errors.New("timeout")}
-	}
-}
-
-// QueryAsync executes a query asynchronously.  The invoking thread will block
-// until the query is sent over the network to the server.  The eventual
-// response will be handled by the given AsyncResponseConsumer, this processing
-// happens in the 'response' thread.  Uses DEFAULT_QUERY_TIMEOUT.
-func (c *Conn) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []driver.Value) error {
-	return c.QueryAsyncTimeout(rowsCons, query, args, DEFAULT_QUERY_TIMEOUT)
-}
-
-// QueryAsync executes a query asynchronously.  The invoking thread will block
-// until the query is sent over the network to the server.  The eventual
-// response will be handled by the given AsyncResponseConsumer, this processing
-// happens in the 'response' thread.  Specifies a duration for timeout.
-func (c *Conn) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
-	responseCh := make(chan voltResponse, 1)
-	pi := newAsyncProcedureInvocation(c.getNextHandle(), true, query, args, responseCh, timeout, rowsCons)
-	return c.submit(pi)
-}
-
-func (c *Conn) submit(pi *procedureInvocation) error {
-	nc, backpressure, err := c.getConnByCA(pi)
-	if err != nil {
-		return err
-	}
-	if !backpressure && nc != nil {
-		nc.submit(pi)
-	} else {
-		c.piCh <- pi
-	}
-	return nil
 }
 
 // Try to find optimal connection using client affinity
@@ -349,7 +232,7 @@ func (c *Conn) getConnByCA(pi *procedureInvocation) (cxn *nodeConn, backpressure
 
 			// If the procedure is read only and single part, load balance across replicas
 			// This is probably slower for SAFE consistency.
-			if procedureInfo.SinglePartition && procedureInfo.ReadOnly  && c.sendReadsToReplicasBytDefaultIfCAEnabled {
+			if procedureInfo.SinglePartition && procedureInfo.ReadOnly && c.sendReadsToReplicasBytDefaultIfCAEnabled {
 				c.partitonMutex.RLock()
 				partitionReplica := c.partitionReplicas[hashedPartition]
 				c.partitonMutex.RUnlock()
@@ -385,11 +268,11 @@ func (c *Conn) getConnByCA(pi *procedureInvocation) (cxn *nodeConn, backpressure
 }
 
 func (c *Conn) getNextHandle() int64 {
-	return atomic.AddInt64(&c.handle, 1)
+	return atomic.AddInt64(&handle, 1)
 }
 
 func (c *Conn) getNextSystemHandle() int64 {
-	return atomic.AddInt64(&c.sHandle, -1)
+	return atomic.AddInt64(&sHandle, -1)
 }
 
 type procedure struct {
