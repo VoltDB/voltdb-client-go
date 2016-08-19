@@ -20,6 +20,7 @@ package voltdbclient
 import (
 	"bytes"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -45,7 +46,6 @@ type nodeConn struct {
 	connData    *connectionData
 	tcpConn     *net.TCPConn
 
-	nl          *networkListener
 	drainCh     chan chan bool
 	bpCh        chan chan bool
 	nlCloseCh   chan chan bool
@@ -64,7 +64,6 @@ func newNodeConn(ci string, conn *Conn, ncPiCh chan *procedureInvocation) *nodeC
 	nc.ncPiCh = ncPiCh
 	nc.bpCh = make(chan chan bool)
 	nc.drainCh = make(chan chan bool)
-	nc.nl = newNetworkListener(nc, ci, nc.ncPiCh)
 	return nc
 }
 
@@ -138,12 +137,12 @@ func (nc *nodeConn) connect(piCh <-chan *procedureInvocation) error {
 	nc.tcpConn = tcpConn
 
 	responseCh := make(chan *bytes.Buffer, 10)
-	go nc.nl.listen(tcpConn, responseCh)
+	go nc.listen(tcpConn, responseCh)
 
 	nc.nlCloseCh = make(chan chan bool, 1)
 	nc.drainCh = make(chan chan bool, 1)
 
-	go nc.nl.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh, nc.nlCloseCh)
+	go nc.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh, nc.nlCloseCh)
 
 
 	nc.openMutex.Lock()
@@ -168,9 +167,9 @@ func (nc *nodeConn) reconnect(piCh <-chan *procedureInvocation) {
 		nc.connData = connData
 
 		responseCh := make(chan *bytes.Buffer, 10)
-		go nc.nl.listen(tcpConn, responseCh)
+		go nc.listen(tcpConn, responseCh)
 		nc.nlCloseCh = make(chan chan bool, 1)
-		go nc.nl.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh, nc.nlCloseCh)
+		go nc.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh, nc.nlCloseCh)
 
 		nc.openMutex.Lock()
 		nc.open = true
@@ -215,6 +214,159 @@ func (nc *nodeConn) hasBP() bool {
 	respCh := make(chan bool)
 	nc.bpCh<- respCh
 	return <-respCh
+}
+
+// listen listens for messages from the server and calls back a registered listener.
+// listen blocks on input from the server and should be run as a go routine.
+func (nc *nodeConn) listen(reader io.Reader, responseCh chan<- *bytes.Buffer) {
+	for {
+		buf, err := readMessage(reader)
+		if err != nil {
+			if responseCh == nil {
+				// exiting
+				return
+			} else {
+				// put the error on the channel
+				// the owner needs to reconnect
+				return
+			}
+		}
+		responseCh <- buf
+	}
+}
+
+func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, responseCh <-chan *bytes.Buffer, bpCh <-chan chan bool, drainCh chan chan bool, closeCh chan chan bool) {
+	// declare mutable state
+	requests := make(map[int64]*networkRequest)
+	ncPiCh := nc.ncPiCh
+	var draining bool = false
+	var drainRespCh chan bool
+	var queuedBytes int = 0
+	var bp bool = false
+
+	var tci int64 = int64(DEFAULT_QUERY_TIMEOUT / 10)            // timeout check interval
+	tcc := time.NewTimer(time.Duration(tci) * time.Nanosecond).C // timeout check timer channel
+	for {
+		// setup select cases
+		if draining {
+			if queuedBytes == 0 && len(nc.ncPiCh) == 0 && len(piCh) == 0 {
+				drainRespCh <- true
+				drainRespCh = nil
+				draining = false
+			}
+		}
+		if queuedBytes > maxQueuedBytes && ncPiCh != nil {
+			ncPiCh = nil
+			bp = true
+		} else if ncPiCh == nil {
+			ncPiCh = nc.ncPiCh
+			bp = false
+		}
+		select {
+		case respCh := <-closeCh:
+			respCh <- true
+			return
+		case pi := <-ncPiCh:
+			nc.handleProcedureInvocation(writer, pi, &requests, &queuedBytes)
+		case pi := <-piCh:
+			nc.handleProcedureInvocation(writer, pi, &requests, &queuedBytes)
+		case resp := <-responseCh:
+			handle, err := readLong(resp)
+		// can't do anything without a handle.  If reading the handle fails,
+		// then log and drop the message.
+			if err != nil {
+				continue
+			}
+			if handle == PING_HANDLE {
+				continue
+			}
+			req := requests[handle]
+			if req == nil {
+				// there's a race here with timeout.  A request can be timed out and
+				// then a response received.  In this case drop the response.
+				continue
+			}
+			queuedBytes -= req.numBytes
+			delete(requests, handle)
+			if req.isSync() {
+				nc.handleSyncResponse(handle, resp, req)
+			} else {
+				go nc.handleAsyncResponse(handle, resp, req)
+			}
+		case respBPCh := <-bpCh:
+			respBPCh <- bp
+		case drainRespCh = <-drainCh:
+			draining = true
+		// check for timed out procedure invocations
+		case <-tcc:
+			for _, req := range requests {
+				if time.Now().After(req.submitted.Add(req.timeout)) {
+					queuedBytes -= req.numBytes
+					nc.handleAsyncTimeout(req)
+					delete(requests, req.handle)
+				}
+			}
+			tcc = time.NewTimer(time.Duration(tci) * time.Nanosecond).C
+		}
+	}
+}
+
+func (nc *nodeConn) handleProcedureInvocation(writer io.Writer, pi *procedureInvocation, requests *map[int64]*networkRequest, queuedBytes *int) {
+	var nr *networkRequest
+	if pi.isAsync() {
+		nr = newAsyncRequest(pi.handle, pi.responseCh, pi.isQuery, pi.arc, pi.getLen(), pi.timeout, time.Now())
+	} else {
+		nr = newSyncRequest(pi.handle, pi.responseCh, pi.isQuery, pi.getLen(), pi.timeout, time.Now())
+	}
+	(*requests)[pi.handle] = nr
+	*queuedBytes += pi.slen
+	serializePI(writer, pi)
+}
+
+func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRequest) {
+	respCh := req.getChan()
+	rsp, err := deserializeResponse(r, handle)
+	if err != nil {
+		respCh <- err.(voltResponse)
+	} else if req.isQuery() {
+		if rows, err := deserializeRows(r, rsp); err != nil {
+			respCh <- err.(voltResponse)
+		} else {
+			respCh <- rows
+		}
+	} else {
+		if result, err := deserializeResult(r, rsp); err != nil {
+			respCh <- err.(voltResponse)
+		} else {
+			respCh <- result
+		}
+	}
+
+}
+
+func (nc *nodeConn) handleAsyncResponse(handle int64, r io.Reader, req *networkRequest) {
+	rsp, err := deserializeResponse(r, handle)
+	if err != nil {
+		req.arc.ConsumeError(err)
+	} else if req.isQuery() {
+		if rows, err := deserializeRows(r, rsp); err != nil {
+			req.arc.ConsumeError(err)
+		} else {
+			req.arc.ConsumeRows(rows)
+		}
+	} else {
+		if result, err := deserializeResult(r, rsp); err != nil {
+			req.arc.ConsumeError(err)
+		} else {
+			req.arc.ConsumeResult(result)
+		}
+	}
+}
+
+func (nc *nodeConn) handleAsyncTimeout(req *networkRequest) {
+	err := errors.New("timeout")
+	verr := VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
+	req.arc.ConsumeError(verr)
 }
 
 func writeLoginMessage(writer io.Writer, buf *bytes.Buffer) {
