@@ -79,7 +79,8 @@ func (vs VoltStatement) ExecAsyncTimeout(resCons AsyncResponseConsumer, args []d
 	args = append(args, "")
 	copy(args[1:], args[0:])
 	args[0] = vs.query
-	return vs.d.ExecAsyncTimeout(resCons, "@AdHoc", args, timeout)
+	vs.d.ExecAsyncTimeout(resCons, "@AdHoc", args, timeout)
+	return nil
 }
 
 // Query executes a query that may return rows, such as a SELECT.  Uses DEFAULT_QUERY_TIMEOUT.
@@ -105,5 +106,6 @@ func (vs VoltStatement) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, args [
 	args = append(args, "")
 	copy(args[1:], args[0:])
 	args[0] = vs.query
-	return vs.d.QueryAsyncTimeout(rowsCons, "@AdHoc", args, timeout)
+	vs.d.QueryAsyncTimeout(rowsCons, "@AdHoc", args, timeout)
+	return nil
 }

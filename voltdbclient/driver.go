@@ -34,7 +34,7 @@ func NewVoltDriver() *VoltDriver {
 
 // Open a connection to the VoltDB server.
 func (vd *VoltDriver) Open(hostAndPort string) (driver.Conn, error) {
-	return OpenConn(hostAndPort)
+	return OpenConn(hostAndPort), nil
 }
 
 func init() {

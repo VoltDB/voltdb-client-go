@@ -267,13 +267,15 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 			respCh <- true
 			return
 		case pi := <-ncPiCh:
+			fmt.Printf("XXX %v handle pi %v \n", nc.connInfo, pi.query)
 			nc.handleProcedureInvocation(writer, pi, &requests, &queuedBytes)
 		case pi := <-piCh:
+			fmt.Printf("XXX %v handles pi %v \n", nc.connInfo, pi.query)
 			nc.handleProcedureInvocation(writer, pi, &requests, &queuedBytes)
 		case resp := <-responseCh:
 			handle, err := readLong(resp)
-		// can't do anything without a handle.  If reading the handle fails,
-		// then log and drop the message.
+			// can't do anything without a handle.  If reading the handle fails,
+			// then log and drop the message.
 			if err != nil {
 				continue
 			}

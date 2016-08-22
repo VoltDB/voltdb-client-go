@@ -1,3 +1,20 @@
+/* This file is part of VoltDB.
+ * Copyright (C) 2008-2016 VoltDB Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 package voltdbclient
 
 import (
@@ -17,7 +34,7 @@ func (c *Conn) ExecTimeout(query string, args []driver.Value, timeout time.Durat
 
 	responseCh := make(chan voltResponse, 1)
 	pi := newSyncProcedureInvocation(c.getNextHandle(), false, query, args, responseCh, timeout)
-	c.submit(pi)
+	c.inPiCh <- pi
 
 	select {
 	case resp := <-pi.responseCh:
@@ -38,18 +55,18 @@ func (c *Conn) ExecTimeout(query string, args []driver.Value, timeout time.Durat
 // ExecAsync is analogous to Exec but is run asynchronously.  That is, an
 // invocation of this method blocks only until a request is sent to the VoltDB
 // server.  Uses DEFAULT_QUERY_TIMEOUT.
-func (c *Conn) ExecAsync(resCons AsyncResponseConsumer, query string, args []driver.Value) error {
-	return c.ExecAsyncTimeout(resCons, query, args, DEFAULT_QUERY_TIMEOUT)
+func (c *Conn) ExecAsync(resCons AsyncResponseConsumer, query string, args []driver.Value) {
+	c.ExecAsyncTimeout(resCons, query, args, DEFAULT_QUERY_TIMEOUT)
 }
 
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // ExecAsync is analogous to Exec but is run asynchronously.  That is, an
 // invocation of this method blocks only until a request is sent to the VoltDB
 // server.  Specifies a duration for timeout.
-func (c *Conn) ExecAsyncTimeout(resCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
+func (c *Conn) ExecAsyncTimeout(resCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) {
 	responseCh := make(chan voltResponse, 1)
 	pi := newAsyncProcedureInvocation(c.getNextHandle(), false, query, args, responseCh, timeout, resCons)
-	return c.submit(pi)
+	c.inPiCh <- pi
 }
 
 // Prepare creates a prepared statement for later queries or executions.
@@ -70,10 +87,7 @@ func (c *Conn) Query(query string, args []driver.Value) (driver.Rows, error) {
 func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Rows, error) {
 	responseCh := make(chan voltResponse, 1)
 	pi := newSyncProcedureInvocation(c.getNextHandle(), true, query, args, responseCh, timeout)
-	err := c.submit(pi)
-	if err != nil {
-		return nil, err
-	}
+	c.inPiCh <- pi
 	select {
 	case resp := <-pi.responseCh:
 		switch resp.(type) {
@@ -93,29 +107,16 @@ func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Dura
 // until the query is sent over the network to the server.  The eventual
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.  Uses DEFAULT_QUERY_TIMEOUT.
-func (c *Conn) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []driver.Value) error {
-	return c.QueryAsyncTimeout(rowsCons, query, args, DEFAULT_QUERY_TIMEOUT)
+func (c *Conn) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []driver.Value) {
+	c.QueryAsyncTimeout(rowsCons, query, args, DEFAULT_QUERY_TIMEOUT)
 }
 
 // QueryAsync executes a query asynchronously.  The invoking thread will block
 // until the query is sent over the network to the server.  The eventual
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.  Specifies a duration for timeout.
-func (c *Conn) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
+func (c *Conn) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) {
 	responseCh := make(chan voltResponse, 1)
 	pi := newAsyncProcedureInvocation(c.getNextHandle(), true, query, args, responseCh, timeout, rowsCons)
-	return c.submit(pi)
-}
-
-func (c *Conn) submit(pi *procedureInvocation) error {
-	nc, backpressure, err := c.getConnByCA(pi)
-	if err != nil {
-		return err
-	}
-	if !backpressure && nc != nil {
-		nc.submit(pi)
-	} else {
-		c.piCh <- pi
-	}
-	return nil
+	c.inPiCh <- pi
 }
