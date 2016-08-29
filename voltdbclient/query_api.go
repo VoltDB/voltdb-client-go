@@ -19,9 +19,10 @@ package voltdbclient
 
 import (
 	"database/sql/driver"
-	"time"
 	"errors"
+	"time"
 )
+
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // Exec is available on both VoltConn and on VoltStatement.  Uses DEFAULT_QUERY_TIMEOUT.
 func (c *Conn) Exec(query string, args []driver.Value) (driver.Result, error) {
@@ -64,8 +65,7 @@ func (c *Conn) ExecAsync(resCons AsyncResponseConsumer, query string, args []dri
 // invocation of this method blocks only until a request is sent to the VoltDB
 // server.  Specifies a duration for timeout.
 func (c *Conn) ExecAsyncTimeout(resCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) {
-	responseCh := make(chan voltResponse, 1)
-	pi := newAsyncProcedureInvocation(c.getNextHandle(), false, query, args, responseCh, timeout, resCons)
+	pi := newAsyncProcedureInvocation(c.getNextHandle(), false, query, args, timeout, resCons)
 	c.inPiCh <- pi
 }
 
@@ -116,7 +116,6 @@ func (c *Conn) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []d
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.  Specifies a duration for timeout.
 func (c *Conn) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) {
-	responseCh := make(chan voltResponse, 1)
-	pi := newAsyncProcedureInvocation(c.getNextHandle(), true, query, args, responseCh, timeout, rowsCons)
+	pi := newAsyncProcedureInvocation(c.getNextHandle(), true, query, args, timeout, rowsCons)
 	c.inPiCh <- pi
 }

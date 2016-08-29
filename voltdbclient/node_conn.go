@@ -246,6 +246,12 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 
 	var tci int64 = int64(DEFAULT_QUERY_TIMEOUT / 10)            // timeout check interval
 	tcc := time.NewTimer(time.Duration(tci) * time.Nanosecond).C // timeout check timer channel
+
+	// for ping
+	var pingTimeout = 2 * time.Minute
+	pingSentTime := time.Now()
+	var pingOutstanding bool = false
+
 	for {
 		// setup select cases
 		if draining {
@@ -255,6 +261,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 				draining = false
 			}
 		}
+
 		if queuedBytes > maxQueuedBytes && ncPiCh != nil {
 			ncPiCh = nil
 			bp = true
@@ -262,15 +269,26 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 			ncPiCh = nc.ncPiCh
 			bp = false
 		}
+
+		// ping
+		pingSinceSent := time.Now().Sub(pingSentTime)
+		if pingOutstanding {
+			if pingSinceSent > pingTimeout {
+				fmt.Println("should disconnect")
+			}
+		} else if pingSinceSent > pingTimeout / 3 {
+			nc.sendPing(writer)
+			pingOutstanding = true
+			pingSentTime = time.Now()
+		}
+
 		select {
 		case respCh := <-closeCh:
 			respCh <- true
 			return
 		case pi := <-ncPiCh:
-			fmt.Printf("XXX %v handle pi %v \n", nc.connInfo, pi.query)
 			nc.handleProcedureInvocation(writer, pi, &requests, &queuedBytes)
 		case pi := <-piCh:
-			fmt.Printf("XXX %v handles pi %v \n", nc.connInfo, pi.query)
 			nc.handleProcedureInvocation(writer, pi, &requests, &queuedBytes)
 		case resp := <-responseCh:
 			handle, err := readLong(resp)
@@ -280,6 +298,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 				continue
 			}
 			if handle == PING_HANDLE {
+				pingOutstanding = false
 				continue
 			}
 			req := requests[handle]
@@ -369,6 +388,11 @@ func (nc *nodeConn) handleAsyncTimeout(req *networkRequest) {
 	err := errors.New("timeout")
 	verr := VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 	req.arc.ConsumeError(verr)
+}
+
+func (nc *nodeConn) sendPing(writer io.Writer) {
+	pi := newProcedureInvocationByHandle(PING_HANDLE, true, "@Ping", []driver.Value{})
+	serializePI(writer, pi)
 }
 
 func writeLoginMessage(writer io.Writer, buf *bytes.Buffer) {

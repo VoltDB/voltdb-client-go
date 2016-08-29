@@ -25,7 +25,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-	"fmt"
 )
 
 const (
@@ -192,7 +191,6 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIdToCon
 				hasTopoStats = false
 			}
 		case prInfoResp := <-prInfoCh:
-			fmt.Println("XXX Catalog response")
 			switch prInfoResp.(type) {
 			case VoltRows:
 				tmpProcedureInfos, err := c.updateProcedurePartitioning(prInfoResp.(VoltRows))

@@ -49,15 +49,26 @@ func newSyncProcedureInvocation(handle int64, isQuery bool, query string, params
 	return pi
 }
 
-func newAsyncProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, responseCh chan voltResponse, timeout time.Duration, arc AsyncResponseConsumer) *procedureInvocation {
+func newAsyncProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, timeout time.Duration, arc AsyncResponseConsumer) *procedureInvocation {
 	var pi = new(procedureInvocation)
 	pi.handle = handle
 	pi.isQuery = isQuery
 	pi.query = query
 	pi.params = params
-	pi.responseCh = responseCh
 	pi.timeout = timeout
 	pi.arc = arc
+	pi.async = true
+	pi.slen = -1
+	return pi
+}
+
+// a procedure invocation that will be processed based on its handle.
+func newProcedureInvocationByHandle(handle int64, isQuery bool, query string, params []driver.Value) *procedureInvocation {
+	var pi = new(procedureInvocation)
+	pi.handle = handle
+	pi.isQuery = isQuery
+	pi.query = query
+	pi.params = params
 	pi.async = true
 	pi.slen = -1
 	return pi
