@@ -164,7 +164,7 @@ func (c *Conn) getConnByCA(nodeConns []*nodeConn, hnator hashinator, partitionMa
 				if cxn.hasBP() {
 					//See if there is one without backpressure, make sure it's still connected
 					for _, nc := range partitionReplica {
-						if !nc.hasBP() && nc.isOpen() {
+						if !nc.hasBP() {
 							cxn = nc
 							break
 						}

@@ -19,7 +19,6 @@ package voltdbclient
 
 import (
 	"database/sql/driver"
-	"errors"
 	"log"
 	"math/rand"
 	"strings"
@@ -37,10 +36,9 @@ var sHandle int64 = -1
 
 // the set of currently active connections
 type Conn struct {
-	ncs []*nodeConn
-	// next conn to look at when finding by round robin.
 	inPiCh                                   chan *procedureInvocation
 	allNcsPiCh                               chan *procedureInvocation
+	closeCh                                  chan chan bool
 	open                                     atomic.Value
 	rl                                       rateLimiter
 	drainCh                                  chan chan bool
@@ -52,6 +50,7 @@ func newConn(cis []string) *Conn {
 	var c = new(Conn)
 	c.inPiCh = make(chan *procedureInvocation, 1000)
 	c.allNcsPiCh = make(chan *procedureInvocation, 1000)
+	c.closeCh = make(chan chan bool)
 	c.open = atomic.Value{}
 	c.open.Store(true)
 	c.rl = newTxnLimiter()
@@ -99,7 +98,7 @@ func (c *Conn) start(cis []string) {
 	hostIdToConnection := make(map[int]*nodeConn)
 	for _, ci := range cis {
 		ncPiCh := make(chan *procedureInvocation, 1000)
-		nc := newNodeConn(ci, c, ncPiCh)
+		nc := newNodeConn(ci, ncPiCh)
 
 		err := nc.connect(c.allNcsPiCh)
 		if err == nil {
@@ -123,6 +122,10 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIdToCon
 	var hasTopoStats bool = false
 	var prInfoCh <-chan voltResponse
 	var fetchedCatalog bool = false
+
+	var closeRespCh chan bool
+	var closingNcsCh chan bool
+	var outstandingCloseCount int
 
 	var draining bool = false
 	var drainRespCh chan bool
@@ -163,6 +166,27 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIdToCon
 		}
 
 		select {
+		case closeRespCh = <- c.closeCh:
+			c.inPiCh = nil
+			c.allNcsPiCh = nil
+			c.drainCh = nil
+			c.closeCh = nil
+			if len(connected) == 0 {
+				closeRespCh <- true
+			} else {
+				outstandingCloseCount = len(connected)
+				closingNcsCh = make(chan bool, len(connected))
+				for _, connectedNc := range connected {
+					responseCh := connectedNc.close()
+					go func() { closingNcsCh <- <-responseCh }()
+				}
+			}
+		case <- closingNcsCh:
+			outstandingCloseCount--
+			if outstandingCloseCount == 0 {
+				closeRespCh <- true
+				return
+			}
 		case topoResp := <-subTopoCh:
 			switch topoResp.(type) {
 			// handle an error, otherwise the subscribe succeeded.
@@ -244,32 +268,19 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIdToCon
 	// check error channel to see if any lost connections.
 }
 
-// Begin starts a transaction.  VoltDB runs in auto commit mode, and so Begin
-// returns an error.
+// Begin starts a transaction.
 func (c *Conn) Begin() (driver.Tx, error) {
-	c.assertOpen()
-	return nil, errors.New("VoltDB does not support client side transaction control.")
+	return nil, nil
 }
 
 // Close closes the connection to the VoltDB server.  Connections to the server
 // are meant to be long lived; it should not be necessary to continually close
 // and reopen connections.  Close would typically be called using a defer.
 // Operations using a closed connection cause a panic.
-func (c *Conn) Close() (err error) {
-	if c.isClosed() {
-		return
-	}
-	c.setClosed()
-
-	// once this is closed there shouldn't be any additional activity against
-	// the connections.  They're touched here without getting a lock.
-	for _, nc := range c.ncs {
-		err := nc.close()
-		if err != nil {
-			log.Printf("Failed to close connection with %v\n", err)
-		}
-	}
-	c.ncs = nil
+func (c *Conn) Close() error {
+	respCh := make(chan bool)
+	c.closeCh <- respCh
+	<- respCh
 	return nil
 }
 

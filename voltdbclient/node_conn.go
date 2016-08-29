@@ -25,7 +25,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"sync"
 	"time"
 )
 
@@ -41,28 +40,24 @@ type connectionData struct {
 }
 
 type nodeConn struct {
-	conn        *Conn
-	connInfo    string
-	connData    *connectionData
-	tcpConn     *net.TCPConn
+	connInfo  string
+	connData  *connectionData
+	tcpConn   *net.TCPConn
 
-	drainCh     chan chan bool
-	bpCh        chan chan bool
-	nlCloseCh   chan chan bool
+	drainCh   chan chan bool
+	bpCh      chan chan bool
+	closeCh   chan chan bool
 
 	// channel for pi's meant specifically for this connection.
-	ncPiCh      chan *procedureInvocation
-
-	open        bool
-	openMutex   sync.RWMutex
+	ncPiCh    chan *procedureInvocation
 }
 
-func newNodeConn(ci string, conn *Conn, ncPiCh chan *procedureInvocation) *nodeConn {
+func newNodeConn(ci string, ncPiCh chan *procedureInvocation) *nodeConn {
 	var nc = new(nodeConn)
 	nc.connInfo = ci
-	nc.conn = conn
 	nc.ncPiCh = ncPiCh
 	nc.bpCh = make(chan chan bool)
+	nc.closeCh = make(chan chan bool)
 	nc.drainCh = make(chan chan bool)
 	return nc
 }
@@ -72,59 +67,10 @@ func (nc *nodeConn) submit(pi *procedureInvocation) {
 }
 
 // when the node conn is closed by its owning distributer
-func (nc *nodeConn) close() error {
-	if !nc.setClosed() {
-		return nil
-	}
-	// stop the network listener.  Send a response channel over the
-	// close channel so that the listener knows its being
-	// closed and won't try to reconnect.
-	respCh := make(chan bool)
-	nc.nlCloseCh <- respCh
-
-	// close the tcp connection.  If the listener is blocked
-	// on a read this will unblock it.
-	if nc.tcpConn != nil {
-		_ = nc.tcpConn.Close()
-		nc.tcpConn = nil
-	}
-	// wait for the listener to respond that it's been closed.
-	<-respCh
-	nc.disconnect()
-	return nil
-}
-
-// when the node conn is closing because it lost connection.  determined by
-// its nl.
-func (nc *nodeConn) disconnect() {
-	// nc.nl.disconnect()
-}
-
-func (nc *nodeConn) isOpen() bool {
-	var open bool
-	nc.openMutex.RLock()
-	open = nc.open
-	nc.openMutex.RUnlock()
-	return open
-}
-
-// returns true if the nc is currently open,
-// false if it wasn't open.
-func (nc *nodeConn) setClosed() bool {
-	nc.openMutex.RLock()
-	defer nc.openMutex.RUnlock()
-	if !nc.open {
-		return false
-	}
-	nc.open = false
-	return true
-}
-
-func (nc *nodeConn) setOpen() {
-	nc.openMutex.RLock()
-	nc.open = true
-	defer nc.openMutex.RUnlock()
-
+func (nc *nodeConn) close() chan bool {
+	respCh := make(chan bool, 1)
+	nc.closeCh <- respCh
+	return respCh
 }
 
 func (nc *nodeConn) connect(piCh <-chan *procedureInvocation) error {
@@ -139,15 +85,9 @@ func (nc *nodeConn) connect(piCh <-chan *procedureInvocation) error {
 	responseCh := make(chan *bytes.Buffer, 10)
 	go nc.listen(tcpConn, responseCh)
 
-	nc.nlCloseCh = make(chan chan bool, 1)
 	nc.drainCh = make(chan chan bool, 1)
 
-	go nc.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh, nc.nlCloseCh)
-
-
-	nc.openMutex.Lock()
-	nc.open = true
-	nc.openMutex.Unlock()
+	go nc.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh)
 	return nil
 }
 
@@ -168,15 +108,9 @@ func (nc *nodeConn) reconnect(piCh <-chan *procedureInvocation) {
 
 		responseCh := make(chan *bytes.Buffer, 10)
 		go nc.listen(tcpConn, responseCh)
-		nc.nlCloseCh = make(chan chan bool, 1)
-		go nc.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh, nc.nlCloseCh)
-
-		nc.openMutex.Lock()
-		nc.open = true
-		nc.openMutex.Unlock()
+		go nc.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh)
 		break
 	}
-	nc.setOpen()
 }
 
 func (nc *nodeConn) networkConnect() (*net.TCPConn, *connectionData, error) {
@@ -235,7 +169,7 @@ func (nc *nodeConn) listen(reader io.Reader, responseCh chan<- *bytes.Buffer) {
 	}
 }
 
-func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, responseCh <-chan *bytes.Buffer, bpCh <-chan chan bool, drainCh chan chan bool, closeCh chan chan bool) {
+func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, responseCh <-chan *bytes.Buffer, bpCh <-chan chan bool, drainCh chan chan bool) {
 	// declare mutable state
 	requests := make(map[int64]*networkRequest)
 	ncPiCh := nc.ncPiCh
@@ -274,7 +208,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 		pingSinceSent := time.Now().Sub(pingSentTime)
 		if pingOutstanding {
 			if pingSinceSent > pingTimeout {
-				fmt.Println("should disconnect")
+				// TODO: should disconnect
 			}
 		} else if pingSinceSent > pingTimeout / 3 {
 			nc.sendPing(writer)
@@ -283,7 +217,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 		}
 
 		select {
-		case respCh := <-closeCh:
+		case respCh := <-nc.closeCh:
 			respCh <- true
 			return
 		case pi := <-ncPiCh:
