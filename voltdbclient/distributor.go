@@ -19,6 +19,7 @@ package voltdbclient
 
 import (
 	"database/sql/driver"
+	"errors"
 	"log"
 	"math/rand"
 	"strings"
@@ -46,7 +47,7 @@ type Conn struct {
 	sendReadsToReplicasBytDefaultIfCAEnabled bool
 }
 
-func newConn(cis []string) *Conn {
+func newConn(cis []string) (*Conn, error) {
 	var c = new(Conn)
 	c.inPiCh = make(chan *procedureInvocation, 1000)
 	c.allNcsPiCh = make(chan *procedureInvocation, 1000)
@@ -58,14 +59,17 @@ func newConn(cis []string) *Conn {
 	c.useClientAffinity = true
 	c.sendReadsToReplicasBytDefaultIfCAEnabled = false
 
-	c.start(cis)
-	return c
+	err := c.start(cis)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 // OpenConn returns a new connection to the VoltDB server.  The name is a
 // string in a driver-specific format.  The returned connection can be used by
 // only one goroutine at a time.
-func OpenConn(ci string) *Conn {
+func OpenConn(ci string) (*Conn, error) {
 	cis := strings.Split(ci, ",")
 	return newConn(cis)
 }
@@ -75,7 +79,10 @@ func OpenConn(ci string) *Conn {
 // the rate at which asynchronous transactions are submitted.
 func OpenConnWithLatencyTarget(ci string, latencyTarget int32) (*Conn, error) {
 	cis := strings.Split(ci, ",")
-	c := newConn(cis)
+	c, err := newConn(cis)
+	if err != nil {
+		return nil, err
+	}
 	c.rl = newLatencyLimiter(latencyTarget)
 	return c, nil
 }
@@ -86,12 +93,15 @@ func OpenConnWithLatencyTarget(ci string, latencyTarget int32) (*Conn, error) {
 // but for which no response has been received.
 func OpenConnWithMaxOutstandingTxns(ci string, maxOutTxns int) (*Conn, error) {
 	cis := strings.Split(ci, ",")
-	c := newConn(cis)
+	c, err := newConn(cis)
+	if err != nil {
+		return nil, err
+	}
 	c.rl = newTxnLimiterWithMaxOutTxns(maxOutTxns)
 	return c, nil
 }
 
-func (c *Conn) start(cis []string) {
+func (c *Conn) start(cis []string) error {
 
 	var connected []*nodeConn
 	var disconnected []*nodeConn
@@ -110,7 +120,11 @@ func (c *Conn) start(cis []string) {
 			disconnected = append(disconnected, nc)
 		}
 	}
+	if len(connected) == 0 {
+		return errors.New("No valid connections")
+	}
 	go c.loop(connected, disconnected, &hostIdToConnection)
+	return nil
 }
 
 func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIdToConnection *map[int]*nodeConn) {
@@ -166,7 +180,7 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIdToCon
 		}
 
 		select {
-		case closeRespCh = <- c.closeCh:
+		case closeRespCh = <-c.closeCh:
 			c.inPiCh = nil
 			c.allNcsPiCh = nil
 			c.drainCh = nil
@@ -181,7 +195,7 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIdToCon
 					go func() { closingNcsCh <- <-responseCh }()
 				}
 			}
-		case <- closingNcsCh:
+		case <-closingNcsCh:
 			outstandingCloseCount--
 			if outstandingCloseCount == 0 {
 				closeRespCh <- true
@@ -280,7 +294,7 @@ func (c *Conn) Begin() (driver.Tx, error) {
 func (c *Conn) Close() error {
 	respCh := make(chan bool)
 	c.closeCh <- respCh
-	<- respCh
+	<-respCh
 	return nil
 }
 
