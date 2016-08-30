@@ -58,21 +58,13 @@ func main() {
 
 	for i := 0; i < 100; i++ {
 		key := keys[rand.Intn(5)]
-		err := conn.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
-		if err != nil {
-			log.Fatal(err)
-			os.Exit(-1)
-		}
+		conn.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
 	}
 	conn.Drain()
 
 	for i := 0; i < 2000; i++ {
 		key := keys[rand.Intn(5)]
-		err := conn.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
-		if err != nil {
-			log.Fatal(err)
-			os.Exit(-1)
-		}
+		conn.QueryAsync(resCons, "HELLOWORLD.select", []driver.Value{key})
 	}
 
 	conn.Drain()

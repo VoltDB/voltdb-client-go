@@ -28,9 +28,13 @@ import (
 )
 
 func main() {
+	// If using a version of VoltDB server prior to 5.2, then
+	// set the version of the wire protocol to 0.  The default
+	// value 1, indicates a server version of 5.2 or later.
+	// voltdbclient.ProtocolVersion = 0
+
 	db, err := sql.Open("voltdb", "localhost:21212")
 	if err != nil {
-		fmt.Println("open")
 		log.Fatal(err)
 		os.Exit(-1)
 	}
@@ -38,7 +42,6 @@ func main() {
 
 	err = db.Ping()
 	if err != nil {
-		fmt.Println("open")
 		log.Fatal(err)
 		os.Exit(-1)
 	}
