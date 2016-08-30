@@ -29,3 +29,9 @@ Examples
 The VoltDB golang client includes three examples.  There is a simple hello world example
 and a similar example that uses the asynchronous api.  There is also an example that 
 uses the client with the database/sql/driver api only.
+
+Wire Protocol
+=========================
+By default, version 1 of the VoltDB wire protocol is used; this is suitable for
+VoltDB server version 5.2 or later.  Set the wire protocol version to 0 for use
+with an older server.  See the 'driver_hello_world' example.

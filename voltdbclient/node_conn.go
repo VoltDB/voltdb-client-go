@@ -73,8 +73,8 @@ func (nc *nodeConn) close() chan bool {
 	return respCh
 }
 
-func (nc *nodeConn) connect(piCh <-chan *procedureInvocation) error {
-	tcpConn, connData, err := nc.networkConnect()
+func (nc *nodeConn) connect(protocolVersion int, piCh <-chan *procedureInvocation) error {
+	tcpConn, connData, err := nc.networkConnect(protocolVersion)
 	if err != nil {
 		return err
 	}
@@ -94,10 +94,10 @@ func (nc *nodeConn) connect(piCh <-chan *procedureInvocation) error {
 // called when the network listener loses connection.
 // the 'processAsyncs' goroutine and channel stay in place over
 // a reconnect, they're not affected.
-func (nc *nodeConn) reconnect(piCh <-chan *procedureInvocation) {
+func (nc *nodeConn) reconnect(protocolVersion int, piCh <-chan *procedureInvocation) {
 
 	for {
-		tcpConn, connData, err := nc.networkConnect()
+		tcpConn, connData, err := nc.networkConnect(protocolVersion)
 		if err != nil {
 			log.Println(fmt.Printf("Failed to reconnect to server with %s, retrying\n", err))
 			time.Sleep(5 * time.Second)
@@ -113,29 +113,30 @@ func (nc *nodeConn) reconnect(piCh <-chan *procedureInvocation) {
 	}
 }
 
-func (nc *nodeConn) networkConnect() (*net.TCPConn, *connectionData, error) {
+func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *connectionData, error) {
 	raddr, err := net.ResolveTCPAddr("tcp", nc.connInfo)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Error resolving %v.", nc.connInfo)
 	}
 	tcpConn, err := net.DialTCP("tcp", nil, raddr)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("Failed to connect to server %v.", nc.connInfo)
 	}
-	login, err := serializeLoginMessage("", "")
+	login, err := serializeLoginMessage(protocolVersion, "", "")
 	if err != nil {
 		tcpConn.Close()
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("Failed to serialize login message %v.", nc.connInfo)
 	}
-	writeLoginMessage(tcpConn, &login)
+
+	writeLoginMessage(protocolVersion, tcpConn, &login)
 	if err != nil {
 		tcpConn.Close()
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("Failed to login to server %v.", nc.connInfo)
 	}
 	connData, err := readLoginResponse(tcpConn)
 	if err != nil {
 		tcpConn.Close()
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("Failed to login to server %v.", nc.connInfo)
 	}
 	return tcpConn, connData, nil
 }
@@ -329,13 +330,18 @@ func (nc *nodeConn) sendPing(writer io.Writer) {
 	serializePI(writer, pi)
 }
 
-func writeLoginMessage(writer io.Writer, buf *bytes.Buffer) {
-	// length includes protocol version.
-	length := buf.Len() + 2
+func writeLoginMessage(protocolVersion int, writer io.Writer, buf *bytes.Buffer) {
 	var netmsg bytes.Buffer
-	writeInt(&netmsg, int32(length))
-	writeProtoVersion(&netmsg)
-	writePasswordHashVersion(&netmsg)
+	if protocolVersion == 0 {
+		length := buf.Len() + 1
+		writeInt(&netmsg, int32(length))
+		writeProtoVersion(&netmsg)
+	} else {
+		length := buf.Len() + 2
+		writeInt(&netmsg, int32(length))
+		writeProtoVersion(&netmsg)
+		writePasswordHashVersion(&netmsg)
+	}
 	// 1 copy + 1 n/w write benchmarks faster than 2 n/w writes.
 	io.Copy(&netmsg, buf)
 	io.Copy(writer, &netmsg)

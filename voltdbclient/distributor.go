@@ -19,7 +19,7 @@ package voltdbclient
 
 import (
 	"database/sql/driver"
-	"errors"
+	"fmt"
 	"log"
 	"math/rand"
 	"strings"
@@ -34,6 +34,10 @@ const (
 
 var handle int64 = 0
 var sHandle int64 = -1
+
+// The version of the voltdb wire protocol to use.  For VoltDB releases of version 5.2 and
+// later use version 1.  For releases prior to that use version 0.
+var ProtocolVersion = 1
 
 // the set of currently active connections
 type Conn struct {
@@ -106,11 +110,12 @@ func (c *Conn) start(cis []string) error {
 	var connected []*nodeConn
 	var disconnected []*nodeConn
 	hostIdToConnection := make(map[int]*nodeConn)
+	var err error
 	for _, ci := range cis {
 		ncPiCh := make(chan *procedureInvocation, 1000)
 		nc := newNodeConn(ci, ncPiCh)
 
-		err := nc.connect(c.allNcsPiCh)
+		err = nc.connect(ProtocolVersion, c.allNcsPiCh)
 		if err == nil {
 			connected = append(connected, nc)
 			if c.useClientAffinity {
@@ -121,7 +126,7 @@ func (c *Conn) start(cis []string) error {
 		}
 	}
 	if len(connected) == 0 {
-		return errors.New("No valid connections")
+		return fmt.Errorf("%v %v", "No valid connections", err)
 	}
 	go c.loop(connected, disconnected, &hostIdToConnection)
 	return nil

@@ -19,9 +19,11 @@ package voltdbclient
 
 import (
 	"bytes"
+	"crypto/sha1"
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"math"
 	"reflect"
@@ -31,8 +33,14 @@ import (
 // A helper for protocol-level de/serialization code. For
 // example, serialize and write a procedure call to the network.
 
-func serializeLoginMessage(user string, passwd string) (msg bytes.Buffer, err error) {
-	h := sha256.New()
+func serializeLoginMessage(protocolVersion int, user string, passwd string) (msg bytes.Buffer, err error) {
+	var h hash.Hash
+	if protocolVersion == 0 {
+		h = sha1.New()
+	} else {
+		h = sha256.New()
+	}
+
 	io.WriteString(h, passwd)
 	shabytes := h.Sum(nil)
 
