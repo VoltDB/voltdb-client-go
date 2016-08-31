@@ -116,7 +116,12 @@ func (pi *procedureInvocation) calcParamLen(param interface{}) int {
 	case reflect.Slice:
 		return 5 + v.Len()
 	case reflect.Struct:
-		panic("Can't marshal a struct")
+		if _, ok := v.Interface().(time.Time); ok {
+			return 9
+		} else {
+			panic("Can't determine length of struct")
+		}
+
 	case reflect.Ptr:
 		panic("Can't marshal a pointer")
 	default:

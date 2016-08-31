@@ -135,7 +135,11 @@ func (vr VoltRows) Next(dest []driver.Value) (err error) {
 			}
 			dest[i] = v
 		case 11: // TIMESTAMP
-			return fmt.Errorf("Not supporting TIMESTAMP")
+			v, err := vr.GetTimestamp(int16(i))
+			if err != nil {
+				return fmt.Errorf("Failed to get TIMESTAMP at column index %d %s", i, err)
+			}
+			dest[i] = v
 		case 22: // DECIMAL
 			return fmt.Errorf("Not supporting DECIMAL")
 		case 25: // VARBINARY
