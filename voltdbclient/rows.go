@@ -351,7 +351,10 @@ func (vr VoltRows) GetString(colIndex int16) (interface{}, error) {
 	// if there are only four bytes then there is just the
 	// length, which must be -1, the null encoding.
 	if len(bs) == 4 {
-		return nil, nil
+		l := bytesToInt(bs)
+		if l == -1 {  // else 0
+			return nil, nil
+		}
 	}
 	// exclude the length from the string itself.
 	return string(bs[4:]), nil
@@ -424,7 +427,10 @@ func (vr VoltRows) GetVarbinary(colIndex int16) (interface{}, error) {
 		return nil, err
 	}
 	if len(bs) == 4 {
-		return nil, nil
+		l := bytesToInt(bs)
+		if l == -1 {  // else 0
+			return nil, nil
+		}
 	}
 	return bs[4:], nil
 }
