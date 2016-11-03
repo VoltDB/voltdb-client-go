@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math/rand"
-	"strings"
 )
 
 func (c *Conn) subscribeTopo(nc *nodeConn) <-chan voltResponse {
@@ -91,18 +90,18 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, *map[int][]*no
 		partition, partitionErr := rows.GetInteger(0)
 		panicIfnotNil("Error get partition ", partitionErr)
 		// sites, sitesErr := rows.GetStringByName("Sites")
-		sites, sitesErr := rows.GetString(1)
+		_, sitesErr := rows.GetString(1) //sites, sitesErr := rows.GetString(1)
 		panicIfnotNil("Error get sites ", sitesErr)
 
 		var connections []*nodeConn
-		for _, site := range strings.Split(sites.(string), ",") {
-			site = strings.TrimSpace(site)
-			////hostId, hostIdErr := strconv.Atoi(strings.Split(site, ":")[0])
-			//panicIfnotNil("Error get hostId", hostIdErr)
-			//if _, ok := c.hostIdToConnection[hostId]; ok {
-			//	connections = append(connections, c.hostIdToConnection[hostId])
-			//}
-		}
+		//for _, site := range strings.Split(sites.(string), ",") {
+		//site = strings.TrimSpace(site)
+		////hostId, hostIdErr := strconv.Atoi(strings.Split(site, ":")[0])
+		//panicIfnotNil("Error get hostId", hostIdErr)
+		//if _, ok := c.hostIdToConnection[hostId]; ok {
+		//	connections = append(connections, c.hostIdToConnection[hostId])
+		//}
+		//}
 		partitionReplicas[int(partition.(int32))] = connections
 
 		// leaderHost, leaderHostErr := rows.GetStringByName("Leader")

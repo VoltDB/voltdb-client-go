@@ -14,6 +14,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 package main
 
 import (
@@ -24,7 +25,7 @@ import (
 	"time"
 )
 
-var area_code_strs = strings.Split("907,205,256,334,251,870,501,479"+
+var areaCodeStrs = strings.Split("907,205,256,334,251,870,501,479"+
 	",480,602,623,928,520,341,764,628,831,925,909,562,661,510,650,949,760"+
 	",415,951,209,669,408,559,626,442,530,916,627,714,707,310,323,213,424"+
 	",747,818,858,935,619,805,369,720,303,970,719,860,203,959,475,202,302"+
@@ -44,12 +45,12 @@ var area_code_strs = strings.Split("907,205,256,334,251,870,501,479"+
 	",435,801,385,434,804,757,703,571,276,236,540,802,509,360,564,206,425"+
 	",253,715,920,262,414,608,304,307", ",")
 
-var area_code []int
+var areaCode []int
 
 func init() {
-	area_code = make([]int, len(area_code_strs))
-	for i, v := range area_code_strs {
-		area_code[i], _ = strconv.Atoi(v)
+	areaCode = make([]int, len(areaCodeStrs))
+	for i, v := range areaCodeStrs {
+		areaCode[i], _ = strconv.Atoi(v)
 	}
 }
 
@@ -58,11 +59,11 @@ type phoneCallGenerator struct {
 	votingMap       []int32
 }
 
-func NewPhoneCallGenerator(contestantCount int) phoneCallGenerator {
+func newPhoneCallGenerator(contestantCount int) phoneCallGenerator {
 	rand.Seed(time.Now().UTC().UnixNano())
 	pcg := new(phoneCallGenerator)
 	pcg.contestantCount = int32(contestantCount)
-	pcg.votingMap = make([]int32, len(area_code))
+	pcg.votingMap = make([]int32, len(areaCode))
 	for i := range pcg.votingMap {
 		pcg.votingMap[i] = 1
 		if rand.Intn(100) >= 30 {
@@ -78,7 +79,7 @@ func (pcg phoneCallGenerator) receive() (contestantNumber int32, phoneNumber int
 	// (including invalid votes to demonstrate transaction validationg in the database)
 
 	// Pick a random area code for the originating phone call
-	areaCodeIndex := rand.Intn(len(area_code))
+	areaCodeIndex := rand.Intn(len(areaCode))
 
 	// Pick a contestant number
 	contestantNumber = pcg.votingMap[areaCodeIndex]
@@ -93,7 +94,7 @@ func (pcg phoneCallGenerator) receive() (contestantNumber int32, phoneNumber int
 	}
 
 	// Build the phone number
-	phoneNumber = int64(area_code[areaCodeIndex])*10000000 + rand.Int63n(10000000)
+	phoneNumber = int64(areaCode[areaCodeIndex])*10000000 + rand.Int63n(10000000)
 
 	// Return the generated phone number
 	return contestantNumber, phoneNumber

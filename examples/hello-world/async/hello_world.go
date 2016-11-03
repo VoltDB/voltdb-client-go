@@ -46,7 +46,7 @@ func main() {
 	// conn, err := voltdbclient.OpenConnWithMaxOutstandingTxns([]string{"localhost:21212"}, 20)
 
 	conn.Exec("@AdHoc", []driver.Value{"DELETE FROM HELLOWORLD;"})
-	resCons := ResponseConsumer{}
+	resCons := responseConsumer{}
 
 	conn.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Bonjour", "Monde", "French"})
 	conn.ExecAsync(resCons, "HELLOWORLD.insert", []driver.Value{"Hello", "World", "English"})
@@ -71,19 +71,19 @@ func main() {
 	conn.Drain()
 }
 
-type ResponseConsumer struct{}
+type responseConsumer struct{}
 
-func (rc ResponseConsumer) ConsumeError(err error) {
+func (rc responseConsumer) ConsumeError(err error) {
 	fmt.Println(err)
 }
 
-func (rc ResponseConsumer) ConsumeResult(res driver.Result) {
+func (rc responseConsumer) ConsumeResult(res driver.Result) {
 	ra, _ := res.RowsAffected()
 	lid, _ := res.LastInsertId()
 	fmt.Printf("%d, %d\n", ra, lid)
 }
 
-func (rc ResponseConsumer) ConsumeRows(rows driver.Rows) {
+func (rc responseConsumer) ConsumeRows(rows driver.Rows) {
 	vrows := rows.(voltdbclient.VoltRows)
 	vrows.AdvanceRow()
 	iHello, err := vrows.GetStringByName("HELLO")

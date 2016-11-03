@@ -14,6 +14,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 package main
 
 import (
@@ -37,11 +38,11 @@ type payLoadProcessor struct {
 }
 
 // var entropyBytesGlobal bytes.Buffer = new(bytes.Buffer)
-const ENTROPY_BYTE_SIZE int = 1024 * 1024 * 4
+const entropyByteSize int = 1024 * 1024 * 4
 
 var entropyBytes *bytes.Reader
 
-func NewPayloadProcessor(keySize, minValueSize, maxValueSize, entropy, poolSize int, useCompression bool) *payLoadProcessor {
+func newPayloadProcessor(keySize, minValueSize, maxValueSize, entropy, poolSize int, useCompression bool) *payLoadProcessor {
 	rand.Seed(time.Now().UTC().UnixNano())
 	proc := new(payLoadProcessor)
 	proc.keySize = keySize
@@ -53,7 +54,7 @@ func NewPayloadProcessor(keySize, minValueSize, maxValueSize, entropy, poolSize 
 
 	proc.keyFormat = "K%" + strconv.Itoa(proc.keySize) + "v"
 	// rand.Seed()
-	b := make([]byte, ENTROPY_BYTE_SIZE)
+	b := make([]byte, entropyByteSize)
 	for i := range b {
 		b[i] = byte(rand.Intn(127) % entropy)
 	}
@@ -73,9 +74,8 @@ func (proc *payLoadProcessor) generateForStore() (key string, rawValue, storeVal
 	}
 	if proc.useCompression {
 		return key, rawValue, toGzip(rawValue)
-	} else {
-		return key, rawValue, rawValue
 	}
+	return key, rawValue, rawValue
 }
 
 func (proc *payLoadProcessor) generateRandomKeyForRetrieval() string {
@@ -85,9 +85,8 @@ func (proc *payLoadProcessor) generateRandomKeyForRetrieval() string {
 func (proc *payLoadProcessor) retrieveFromStore(storeValue []byte) ([]byte, []byte) {
 	if proc.useCompression {
 		return fromGzip(storeValue), storeValue
-	} else {
-		return storeValue, storeValue
 	}
+	return storeValue, storeValue
 }
 
 func fromGzip(compressed []byte) []byte {

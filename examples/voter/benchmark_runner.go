@@ -14,6 +14,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 package main
 
 import (
@@ -31,23 +32,23 @@ import (
 	"github.com/VoltDB/voltdb-client-go/voltdbclient"
 )
 
-// handy, rather than typing this out several times
-const HORIZONTAL_RULE = "----------" + "----------" + "----------" + "----------" +
+// horizontalRule is handy to use, rather than typing this out several times
+const horizontalRule = "----------" + "----------" + "----------" + "----------" +
 	"----------" + "----------" + "----------" + "----------" + "\n"
 
-// for use sql/driver
-const VOLTDB_DRIVER = "voltdb"
+// voltDBDriver for use sql/driver
+const voltDBDriver = "voltdb"
 
 // Initialize some common constants and variables
-const CONTESTANT_NAMES_CSV = "Edwina Burnam,Tabatha Gehling,Kelly Clauss,Jessie Alloway," +
+const contestantNamesCSV = "Edwina Burnam,Tabatha Gehling,Kelly Clauss,Jessie Alloway," +
 	"Alana Bregman,Jessie Eichman,Allie Rogalski,Nita Coster," +
 	"Kurt Walser,Ericka Dieter,Loraine NygrenTania Mattioli"
 
 // potential return codes (synced with Vote procedure)
 const (
-	VOTE_SUCCESSFUL           int64 = 0
-	ERR_INVALID_CONTESTANT    int64 = 1
-	ERR_VOTER_OVER_VOTE_LIMIT int64 = 2
+	voteSuccessful        int64 = 0
+	errInvalidContestant  int64 = 1
+	errVoterOverVoteLimit int64 = 2
 )
 
 // voter benchmark state
@@ -76,22 +77,22 @@ type benchmark struct {
 	conn        *voltdbclient.Conn
 }
 
-func NewBenchmark() (*benchmark, error) {
+func newBenchmark() (*benchmark, error) {
 	bmTemp := new(benchmark)
-	bmTemp.switchboard = NewPhoneCallGenerator(config.contestants)
+	bmTemp.switchboard = newPhoneCallGenerator(config.contestants)
 	periodicStats = new(benchmarkStats)
 	fullStats = new(benchmarkStats)
-	fmt.Print(HORIZONTAL_RULE)
+	fmt.Print(horizontalRule)
 	fmt.Println(" Command Line Configuration")
-	fmt.Println(HORIZONTAL_RULE)
+	fmt.Println(horizontalRule)
 	fmt.Printf("%+v\n", *config)
 	return bmTemp, nil
 }
 
 func (bm *benchmark) runBenchmark() {
-	fmt.Print(HORIZONTAL_RULE)
+	fmt.Print(horizontalRule)
 	fmt.Println(" Setup & Initialization")
-	fmt.Println(HORIZONTAL_RULE)
+	fmt.Println(horizontalRule)
 
 	// connect to one or more servers, loop until success
 	bm.conn = connect(config.servers)
@@ -99,11 +100,11 @@ func (bm *benchmark) runBenchmark() {
 
 	// initialize using synchronous call
 	fmt.Print("\nPopulating Static Tables\n")
-	bm.conn.Exec("Initialize", []driver.Value{int32(config.contestants), CONTESTANT_NAMES_CSV})
+	bm.conn.Exec("Initialize", []driver.Value{int32(config.contestants), contestantNamesCSV})
 
-	fmt.Print(HORIZONTAL_RULE)
+	fmt.Print(horizontalRule)
 	fmt.Println(" Starting Benchmark")
-	fmt.Println(HORIZONTAL_RULE)
+	fmt.Println(horizontalRule)
 
 	// Run the benchmark loop for the requested warmup time
 	// The throughput may be throttled depending on client configuration
@@ -114,7 +115,7 @@ func (bm *benchmark) runBenchmark() {
 	case SYNC:
 		vote(config.goroutines, config.warmup, placeVotesSync)
 	case SQL:
-		vote(config.goroutines, config.warmup, placeVotesSql)
+		vote(config.goroutines, config.warmup, placeVotesSQL)
 	}
 
 	//reset the stats after warmup
@@ -136,7 +137,7 @@ func (bm *benchmark) runBenchmark() {
 	case SYNC:
 		vote(config.goroutines, config.duration, placeVotesSync)
 	case SQL:
-		vote(config.goroutines, config.duration, placeVotesSql)
+		vote(config.goroutines, config.duration, placeVotesSQL)
 	}
 
 	timeElapsed := time.Now().Sub(timeStart)
@@ -145,7 +146,7 @@ func (bm *benchmark) runBenchmark() {
 }
 
 func openAndPingDB(servers string) *sql.DB {
-	db, err := sql.Open(VOLTDB_DRIVER, servers)
+	db, err := sql.Open(voltDBDriver, servers)
 	if err != nil {
 		fmt.Println("open")
 		log.Fatal(err)
@@ -160,7 +161,7 @@ func openAndPingDB(servers string) *sql.DB {
 	return db
 }
 
-func placeVotesSql(join chan int, duration time.Duration) {
+func placeVotesSQL(join chan int, duration time.Duration) {
 	volt := openAndPingDB(config.servers)
 	defer volt.Close()
 
@@ -176,7 +177,7 @@ func placeVotesSql(join chan int, duration time.Duration) {
 		default:
 			contestantNumber, phoneNumber := bm.switchboard.receive()
 			rows, err := volt.Query("Vote", phoneNumber, contestantNumber, int64(config.maxvotes))
-			ops += handleSqlRows(rows, err)
+			ops += handleSQLRows(rows, err)
 		}
 
 	}
@@ -214,7 +215,7 @@ func placeVotesAsync(join chan int, duration time.Duration) {
 
 	timeout := time.After(duration)
 
-	vcb := NewVoteCallBack()
+	vcb := newVoteCallBack()
 	ops := 0
 	for {
 		select {
@@ -239,10 +240,11 @@ func vote(gorotines int, duration time.Duration,
 		go fn(joinchan, duration)
 	}
 
-	var totalCount = 0
+	// var totalCount = 0
 	for _, join := range joiners {
-		ops := <-join
-		totalCount += ops
+		<-join
+		// ops := <-join
+		// totalCount += ops
 		//fmt.Printf("kver %v finished and acted %v ops.\n", v, ops)
 	}
 	return
@@ -251,7 +253,7 @@ func vote(gorotines int, duration time.Duration,
 type voteCallBack struct {
 }
 
-func NewVoteCallBack() voteCallBack {
+func newVoteCallBack() voteCallBack {
 	vcb := new(voteCallBack)
 	return *vcb
 }
@@ -268,20 +270,20 @@ func (vcb voteCallBack) ConsumeRows(rows driver.Rows) {
 	handleVoteReturnCode(rows)
 }
 
-func handleSqlRows(rows *sql.Rows, err error) (success int) {
+func handleSQLRows(rows *sql.Rows, err error) (success int) {
 	if err == nil {
 		defer rows.Close()
 		if rows.Next() {
 			atomic.AddUint64(&(fullStats.totalVotes), 1)
 			atomic.AddUint64(&(periodicStats.totalVotes), 1)
 			var resultCode int64
-			if err := rows.Scan(&resultCode); err == nil {
+			if err = rows.Scan(&resultCode); err == nil {
 				switch resultCode {
-				case ERR_INVALID_CONTESTANT:
+				case errInvalidContestant:
 					atomic.AddUint64(&(fullStats.badContestantVotes), 1)
-				case ERR_VOTER_OVER_VOTE_LIMIT:
+				case errVoterOverVoteLimit:
 					atomic.AddUint64(&(fullStats.badVoteCountVotes), 1)
-				case VOTE_SUCCESSFUL:
+				case voteSuccessful:
 					atomic.AddUint64(&(fullStats.acceptedVotes), 1)
 				}
 			} else {
@@ -289,11 +291,10 @@ func handleSqlRows(rows *sql.Rows, err error) (success int) {
 				// shouldn't be here
 			}
 			return 1
-		} else {
-			log.Panic(err)
-			atomic.AddUint64(&(fullStats.failedVotes), 1)
-			return 0
 		}
+		log.Panic(err)
+		atomic.AddUint64(&(fullStats.failedVotes), 1)
+		return 0
 	}
 	return 0
 }
@@ -310,17 +311,16 @@ func handleVoteReturnCode(rows driver.Rows) (success int) {
 		resultCode, err := voltRows.GetBigInt(0)
 		if err != nil {
 			return handleVoteError(err)
-		} else {
-			atomic.AddUint64(&(fullStats.totalVotes), 1)
-			atomic.AddUint64(&(periodicStats.totalVotes), 1)
-			switch resultCode {
-			case ERR_INVALID_CONTESTANT:
-				atomic.AddUint64(&(fullStats.badContestantVotes), 1)
-			case ERR_VOTER_OVER_VOTE_LIMIT:
-				atomic.AddUint64(&(fullStats.badVoteCountVotes), 1)
-			case VOTE_SUCCESSFUL:
-				atomic.AddUint64(&(fullStats.acceptedVotes), 1)
-			}
+		}
+		atomic.AddUint64(&(fullStats.totalVotes), 1)
+		atomic.AddUint64(&(periodicStats.totalVotes), 1)
+		switch resultCode {
+		case errInvalidContestant:
+			atomic.AddUint64(&(fullStats.badContestantVotes), 1)
+		case errVoterOverVoteLimit:
+			atomic.AddUint64(&(fullStats.badVoteCountVotes), 1)
+		case voteSuccessful:
+			atomic.AddUint64(&(fullStats.acceptedVotes), 1)
 		}
 		return 1
 	}
@@ -378,9 +378,9 @@ func printStatistics() {
 func printResults(timeElapsed time.Duration) {
 	// 1. Voting Board statistics, Voting results and performance statistics
 	display := "\n" +
-		HORIZONTAL_RULE +
+		horizontalRule +
 		" Voting Results\n" +
-		HORIZONTAL_RULE +
+		horizontalRule +
 		"\nA total of %9d votes were received during the benchmark...\n" +
 		" - %9d Accepted\n" +
 		" - %9d Rejected (Invalid Contestant)\n" +
@@ -430,9 +430,9 @@ func printResults(timeElapsed time.Duration) {
 
 	// 3. Performance statistics
 
-	fmt.Print(HORIZONTAL_RULE)
+	fmt.Print(horizontalRule)
 	fmt.Println(" Client Workload Statistics")
-	fmt.Println(HORIZONTAL_RULE)
+	fmt.Println(horizontalRule)
 
 	fmt.Printf("Generated %v votes in %v seconds (%0.0f ops/second)\n",
 		fullStats.totalVotes, timeElapsed.Seconds(),
@@ -443,7 +443,7 @@ func main() {
 	flag.StringVar(&cpuprofile, "cpuprofile", "", "name of profile file to write")
 	flag.StringVar(&memprofile, "memprofile", "", "write memory profile to this file")
 	var err error
-	config, err = NewVoterConfig()
+	config, err = newVoterConfig()
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
@@ -452,6 +452,6 @@ func main() {
 	setupProfiler()
 	defer teardownProfiler()
 
-	bm, _ = NewBenchmark()
+	bm, _ = newBenchmark()
 	bm.runBenchmark()
 }

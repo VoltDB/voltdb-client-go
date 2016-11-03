@@ -14,6 +14,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 package main
 
 import (
@@ -25,6 +26,7 @@ import (
 
 type runType string
 
+// runTypes
 const (
 	ASYNC runType = "async"
 	SYNC  runType = "sync"
@@ -53,7 +55,7 @@ type voterConfig struct {
 	runtype    runType
 }
 
-func NewVoterConfig() (*voterConfig, error) {
+func newVoterConfig() (*voterConfig, error) {
 	voter := new(voterConfig)
 	flag.DurationVar(&(voter.displayinterval), "displayinterval", 5*time.Second, "Interval for performance feedback, in seconds.")
 	flag.DurationVar(&(voter.duration), "duration", 120*time.Second, "Benchmark duration, in seconds.")

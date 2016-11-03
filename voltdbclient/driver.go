@@ -23,8 +23,7 @@ import (
 )
 
 // VoltDriver implements A database/sql/driver for VoltDB.  This driver is registered as 'voltdb'
-type VoltDriver struct {
-}
+type VoltDriver struct{}
 
 // NewVoltDriver returns a new instance of a VoltDB driver.
 func NewVoltDriver() *VoltDriver {
