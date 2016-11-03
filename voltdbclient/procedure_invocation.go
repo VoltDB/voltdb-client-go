@@ -82,7 +82,8 @@ func (pi *procedureInvocation) getLen() int {
 }
 
 func (pi *procedureInvocation) calcLen() int {
-	// fixed - 1 for batch timeout type, 4 for str length (proc name), 8 for handle, 2 for paramCount
+	// fixed - 1 for batch timeout type, 4 for str length (proc name),
+	// 8 for handle, 2 for paramCount
 	var slen = 15
 	slen += len(pi.query)
 	for _, param := range pi.params {

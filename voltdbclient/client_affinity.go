@@ -53,7 +53,8 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, *map[int][]*no
 	}
 
 	if !rows.AdvanceTable() {
-		// Just in case the new client connects to the old version of Volt that only returns 1 topology table
+		// Just in case the new client connects to the old version of Volt that only
+		// returns 1 topology table
 		return nil, nil, errors.New("Not support Legacy hashinator.")
 	} else if !rows.AdvanceRow() { //Second table contains the hash function
 		return nil, nil, errors.New("Topology description received from Volt was incomplete " +
@@ -77,12 +78,13 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, *map[int][]*no
 	}
 	partitionReplicas := make(map[int][]*nodeConn)
 
-	//First table contains the description of partition ids master/slave relationships
+	// First table contains the description of partition ids master/slave
+	// relationships
 	rows.AdvanceToTable(0)
 
-	// The MPI's partition ID is 16383 (MpInitiator.MPInitPID), so we shouldn't inadvertently
-	// hash to it.  Go ahead and include it in the maps, we can use it at some point to
-	// route MP transactions directly to the MPI node.
+	// The MPI's partition ID is 16383 (MpInitiator.MPInitPID), so we shouldn't
+	// inadvertently hash to it. Go ahead and include it in the maps, we can use
+	// it at some point to route MP transactions directly to the MPI node.
 
 	// TODO GetXXXBYName seems broken
 	for rows.AdvanceRow() {

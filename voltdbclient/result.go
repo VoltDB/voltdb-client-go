@@ -53,8 +53,7 @@ func (vr VoltResult) LastInsertId() (int64, error) {
 	return 0, nil
 }
 
-// RowsAffected returns the number of rows affected by the
-// query.
+// RowsAffected returns the number of rows affected by the query.
 func (vr VoltResult) RowsAffected() (int64, error) {
 	return vr.rowsAff[vr.ti], nil
 }

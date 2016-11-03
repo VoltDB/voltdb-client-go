@@ -82,8 +82,8 @@ func (vr VoltRows) Next(dest []driver.Value) (err error) {
 		return errors.New("No valid table")
 	}
 	if !vr.table().advanceRow() {
-		// the go doc says to set rows closed when 'Next' return false.  we won't do that
-		// because there can be more than one table.
+		// the go doc says to set rows closed when 'Next' return false.  we won't
+		// do that because there can be more than one table.
 		return io.EOF
 	}
 	if vr.table().getColumnCount() != len(dest) {

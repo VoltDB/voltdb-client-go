@@ -22,7 +22,8 @@ import (
 	"database/sql/driver"
 )
 
-// VoltDriver implements A database/sql/driver for VoltDB.  This driver is registered as 'voltdb'
+// VoltDriver implements A database/sql/driver for VoltDB.  This driver is
+// registered as 'voltdb'
 type VoltDriver struct{}
 
 // NewVoltDriver returns a new instance of a VoltDB driver.

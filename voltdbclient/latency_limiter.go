@@ -36,9 +36,10 @@ type rateLimiter interface {
 	responseReceived(int32)
 }
 
-// latency limiter limits the number of outstanding transactions based on a desired latency.
-// outstanding transactions are transactions that have been sent to the server and for which
-// no response has been received.
+// latency limiter limits the number of outstanding transactions based on a
+// desired latency.
+// Outstanding transactions are transactions that have been sent to the server
+// and for which no response has been received.
 type latencyLimiter struct {
 	blockStart time.Time
 	maxOutTxns int
@@ -109,7 +110,8 @@ func (ll *latencyLimiter) nextBlock() bool {
 }
 
 func (ll *latencyLimiter) calcLatency() {
-	// if there weren't any transactions then have no input about latency, do nothing.
+	// if there weren't any transactions then have no input about latency,
+	// do nothing.
 	if ll.latencyTxns == 0 {
 		return
 	}
