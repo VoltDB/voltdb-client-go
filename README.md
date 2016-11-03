@@ -1,4 +1,4 @@
-[![GoDoc](https://godoc.org/github.com/VoltDB/voltdb-client-go?status.svg)](https://godoc.org/github.com/VoltDB/voltdb-client-go) 
+[![GoDoc](https://godoc.org/github.com/VoltDB/voltdb-client-go/voltdbclient?status.svg)](https://godoc.org/github.com/VoltDB/voltdb-client-go/voltdbclient) 
 
 VoltDB Golang Client Library
 =========================
