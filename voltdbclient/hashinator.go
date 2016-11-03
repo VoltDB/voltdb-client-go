@@ -21,9 +21,8 @@ import (
 	"database/sql/driver"
 	"encoding/binary"
 	"encoding/json"
-	"strconv"
-
 	"errors"
+	"strconv"
 
 	"github.com/spaolacci/murmur3"
 )
@@ -44,7 +43,7 @@ type hashinatorElastic struct {
 }
 
 func newHashinatorElastic(hashConfigFormat int, cooked bool, hashConfig []byte) (h *hashinatorElastic, err error) {
-	if hashConfigFormat != JSON_FORMAT {
+	if hashConfigFormat != JSONFormat {
 		return nil, errors.New("Only support JSON format hashconfig.")
 	}
 	h = new(hashinatorElastic)
@@ -64,7 +63,7 @@ func newHashinatorElastic(hashConfigFormat int, cooked bool, hashConfig []byte) 
 }
 
 func (h *hashinatorElastic) getConfigurationType() string {
-	return ELASTIC
+	return Elastic
 }
 
 func (h *hashinatorElastic) getHashedPartitionForParameter(partitionParameterType int, partitionValue driver.Value) (hashedPartition int, err error) {

@@ -26,9 +26,9 @@ import (
 func TestLoginRequest(t *testing.T) {
 	var loginBytes []byte
 	loginBuf := bytes.NewBuffer(loginBytes)
-	login, err := serializeLoginMessage("hello", "world")
+	login, err := serializeLoginMessage(protoVersion, "hello", "world")
 	check(t, err)
-	writeLoginMessage(loginBuf, &login)
+	writeLoginMessage(protoVersion, loginBuf, &login)
 
 	fileBytes, err := ioutil.ReadFile("./test_resources/authentication_request_sha256.msg")
 	check(t, err)

@@ -1,3 +1,5 @@
+[![GoDoc](https://godoc.org/github.com/VoltDB/voltdb-client-go?status.svg)](https://godoc.org/github.com/VoltDB/voltdb-client-go) 
+
 VoltDB Golang Client Library
 =========================
 
@@ -9,7 +11,7 @@ Client API
 =========================
 
 The VoltDB golang client implements the interfaces specified in the database/sql/driver
-package.  The interfaces specified by database/sql/driver are typically used to implement 
+package.  The interfaces specified by database/sql/driver are typically used to implement
 a driver to be used with the golang database/sql package.
 
 The code here can be used as a driver in this manner; it can also be used as a stand
@@ -27,7 +29,7 @@ The VoltDB golang client is built in the standard go manner.
 Examples
 =========================
 The VoltDB golang client includes three examples.  There is a simple hello world example
-and a similar example that uses the asynchronous api.  There is also an example that 
+and a similar example that uses the asynchronous api.  There is also an example that
 uses the client with the database/sql/driver api only.
 
 Wire Protocol

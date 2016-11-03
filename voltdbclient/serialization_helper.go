@@ -75,12 +75,12 @@ func deserializeLoginResponse(r io.Reader) (connData *connectionData, err error)
 		return nil, errors.New("Authentication failed.")
 	}
 
-	hostId, err := readInt(r)
+	hostID, err := readInt(r)
 	if err != nil {
 		return
 	}
 
-	connId, err := readLong(r)
+	connID, err := readLong(r)
 	if err != nil {
 		return
 	}
@@ -101,8 +101,8 @@ func deserializeLoginResponse(r io.Reader) (connData *connectionData, err error)
 	}
 
 	connData = new(connectionData)
-	connData.hostId = hostId
-	connData.connId = connId
+	connData.hostID = hostID
+	connData.connID = connID
 	connData.leaderAddr = leaderAddr
 	connData.buildString = buildString
 	return connData, nil
@@ -112,16 +112,15 @@ func marshallParam(buf io.Writer, param interface{}) (err error) {
 	if param == nil {
 		marshallNil(buf)
 		return
-	} else {
-		v := reflect.ValueOf(param)
-		t := reflect.TypeOf(param)
-		err = marshallValue(buf, v, t)
-		return
 	}
+	v := reflect.ValueOf(param)
+	t := reflect.TypeOf(param)
+	err = marshallValue(buf, v, t)
+	return
 }
 
 func marshallNil(buf io.Writer) {
-	writeByte(buf, VT_NULL)
+	writeByte(buf, VTNull)
 }
 
 func marshallValue(buf io.Writer, v reflect.Value, t reflect.Type) (err error) {
@@ -166,85 +165,85 @@ func marshallValue(buf io.Writer, v reflect.Value, t reflect.Type) (err error) {
 
 func marshallBool(buf io.Writer, v reflect.Value) (err error) {
 	x := v.Bool()
-	writeByte(buf, VT_BOOL)
+	writeByte(buf, VTBool)
 	err = writeBoolean(buf, x)
 	return
 }
 
 func marshallInt8(buf io.Writer, v reflect.Value) (err error) {
 	x := v.Int()
-	writeByte(buf, VT_BOOL)
+	writeByte(buf, VTBool)
 	err = writeByte(buf, int8(x))
 	return
 }
 
 func marshallInt16(buf io.Writer, v reflect.Value) (err error) {
 	x := v.Int()
-	writeByte(buf, VT_SHORT)
+	writeByte(buf, VTShort)
 	err = writeShort(buf, int16(x))
 	return
 }
 
 func marshallInt32(buf io.Writer, v reflect.Value) (err error) {
 	x := v.Int()
-	writeByte(buf, VT_INT)
+	writeByte(buf, VTInt)
 	err = writeInt(buf, int32(x))
 	return
 }
 
 func marshallInt64(buf io.Writer, v reflect.Value) (err error) {
 	x := v.Int()
-	writeByte(buf, VT_LONG)
+	writeByte(buf, VTLong)
 	err = writeLong(buf, int64(x))
 	return
 }
 
 func marshallFloat64(buf io.Writer, v reflect.Value) (err error) {
 	x := v.Float()
-	writeByte(buf, VT_FLOAT)
+	writeByte(buf, VTFloat)
 	err = writeFloat(buf, float64(x))
 	return
 }
 
 func marshallString(buf io.Writer, v reflect.Value) (err error) {
 	x := v.String()
-	writeByte(buf, VT_STRING)
+	writeByte(buf, VTString)
 	err = writeString(buf, x)
 	return
 }
 
 func marshallTimestamp(buf io.Writer, t time.Time) (err error) {
-	writeByte(buf, VT_TIMESTAMP)
+	writeByte(buf, VTTimestamp)
 	writeTimestamp(buf, t)
 	return
 }
 
 func marshallNullValue(buf io.Writer, nv nullValue) (err error) {
 	switch nv.getColType() {
-	case VT_BOOL:
-		writeByte(buf, VT_BOOL)
+	case VTBool:
+		writeByte(buf, VTBool)
 		writeByte(buf, math.MinInt8)
-	case VT_SHORT:
-		writeByte(buf, VT_SHORT)
+	case VTShort:
+		writeByte(buf, VTShort)
 		writeShort(buf, math.MinInt16)
-	case VT_INT:
-		writeByte(buf, VT_INT)
+	case VTInt:
+		writeByte(buf, VTInt)
 		writeInt(buf, math.MinInt32)
-	case VT_LONG:
-		writeByte(buf, VT_LONG)
+	case VTLong:
+		writeByte(buf, VTLong)
 		writeLong(buf, math.MinInt64)
-	case VT_FLOAT:
-		writeByte(buf, VT_FLOAT)
+	case VTFloat:
+		writeByte(buf, VTFloat)
 		writeFloat(buf, float64(-1.7E+308))
-	case VT_STRING:
-		writeByte(buf, VT_STRING)
+	case VTString:
+		writeByte(buf, VTString)
 		writeInt(buf, int32(-1))
-	case VT_VARBIN:
-		writeByte(buf, VT_VARBIN)
+	case VTVarBin:
+		writeByte(buf, VTVarBin)
 		writeInt(buf, int32(-1))
-	case VT_TIMESTAMP:
-		writeByte(buf, VT_TIMESTAMP)
-		buf.Write(null_timestamp[:])
+	case VTTimestamp:
+		writeByte(buf, VTTimestamp)
+		buf.Write(nullTimestamp[:])
 	default:
 		panic(fmt.Sprintf("Unexpected null type %d", nv.getColType()))
 	}
@@ -258,10 +257,10 @@ func marshallSlice(buf io.Writer, v reflect.Value, t reflect.Type, l int) (err e
 	// byte arrays are handled as VARBINARY, all others are handled as ARRAY.
 	if k == reflect.Uint8 {
 		bs := v.Bytes()
-		writeByte(buf, VT_VARBIN)
+		writeByte(buf, VTVarBin)
 		err = writeVarbinary(buf, bs)
 	} else {
-		writeByte(buf, VT_ARRAY)
+		writeByte(buf, VTArray)
 		writeShort(buf, int16(l))
 		for i := 0; i < l; i++ {
 			err = marshallValue(buf, v.Index(i), t)

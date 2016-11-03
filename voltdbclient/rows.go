@@ -29,8 +29,8 @@ import (
 	"time"
 )
 
-var null_decimal = [...]byte{128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-var null_timestamp = [...]byte{128, 0, 0, 0, 0, 0, 0, 0}
+var nullDecimal = [...]byte{128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+var nullTimestamp = [...]byte{128, 0, 0, 0, 0, 0, 0, 0}
 
 // VoltRows is an implementation of database/sql/driver.Rows.
 //
@@ -67,7 +67,7 @@ func (vr VoltRows) Close() error {
 
 // Columns returns the names of the columns.
 func (vr VoltRows) Columns() []string {
-	rv := make([]string, 0)
+	var rv []string
 	if vr.isValidTable() {
 		rv = append(rv, vr.table().columnNames...)
 	}
@@ -87,7 +87,7 @@ func (vr VoltRows) Next(dest []driver.Value) (err error) {
 		return io.EOF
 	}
 	if vr.table().getColumnCount() != len(dest) {
-		return errors.New(fmt.Sprintf("Wrong number of values to Rows.Next, expected %d but saw %d", vr.table().getColumnCount(), len(dest)))
+		return fmt.Errorf("Wrong number of values to Rows.Next, expected %d but saw %d", vr.table().getColumnCount(), len(dest))
 	}
 
 	cts := vr.table().getColumnTypes()
@@ -153,19 +153,20 @@ func (vr VoltRows) Next(dest []driver.Value) (err error) {
 		case 27: // GEOGRAPHY
 			return errors.New("Not supporting GEOGRAPHY")
 		default:
-			return errors.New(fmt.Sprintf("Unexpected type %d", ct))
+			return fmt.Errorf("Unexpected type %d", ct)
 		}
 	}
 	return nil
 }
 
-// Advances to the next row of data, returns false if there isn't a next row.
+// AdvanceRow advances to the next row of data, returns false if there isn't a
+// next row.
 func (vr VoltRows) AdvanceRow() bool {
 	return vr.table().advanceRow()
 }
 
-// Advances to the row of data indicated by the index.  Returns false if there
-// is no row at the given index.
+// AdvanceToRow advances to the row of data indicated by the index.  Returns
+// false if there is no row at the given index.
 func (vr VoltRows) AdvanceToRow(rowIndex int32) bool {
 	if !vr.isValidTable() {
 		return false
@@ -173,13 +174,14 @@ func (vr VoltRows) AdvanceToRow(rowIndex int32) bool {
 	return vr.table().advanceToRow(rowIndex)
 }
 
-// Advances to the next table.  Returns false if there isn't a next table.
+// AdvanceTable advances to the next table. Returns false if there isn't a next
+// table.
 func (vr *VoltRows) AdvanceTable() bool {
 	return vr.AdvanceToTable(vr.tableIndex + 1)
 }
 
-// Advances to the table indicated by the index.  Returns false if there is
-// no table at the given index.
+// AdvanceToTable advances to the table indicated by the index. Returns false if
+// there is no table at the given index.
 func (vr *VoltRows) AdvanceToTable(tableIndex int16) bool {
 	if tableIndex >= vr.getNumTables() || tableIndex < 0 {
 		return false
@@ -188,7 +190,7 @@ func (vr *VoltRows) AdvanceToTable(tableIndex int16) bool {
 	return true
 }
 
-// Returns the number of columns in the current table.
+// ColumnCount returns the number of columns in the current table.
 func (vr VoltRows) ColumnCount() int {
 	if !vr.isValidTable() {
 		return 0
@@ -196,16 +198,17 @@ func (vr VoltRows) ColumnCount() int {
 	return int(vr.table().columnCount)
 }
 
-// Returns the column types of the columns in the current table.
+// ColumnTypes returns the column types of the columns in the current table.
 func (vr VoltRows) ColumnTypes() []int8 {
-	rv := make([]int8, 0)
+	var rv []int8
 	if vr.isValidTable() {
 		rv = append(rv, vr.table().columnTypes...)
 	}
 	return rv
 }
 
-// Returns the value of a BIGINT column at the given index in the current row.
+// GetBigInt returns the value of a BIGINT column at the given index in the
+// current row.
 func (vr VoltRows) GetBigInt(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
@@ -221,7 +224,8 @@ func (vr VoltRows) GetBigInt(colIndex int16) (interface{}, error) {
 	return i, nil
 }
 
-// Returns the value of a BIGINT column with the given name in the current row.
+// GetBigIntByName returns the value of a BIGINT column with the given name in
+// the current row.
 func (vr VoltRows) GetBigIntByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
@@ -230,7 +234,8 @@ func (vr VoltRows) GetBigIntByName(cn string) (interface{}, error) {
 	return vr.GetBigInt(ci)
 }
 
-// Returns the value of a DECIMAL column at the given index in the current row.
+// GetDecimal returns the value of a DECIMAL column at the given index in the
+// current row.
 func (vr VoltRows) GetDecimal(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
@@ -239,7 +244,7 @@ func (vr VoltRows) GetDecimal(colIndex int16) (interface{}, error) {
 	if len(bs) != 16 {
 		return nil, fmt.Errorf("Did not find at DECIMAL column at index %d\n", colIndex)
 	}
-	if bytes.Compare(bs, null_decimal[:]) == 0 {
+	if bytes.Compare(bs, nullDecimal[:]) == 0 {
 		return nil, nil
 	}
 	var leadingZeroCount = 0
@@ -258,7 +263,8 @@ func (vr VoltRows) GetDecimal(colIndex int16) (interface{}, error) {
 	return dec, nil
 }
 
-// Returns the value of a DECIMAL column with the given name in the current row.
+// GetDecimalByName returns the value of a DECIMAL column with the given name in
+// the current row.
 func (vr VoltRows) GetDecimalByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
@@ -267,7 +273,8 @@ func (vr VoltRows) GetDecimalByName(cn string) (interface{}, error) {
 	return vr.GetDecimal(ci)
 }
 
-// Returns the value of a FLOAT column at the given index in the current row.
+// GetFloat returns the value of a FLOAT column at the given index in the
+// current row.
 func (vr VoltRows) GetFloat(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
@@ -283,7 +290,8 @@ func (vr VoltRows) GetFloat(colIndex int16) (interface{}, error) {
 	return f, nil
 }
 
-// Returns the value of a FLOAT column with the given name in the current row.
+// GetFloatByName returns the value of a FLOAT column with the given name in the
+// current row.
 func (vr VoltRows) GetFloatByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
@@ -292,7 +300,8 @@ func (vr VoltRows) GetFloatByName(cn string) (interface{}, error) {
 	return vr.GetFloat(ci)
 }
 
-// Returns the value of a INTEGER column at the given index in the current row.
+// GetInteger returns the value of a INTEGER column at the given index in the
+// current row.
 func (vr VoltRows) GetInteger(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
@@ -308,7 +317,8 @@ func (vr VoltRows) GetInteger(colIndex int16) (interface{}, error) {
 	return i, nil
 }
 
-// Returns the value of a INTEGER column with the given name in the current row.
+// GetIntegerByName returns the value of a INTEGER column with the given name in
+// the current row.
 func (vr VoltRows) GetIntegerByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
@@ -317,7 +327,8 @@ func (vr VoltRows) GetIntegerByName(cn string) (interface{}, error) {
 	return vr.GetInteger(ci)
 }
 
-// Returns the value of a SMALLINT column at the given index in the current row.
+// GetSmallInt returns the value of a SMALLINT column at the given index in the
+// current row.
 func (vr VoltRows) GetSmallInt(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
@@ -333,7 +344,8 @@ func (vr VoltRows) GetSmallInt(colIndex int16) (interface{}, error) {
 	return i, nil
 }
 
-// Returns the value of a SMALLINT column with the given name in the current row.
+// GetSmallIntByName returns the value of a SMALLINT column with the given name
+// in the current row.
 func (vr VoltRows) GetSmallIntByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
@@ -342,7 +354,8 @@ func (vr VoltRows) GetSmallIntByName(cn string) (interface{}, error) {
 	return vr.GetSmallInt(ci)
 }
 
-// Returns the value of a STRING column at the given index in the current row.
+// GetString returns the value of a STRING column at the given index in the
+// current row.
 func (vr VoltRows) GetString(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
@@ -352,7 +365,7 @@ func (vr VoltRows) GetString(colIndex int16) (interface{}, error) {
 	// length, which must be -1, the null encoding.
 	if len(bs) == 4 {
 		l := bytesToInt(bs)
-		if l == -1 {  // else 0
+		if l == -1 { // else 0
 			return nil, nil
 		}
 	}
@@ -360,7 +373,8 @@ func (vr VoltRows) GetString(colIndex int16) (interface{}, error) {
 	return string(bs[4:]), nil
 }
 
-// Returns the value of a STRING column with the given name in the current row.
+// GetStringByName returns the value of a STRING column with the given name in
+// the current row.
 func (vr VoltRows) GetStringByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
@@ -369,7 +383,8 @@ func (vr VoltRows) GetStringByName(cn string) (interface{}, error) {
 	return vr.GetString(ci)
 }
 
-// Returns the value of a TIMESTAMP column at the given index in the current row.
+// GetTimestamp returns the value of a TIMESTAMP column at the given index in
+// the current row.
 func (vr VoltRows) GetTimestamp(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
@@ -378,14 +393,15 @@ func (vr VoltRows) GetTimestamp(colIndex int16) (interface{}, error) {
 	if len(bs) != 8 {
 		return nil, fmt.Errorf("Did not find at TIMESTAMP column at index %d\n", colIndex)
 	}
-	if bytes.Compare(bs, null_timestamp[:]) == 0 {
+	if bytes.Compare(bs, nullTimestamp[:]) == 0 {
 		return nil, nil
 	}
 	t := bytesToTime(bs)
 	return t, nil
 }
 
-// Returns the value of a TIMESTAMP column with the given name in the current row.
+// GetTimestampByName returns the value of a TIMESTAMP column with the given
+// name in the current row.
 func (vr VoltRows) GetTimestampByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
@@ -394,7 +410,8 @@ func (vr VoltRows) GetTimestampByName(cn string) (interface{}, error) {
 	return vr.GetTimestamp(ci)
 }
 
-// Returns the value of a TINYINT column at the given index in the current row.
+// GetTinyInt returns the value of a TINYINT column at the given index in the
+// current row.
 func (vr VoltRows) GetTinyInt(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
@@ -411,7 +428,8 @@ func (vr VoltRows) GetTinyInt(colIndex int16) (interface{}, error) {
 
 }
 
-// Returns the value of a TINYINT column with the given name in the current row.
+// GetTinyIntByName returns the value of a TINYINT column with the given name in
+// the current row.
 func (vr VoltRows) GetTinyIntByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
@@ -420,7 +438,8 @@ func (vr VoltRows) GetTinyIntByName(cn string) (interface{}, error) {
 	return vr.GetTinyInt(ci)
 }
 
-// Returns the value of a VARBINARY column at the given index in the current row.
+// GetVarbinary returns the value of a VARBINARY column at the given index in
+// the current row.
 func (vr VoltRows) GetVarbinary(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
 	if err != nil {
@@ -428,14 +447,15 @@ func (vr VoltRows) GetVarbinary(colIndex int16) (interface{}, error) {
 	}
 	if len(bs) == 4 {
 		l := bytesToInt(bs)
-		if l == -1 {  // else 0
+		if l == -1 { // else 0
 			return nil, nil
 		}
 	}
 	return bs[4:], nil
 }
 
-// Returns the value of a VARBINARY column with the given name in the current row.
+// GetVarbinaryByName returns the value of a VARBINARY column with the given
+// name in the current row.
 func (vr VoltRows) GetVarbinaryByName(cn string) (interface{}, error) {
 	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
 	if !ok {
@@ -472,6 +492,6 @@ func bytesToSmallInt(bs []byte) int16 {
 func bytesToTime(bs []byte) time.Time {
 	// the time is essentially a long as milliseconds
 	millis := int64(order.Uint64(bs))
-	// time.Unix will take either seconds or nanos.  Multiply by 1000 and use nanos.
+	// time.Unix will take either seconds or nanos. Multiply by 1000 and use nanos.
 	return time.Unix(0, millis*1000)
 }

@@ -28,18 +28,19 @@ import (
 )
 
 const (
-	// Default time out for queries.
-	DEFAULT_QUERY_TIMEOUT time.Duration = 2 * time.Minute
+	// DefaultQueryTimeout time out for queries.
+	DefaultQueryTimeout time.Duration = 2 * time.Minute
 )
 
-var handle int64 = 0
+var handle int64
 var sHandle int64 = -1
 
-// The version of the voltdb wire protocol to use.  For VoltDB releases of version 5.2 and
-// later use version 1.  For releases prior to that use version 0.
+// ProtocolVersion lists the version of the voltdb wire protocol to use.
+// For VoltDB releases of version 5.2 and later use version 1. For releases
+// prior to that use version 0.
 var ProtocolVersion = 1
 
-// the set of currently active connections
+// Conn holds the set of currently active connections.
 type Conn struct {
 	inPiCh                                   chan *procedureInvocation
 	allNcsPiCh                               chan *procedureInvocation
@@ -78,9 +79,9 @@ func OpenConn(ci string) (*Conn, error) {
 	return newConn(cis)
 }
 
-// OpenConn returns a new connection to the VoltDB server.  This connection
-// will try to meet the specified latency target, potentially by throttling
-// the rate at which asynchronous transactions are submitted.
+// OpenConnWithLatencyTarget returns a new connection to the VoltDB server.
+// This connection will try to meet the specified latency target, potentially by
+// throttling the rate at which asynchronous transactions are submitted.
 func OpenConnWithLatencyTarget(ci string, latencyTarget int32) (*Conn, error) {
 	cis := strings.Split(ci, ",")
 	c, err := newConn(cis)
@@ -91,10 +92,10 @@ func OpenConnWithLatencyTarget(ci string, latencyTarget int32) (*Conn, error) {
 	return c, nil
 }
 
-// OpenConn returns a new connection to the VoltDB server.  This connection
-// will limit the number of outstanding transactions as indicated.  An
-// outstanding transaction is a transaction that has been sent to the server
-// but for which no response has been received.
+// OpenConnWithMaxOutstandingTxns returns a new connection to the VoltDB server.
+// This connection will limit the number of outstanding transactions as
+// indicated. An outstanding transaction is a transaction that has been sent to
+// the server but for which no response has been received.
 func OpenConnWithMaxOutstandingTxns(ci string, maxOutTxns int) (*Conn, error) {
 	cis := strings.Split(ci, ",")
 	c, err := newConn(cis)
@@ -109,7 +110,7 @@ func (c *Conn) start(cis []string) error {
 
 	var connected []*nodeConn
 	var disconnected []*nodeConn
-	hostIdToConnection := make(map[int]*nodeConn)
+	hostIDToConnection := make(map[int]*nodeConn)
 	var err error
 	for _, ci := range cis {
 		ncPiCh := make(chan *procedureInvocation, 1000)
@@ -119,7 +120,7 @@ func (c *Conn) start(cis []string) error {
 		if err == nil {
 			connected = append(connected, nc)
 			if c.useClientAffinity {
-				hostIdToConnection[int(nc.connData.hostId)] = nc
+				hostIDToConnection[int(nc.connData.hostID)] = nc
 			}
 		} else {
 			disconnected = append(disconnected, nc)
@@ -128,34 +129,36 @@ func (c *Conn) start(cis []string) error {
 	if len(connected) == 0 {
 		return fmt.Errorf("%v %v", "No valid connections", err)
 	}
-	go c.loop(connected, disconnected, &hostIdToConnection)
+	go c.loop(connected, disconnected, &hostIDToConnection)
 	return nil
 }
 
-func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIdToConnection *map[int]*nodeConn) {
+func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIDToConnection *map[int]*nodeConn) {
 
 	// TODO: resubsribe when we lose the subscribed connection
-	var subscribedConnection *nodeConn
-	var subTopoCh <-chan voltResponse
-	var topoStatsCh <-chan voltResponse
-	var hasTopoStats bool = false
-	var prInfoCh <-chan voltResponse
-	var fetchedCatalog bool = false
+	var (
+		subscribedConnection *nodeConn
+		subTopoCh            <-chan voltResponse
+		topoStatsCh          <-chan voltResponse
+		hasTopoStats         bool
+		prInfoCh             <-chan voltResponse
+		fetchedCatalog       bool
 
-	var closeRespCh chan bool
-	var closingNcsCh chan bool
-	var outstandingCloseCount int
+		closeRespCh           chan bool
+		closingNcsCh          chan bool
+		outstandingCloseCount int
 
-	var draining bool = false
-	var drainRespCh chan bool
-	var drainingNcsCh chan bool
-	var outstandingDrainCount int
+		draining              bool
+		drainRespCh           chan bool
+		drainingNcsCh         chan bool
+		outstandingDrainCount int
 
-	var hnator hashinator
-	var partitionReplicas *map[int][]*nodeConn
-	var partitionMasters = make(map[int]*nodeConn)
+		hnator            hashinator
+		partitionReplicas *map[int][]*nodeConn
+		partitionMasters  = make(map[int]*nodeConn)
 
-	var procedureInfos *map[string]procedure
+		procedureInfos *map[string]procedure
+	)
 
 	for {
 		if draining {
@@ -210,7 +213,7 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIdToCon
 			switch topoResp.(type) {
 			// handle an error, otherwise the subscribe succeeded.
 			case VoltError:
-				if ResponseStatus(topoResp.getStatus()) == CONNECTION_LOST {
+				if ResponseStatus(topoResp.getStatus()) == ConnectionLost {
 					// TODO: handle this.  Move the connection out of connected, try again.
 					// TODO: try to reconnect to the host in a separate go routine.
 					// TODO: subscribe to topo a second time
@@ -248,7 +251,7 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIdToCon
 			}
 		case pi := <-c.inPiCh:
 			var nc *nodeConn
-			var backpressure bool = true
+			var backpressure = true
 			var err error
 			if c.useClientAffinity && hnator != nil && partitionReplicas != nil && procedureInfos != nil {
 				nc, backpressure, err = c.getConnByCA(connected, hnator, &partitionMasters, partitionReplicas, procedureInfos, pi)
@@ -342,10 +345,10 @@ type procedure struct {
 }
 
 func (proc *procedure) setDefaults() {
-	const PARAMETER_NONE = -1
+	const ParameterNone = -1
 	if !proc.SinglePartition {
-		proc.PartitionParameter = PARAMETER_NONE
-		proc.PartitionParameterType = PARAMETER_NONE
+		proc.PartitionParameter = ParameterNone
+		proc.PartitionParameterType = ParameterNone
 	}
 }
 

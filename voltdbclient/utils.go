@@ -25,12 +25,14 @@ import (
 	"sort"
 )
 
-// partitonSlice attaches the methods of sort.Interface to []int64, sorting in increasing order.
+// partitionSlice attaches the methods of sort.Interface to []int64, sorting in
+// increasing order.
 type token2Partition struct {
 	token     int
 	partition int
 }
 
+// Token2PartitionSlice holds a slice of token2Partition structures.
 type Token2PartitionSlice []token2Partition
 
 func (s Token2PartitionSlice) Len() int           { return len(s) }
@@ -42,6 +44,7 @@ func (s Token2PartitionSlice) Sort() {
 	sort.Sort(s)
 }
 
+// SearchToken2Partitions searches the needed partition by token.
 func SearchToken2Partitions(a []token2Partition, token int) (partition int) {
 	t := sort.Search(len(a), func(i int) bool { return a[i].token >= token })
 	partition = a[t-1].partition

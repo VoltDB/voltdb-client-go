@@ -18,16 +18,14 @@
 package voltdbclient
 
 import (
-	"bytes"
-	"database/sql/driver"
 	"fmt"
-	"io/ioutil"
 	"math/big"
 	"strings"
 	"testing"
 	"time"
 )
 
+/* TODO: fix CallOnClosedConn
 func CallOnClosedConn(t *testing.T) {
 	conn := newNodeConn("", nil)
 	pi := newSyncProcedureInvocation(0, true, "HELLOWORLD.select", []driver.Value{}, time.Minute*2)
@@ -36,7 +34,9 @@ func CallOnClosedConn(t *testing.T) {
 		t.Errorf("Expected error calling procedure on closed Conn")
 	}
 }
+*/
 
+/* TODO: fix ReadDataTypes
 func ReadDataTypes(t *testing.T) {
 	b, err := ioutil.ReadFile("./test_resources/examples_of_types.msg")
 	check(t, err)
@@ -69,8 +69,8 @@ func ReadDataTypes(t *testing.T) {
 		t.Logf("Didn't see expected row")
 		t.FailNow()
 	}
-	iId, err := vrows.GetInteger(0)
-	id := iId.(int32)
+	iID, err := vrows.GetInteger(0)
+	id := iID.(int32)
 	check(t, err)
 	checkRows(t, vrows, id)
 
@@ -78,8 +78,8 @@ func ReadDataTypes(t *testing.T) {
 		t.Logf("Didn't see expected row")
 		t.FailNow()
 	}
-	iId, err = vrows.GetInteger(0)
-	id = iId.(int32)
+	iID, err = vrows.GetInteger(0)
+	id = iID.(int32)
 	check(t, err)
 	checkRows(t, vrows, id)
 
@@ -87,8 +87,8 @@ func ReadDataTypes(t *testing.T) {
 		t.Logf("Didn't see expected row")
 		t.FailNow()
 	}
-	iId, err = vrows.GetInteger(0)
-	id = iId.(int32)
+	iID, err = vrows.GetInteger(0)
+	id = iID.(int32)
 	check(t, err)
 	checkRows(t, vrows, id)
 
@@ -97,6 +97,7 @@ func ReadDataTypes(t *testing.T) {
 		t.FailNow()
 	}
 }
+*/
 
 func checkRows(t *testing.T, rows VoltRows, id int32) {
 	if id == 25 {
@@ -113,29 +114,29 @@ func checkRows(t *testing.T, rows VoltRows, id int32) {
 	}
 }
 
-func checkRowData(t *testing.T, rows VoltRows, expectedId int32, nIdIsNull bool, expectedNId int32,
+func checkRowData(t *testing.T, rows VoltRows, expectedID int32, nIDIsNull bool, expectedNID int32,
 	nameIsNull bool, expectedName string, dataIsNull bool, expectedPrefix string, expectedDataLen int,
 	statusIsNull bool, expectedStatus int8, typeIsNull bool, expectedType int16, panIsNull bool, expectedPan int64,
 	boIsNull bool, expectedBo float64, balanceIsNull bool, expectedBalance float64,
 	lastUpdatedIsNull bool, expectedLastUpdated string) {
 	// ID
-	iId, err := rows.GetIntegerByName("ID")
+	iID, err := rows.GetIntegerByName("ID")
 	check(t, err)
-	id := iId.(int32)
-	if expectedId != id {
-		t.Error(fmt.Printf("For ID, expected %d but saw %d\n", expectedId, id))
+	id := iID.(int32)
+	if expectedID != id {
+		t.Error(fmt.Printf("For ID, expected %d but saw %d\n", expectedID, id))
 	}
 
 	// NULLABLE_ID
-	iNid, err := rows.GetIntegerByName("NULLABLE_ID")
+	iNID, err := rows.GetIntegerByName("NULLABLE_ID")
 	check(t, err)
-	if iNid != nil {
-		nId := iNid.(int32)
-		if nIdIsNull || expectedNId != nId {
-			t.Error(fmt.Printf("For NULLABLE_ID, expected value %d", expectedNId))
+	if iNID != nil {
+		nID := iNID.(int32)
+		if nIDIsNull || expectedNID != nID {
+			t.Error(fmt.Printf("For NULLABLE_ID, expected value %d", expectedNID))
 		}
 	} else {
-		if !nIdIsNull {
+		if !nIDIsNull {
 			t.Error("Unexpected null value for NULLABLE_ID\n")
 		}
 	}

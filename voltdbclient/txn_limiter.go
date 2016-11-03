@@ -47,7 +47,7 @@ func (tl *txnLimiter) limit(timeout time.Duration) error {
 	case tl.txnSems <- empty{}:
 		return nil
 	case <-time.After(timeout):
-		return errors.New("timeout waiting for transaction permit.")
+		return errors.New("timeout waiting for transaction permit")
 	}
 }
 

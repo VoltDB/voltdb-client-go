@@ -33,23 +33,23 @@ const maxQueuedBytes = 262144
 
 // connectionData are the values returned by a successful login.
 type connectionData struct {
-	hostId      int32
-	connId      int64
+	hostID      int32
+	connID      int64
 	leaderAddr  int32
 	buildString string
 }
 
 type nodeConn struct {
-	connInfo  string
-	connData  *connectionData
-	tcpConn   *net.TCPConn
+	connInfo string
+	connData *connectionData
+	tcpConn  *net.TCPConn
 
-	drainCh   chan chan bool
-	bpCh      chan chan bool
-	closeCh   chan chan bool
+	drainCh chan chan bool
+	bpCh    chan chan bool
+	closeCh chan chan bool
 
 	// channel for pi's meant specifically for this connection.
-	ncPiCh    chan *procedureInvocation
+	ncPiCh chan *procedureInvocation
 }
 
 func newNodeConn(ci string, ncPiCh chan *procedureInvocation) *nodeConn {
@@ -147,7 +147,7 @@ func (nc *nodeConn) drain(respCh chan bool) {
 
 func (nc *nodeConn) hasBP() bool {
 	respCh := make(chan bool)
-	nc.bpCh<- respCh
+	nc.bpCh <- respCh
 	return <-respCh
 }
 
@@ -160,11 +160,10 @@ func (nc *nodeConn) listen(reader io.Reader, responseCh chan<- *bytes.Buffer) {
 			if responseCh == nil {
 				// exiting
 				return
-			} else {
-				// put the error on the channel
-				// the owner needs to reconnect
-				return
 			}
+			// TODO: put the error on the channel
+			// the owner needs to reconnect
+			return
 		}
 		responseCh <- buf
 	}
@@ -174,18 +173,18 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 	// declare mutable state
 	requests := make(map[int64]*networkRequest)
 	ncPiCh := nc.ncPiCh
-	var draining bool = false
+	var draining bool
 	var drainRespCh chan bool
-	var queuedBytes int = 0
-	var bp bool = false
+	var queuedBytes int
+	var bp bool
 
-	var tci int64 = int64(DEFAULT_QUERY_TIMEOUT / 10)            // timeout check interval
+	var tci = int64(DefaultQueryTimeout / 10)                    // timeout check interval
 	tcc := time.NewTimer(time.Duration(tci) * time.Nanosecond).C // timeout check timer channel
 
 	// for ping
 	var pingTimeout = 2 * time.Minute
 	pingSentTime := time.Now()
-	var pingOutstanding bool = false
+	var pingOutstanding bool
 
 	for {
 		// setup select cases
@@ -211,7 +210,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 			if pingSinceSent > pingTimeout {
 				// TODO: should disconnect
 			}
-		} else if pingSinceSent > pingTimeout / 3 {
+		} else if pingSinceSent > pingTimeout/3 {
 			nc.sendPing(writer)
 			pingOutstanding = true
 			pingSentTime = time.Now()
@@ -232,7 +231,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 			if err != nil {
 				continue
 			}
-			if handle == PING_HANDLE {
+			if handle == PingHandle {
 				pingOutstanding = false
 				continue
 			}
@@ -326,7 +325,7 @@ func (nc *nodeConn) handleAsyncTimeout(req *networkRequest) {
 }
 
 func (nc *nodeConn) sendPing(writer io.Writer) {
-	pi := newProcedureInvocationByHandle(PING_HANDLE, true, "@Ping", []driver.Value{})
+	pi := newProcedureInvocationByHandle(PingHandle, true, "@Ping", []driver.Value{})
 	serializePI(writer, pi)
 }
 
