@@ -18,8 +18,8 @@
 // A simple example that demonstrates the use of the VoltDB database/sql/driver.
 package main
 
-import "database/sql"
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"os"

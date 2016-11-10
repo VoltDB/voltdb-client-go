@@ -22,11 +22,11 @@ import (
 	"database/sql/driver"
 )
 
-// A database/sql/driver for VoltDB.  This driver is registered as 'voltdb'
-type VoltDriver struct {
-}
+// VoltDriver implements A database/sql/driver for VoltDB.  This driver is
+// registered as 'voltdb'
+type VoltDriver struct{}
 
-// News an instance of a VoltDB driver.
+// NewVoltDriver returns a new instance of a VoltDB driver.
 func NewVoltDriver() *VoltDriver {
 	var vd = new(VoltDriver)
 	return vd

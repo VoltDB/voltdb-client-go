@@ -19,26 +19,28 @@ package voltdbclient
 
 import "math"
 
+// Handles
 const (
-	PING_HANDLE       = math.MaxInt64
-	ASYNC_TOPO_HANDLE = PING_HANDLE - 1
+	PingHandle      = math.MaxInt64
+	AsyncTopoHandle = PingHandle - 1
 )
 
+// Partitions
 const (
-	PARTITIONID_BITS = 14
+	PartitionIDBits = 14
 
 	// maximum values for the txn id fields
-	PARTITIONID_MAX_VALUE = (1 << PARTITIONID_BITS) - 1
-	MP_INIT_PID           = PARTITIONID_MAX_VALUE
+	PartitionIDMaxValue = (1 << PartitionIDBits) - 1
+	MPInitPID           = PartitionIDMaxValue
 )
 
 // Hash Type
 const (
-	ELASTIC = "ELASTIC"
+	Elastic = "Elastic"
 )
 
 // Hash Config Format
 const (
-	BINARAY_FORMAT = 0
-	JSON_FORMAT    = 1
+	BinArrayFormat = 0
+	JSONFormat     = 1
 )

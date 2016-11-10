@@ -55,13 +55,13 @@ func (vs VoltStatement) NumInput() int {
 }
 
 // Exec executes a query that doesn't return rows, such
-// as an INSERT or UPDATE.  Uses DEFAULT_QUERY_TIMEOUT.
+// as an INSERT or UPDATE.  Uses DefaultQueryTimeout.
 func (vs VoltStatement) Exec(args []driver.Value) (driver.Result, error) {
-	return vs.ExecTimeout(args, DEFAULT_QUERY_TIMEOUT)
+	return vs.ExecTimeout(args, DefaultQueryTimeout)
 }
 
-// Exec executes a query that doesn't return rows, such
-// as an INSERT or UPDATE.  Specifies a duration for timeout.
+// ExecTimeout executes a query that doesn't return rows, such as an INSERT or
+// UPDATE.  Specifies a duration for timeout.
 func (vs VoltStatement) ExecTimeout(args []driver.Value, timeout time.Duration) (driver.Result, error) {
 	args = append(args, "")
 	copy(args[1:], args[0:])
@@ -69,12 +69,13 @@ func (vs VoltStatement) ExecTimeout(args []driver.Value, timeout time.Duration) 
 	return vs.d.ExecTimeout("@AdHoc", args, timeout)
 }
 
-// ExecAsync asynchronously runs an Exec.  Uses DEFAULT_QUERY_TIMEOUT.
+// ExecAsync asynchronously runs an Exec.  Uses DefaultQueryTimeout.
 func (vs VoltStatement) ExecAsync(resCons AsyncResponseConsumer, args []driver.Value) error {
-	return vs.ExecAsyncTimeout(resCons, args, DEFAULT_QUERY_TIMEOUT)
+	return vs.ExecAsyncTimeout(resCons, args, DefaultQueryTimeout)
 }
 
-// ExecAsync asynchronously runs an Exec.  Specifies a duration for timeout.
+// ExecAsyncTimeout asynchronously runs an Exec. Specifies a duration for
+// timeout.
 func (vs VoltStatement) ExecAsyncTimeout(resCons AsyncResponseConsumer, args []driver.Value, timeout time.Duration) error {
 	args = append(args, "")
 	copy(args[1:], args[0:])
@@ -83,12 +84,14 @@ func (vs VoltStatement) ExecAsyncTimeout(resCons AsyncResponseConsumer, args []d
 	return nil
 }
 
-// Query executes a query that may return rows, such as a SELECT.  Uses DEFAULT_QUERY_TIMEOUT.
+// Query executes a query that may return rows, such as a SELECT. Uses
+// DefaultQueryTimeout.
 func (vs VoltStatement) Query(args []driver.Value) (driver.Rows, error) {
-	return vs.QueryTimeout(args, DEFAULT_QUERY_TIMEOUT)
+	return vs.QueryTimeout(args, DefaultQueryTimeout)
 }
 
-// Query executes a query that may return rows, such as a SELECT.  Specifies a duration for timeout.
+// QueryTimeout executes a query that may return rows, such as a SELECT.
+// Specifies a duration for timeout.
 func (vs VoltStatement) QueryTimeout(args []driver.Value, timeout time.Duration) (driver.Rows, error) {
 	args = append(args, "")
 	copy(args[1:], args[0:])
@@ -96,12 +99,13 @@ func (vs VoltStatement) QueryTimeout(args []driver.Value, timeout time.Duration)
 	return vs.d.QueryTimeout("@AdHoc", args, timeout)
 }
 
-// QueryAsync asynchronously runs a Query.  Uses DEFAULT_QUERY_TIMEOUT.
+// QueryAsync asynchronously runs a Query.  Uses DefaultQueryTimeout.
 func (vs VoltStatement) QueryAsync(rowsCons AsyncResponseConsumer, args []driver.Value) error {
-	return vs.QueryAsyncTimeout(rowsCons, args, DEFAULT_QUERY_TIMEOUT)
+	return vs.QueryAsyncTimeout(rowsCons, args, DefaultQueryTimeout)
 }
 
-// QueryAsync asynchronously runs a Query.  Specifies a duration for timeout.
+// QueryAsyncTimeout asynchronously runs a Query. Specifies a duration for
+// timeout.
 func (vs VoltStatement) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, args []driver.Value, timeout time.Duration) error {
 	args = append(args, "")
 	copy(args[1:], args[0:])

@@ -31,18 +31,18 @@ import (
 
 // The set of VoltDB column types and their associated golang type.
 const (
-	VT_ARRAY     int8 = -99 // array (short)(values*)
-	VT_NULL      int8 = 1   // null
-	VT_BOOL      int8 = 3   // boolean, byte
-	VT_SHORT     int8 = 4   // int16
-	VT_INT       int8 = 5   // int32
-	VT_LONG      int8 = 6   // int64
-	VT_FLOAT     int8 = 8   // float64
-	VT_STRING    int8 = 9   // string (int32-length-prefix)(utf-8 bytes)
-	VT_TIMESTAMP int8 = 11  // int64 timestamp microseconds
-	VT_TABLE     int8 = 21  // VoltTable
-	VT_DECIMAL   int8 = 22  // fix-scaled, fix-precision decimal
-	VT_VARBIN    int8 = 25  // varbinary (int)(bytes)
+	VTArray     int8 = -99 // array (short)(values*)
+	VTNull      int8 = 1   // null
+	VTBool      int8 = 3   // boolean, byte
+	VTShort     int8 = 4   // int16
+	VTInt       int8 = 5   // int32
+	VTLong      int8 = 6   // int64
+	VTFloat     int8 = 8   // float64
+	VTString    int8 = 9   // string (int32-length-prefix)(utf-8 bytes)
+	VTTimestamp int8 = 11  // int64 timestamp microseconds
+	VTTable     int8 = 21  // VoltTable
+	VTDecimal   int8 = 22  // fix-scaled, fix-precision decimal
+	VTVarBin    int8 = 25  // varbinary (int)(bytes)
 )
 
 var order = binary.BigEndian

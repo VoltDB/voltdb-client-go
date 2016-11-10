@@ -22,7 +22,7 @@ import (
 	"fmt"
 )
 
-const invalid_row_index = -1
+const invalidRowIndex = -1
 
 // Table represents a single result set for a stored procedure invocation.
 type voltTable struct {
@@ -50,7 +50,7 @@ func newVoltTable(columnCount int16, columnTypes []int8, columnNames []string, r
 	for ci, cn := range columnNames {
 		vt.cnToCi[cn] = int16(ci)
 	}
-	vt.rowIndex = invalid_row_index
+	vt.rowIndex = invalidRowIndex
 	return vt
 }
 
@@ -75,8 +75,8 @@ func (vt *voltTable) calcOffsets() error {
 	// column count + 1, want starting and ending index for every column
 	offsets := make([]int32, vt.columnCount+1)
 	r := bytes.NewReader(vt.rows[vt.rowIndex])
-	var colIndex int16 = 0
-	var offset int32 = 0
+	var colIndex int16
+	var offset int32
 	offsets[0] = 0
 	for ; colIndex < vt.columnCount; colIndex++ {
 		len, err := vt.colLength(r, offset, vt.columnTypes[colIndex])

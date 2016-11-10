@@ -5,13 +5,17 @@ Hello World
 
 First, follow the instructions in the VoltDB kit's doc/tutorials/helloworld folder to start the database and load the schema.
 
-Then, go to hello-world folder, run one the following commands to start the go helloworld client.  
-This requires no arguments and connects to localhost.
+Then, go to hello-world folder, go into the preferred example folder:
+
+  - async (for using low-level async call API)
+  - sync (for using low-level sync call API)
+  - driver (for using high-level Go database/sql API)
+
+Run the following command to start the go helloworld client.  
+*This requires no arguments and connects to localhost.*
 
 ```
-go run async_hello_world.go (for using low-level async call API)
-go run sync_hello_world.go  (for using low-level sync call API)
-go run driver_hello_world.go (for using high-level go sql API)
+go run hello_world.go
 ```
 
 Voter

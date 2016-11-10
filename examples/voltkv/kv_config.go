@@ -14,6 +14,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 package main
 
 import (
@@ -25,6 +26,7 @@ import (
 
 type runType string
 
+// runTypes
 const (
 	ASYNC runType = "async"
 	SYNC  runType = "sync"
@@ -56,7 +58,7 @@ type kvConfig struct {
 	runtype         runType
 }
 
-func NewKVConfig() (*kvConfig, error) {
+func newKVConfig() (*kvConfig, error) {
 	kv := new(kvConfig)
 	flag.DurationVar(&(kv.displayinterval), "displayinterval", 5*time.Second, "Interval for performance feedback, in seconds.")
 	flag.DurationVar(&(kv.duration), "duration", 120*time.Second, "Benchmark duration, in seconds.")

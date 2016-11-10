@@ -35,7 +35,7 @@ type voltResponse interface {
 	getStatusString() string
 }
 
-// VoltErrors
+// VoltError type
 type VoltError struct {
 	voltResponse
 	error
@@ -67,9 +67,9 @@ func newVoltResponseInfo(handle int64, status ResponseStatus, statusString strin
 func emptyVoltResponseInfo() voltResponseInfo {
 	var vrsp = new(voltResponseInfo)
 	vrsp.handle = 0
-	vrsp.status = SUCCESS
+	vrsp.status = Success
 	vrsp.statusString = ""
-	vrsp.appStatus = UNINITIALIZED_APP_STATUS_CODE
+	vrsp.appStatus = UninitializedAppStatusCode
 	vrsp.appStatusString = ""
 	vrsp.clusterRoundTripTime = -1
 	vrsp.numTables = 0
@@ -79,9 +79,9 @@ func emptyVoltResponseInfo() voltResponseInfo {
 func emptyVoltResponseInfoWithLatency(rtt int32) voltResponseInfo {
 	var vrsp = new(voltResponseInfo)
 	vrsp.handle = 0
-	vrsp.status = SUCCESS
+	vrsp.status = Success
 	vrsp.statusString = ""
-	vrsp.appStatus = UNINITIALIZED_APP_STATUS_CODE
+	vrsp.appStatus = UninitializedAppStatusCode
 	vrsp.appStatusString = ""
 	vrsp.clusterRoundTripTime = rtt
 	vrsp.numTables = 0
@@ -116,51 +116,51 @@ func (vrsp voltResponseInfo) getStatusString() string {
 	return vrsp.statusString
 }
 
-// Status codes returned by the VoltDB server.
+// ResponseStatus handles the Status codes returned by the VoltDB server.
 // Each response to a client Query or Exec has an associated status code.
 type ResponseStatus int8
 
+// The available ResponseStatus codes
 const (
-	SUCCESS                       ResponseStatus = 1
-	USER_ABORT                    ResponseStatus = -1
-	GRACEFUL_FAILURE              ResponseStatus = -2
-	UNEXPECTED_FAILURE            ResponseStatus = -3
-	CONNECTION_LOST               ResponseStatus = -4
-	SERVER_UNAVAILABLE            ResponseStatus = -5
-	CONNECTION_TIMEOUT            ResponseStatus = -6
-	RESPONSE_UNKNOWN              ResponseStatus = -7
-	TXN_RESTART                   ResponseStatus = -8
-	OPERATIONAL_FAILURE           ResponseStatus = -9
-	UNINITIALIZED_APP_STATUS_CODE ResponseStatus = -128
+	Success                    ResponseStatus = 1
+	UserAbort                  ResponseStatus = -1
+	GracefulFailure            ResponseStatus = -2
+	UnexpectedFailure          ResponseStatus = -3
+	ConnectionLost             ResponseStatus = -4
+	ServerUnavailable          ResponseStatus = -5
+	ConnectionTimeout          ResponseStatus = -6
+	ResponseUnknown            ResponseStatus = -7
+	TXNRestart                 ResponseStatus = -8
+	OperationalFailure         ResponseStatus = -9
+	UninitializedAppStatusCode ResponseStatus = -128
 )
 
 // Represent a ResponseStatus as a string.
 func (rs ResponseStatus) String() string {
-	if rs == SUCCESS {
+	if rs == Success {
 		return "SUCCESS"
-	} else if rs == USER_ABORT {
+	} else if rs == UserAbort {
 		return "USER ABORT"
-	} else if rs == GRACEFUL_FAILURE {
+	} else if rs == GracefulFailure {
 		return "GRACEFUL FAILURE"
-	} else if rs == UNEXPECTED_FAILURE {
+	} else if rs == UnexpectedFailure {
 		return "UNEXPECTED FAILURE"
-	} else if rs == CONNECTION_LOST {
+	} else if rs == ConnectionLost {
 		return "CONNECTION LOST"
-	} else if rs == SERVER_UNAVAILABLE {
+	} else if rs == ServerUnavailable {
 		return "SERVER UNAVAILABLE"
-	} else if rs == CONNECTION_TIMEOUT {
+	} else if rs == ConnectionTimeout {
 		return "CONNECTION TIMEOUT"
-	} else if rs == RESPONSE_UNKNOWN {
+	} else if rs == ResponseUnknown {
 		return "RESPONSE UNKNOWN"
-	} else if rs == TXN_RESTART {
+	} else if rs == TXNRestart {
 		return "TXN RESTART"
-	} else if rs == OPERATIONAL_FAILURE {
+	} else if rs == OperationalFailure {
 		return "OPERATIONAL FAILURE"
-	} else if rs == UNINITIALIZED_APP_STATUS_CODE {
+	} else if rs == UninitializedAppStatusCode {
 		return "UNINITIALIZED APP STATUS CODE"
-	} else {
-		panic(fmt.Sprintf("Invalid status code: %d", int(rs)))
 	}
+	panic(fmt.Sprintf("Invalid status code: %d", int(rs)))
 }
 
 func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse, volterr error) {
@@ -178,7 +178,7 @@ func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse, volterr e
 		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 	}
 	var statusString string
-	if status != SUCCESS {
+	if status != Success {
 		if fieldsPresent&(1<<5) != 0 {
 			statusString, err = readString(r)
 			if err != nil {
@@ -227,7 +227,7 @@ func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse, volterr e
 func deserializeResult(r io.Reader, rsp voltResponse) (VoltResult, error) {
 	numTables := rsp.getNumTables()
 	ras := make([]int64, numTables)
-	var i int16 = 0
+	var i int16
 	for ; i < numTables; i++ {
 		ra, err := deserializeTableForResult(r)
 		if err != nil {
@@ -243,7 +243,7 @@ func deserializeRows(r io.Reader, rsp voltResponse) (VoltRows, error) {
 	var err error
 	numTables := rsp.getNumTables()
 	tables := make([]*voltTable, numTables)
-	for idx, _ := range tables {
+	for idx := range tables {
 		if tables[idx], err = deserializeTableForRows(r); err != nil {
 			return *(newVoltRows(rsp, nil)), VoltError{voltResponse: rsp, error: err}
 		}
@@ -269,7 +269,7 @@ func deserializeTableCommon(r io.Reader) (colCount int16, err error) {
 
 	// Todo: not sure about this, sometimes see 0 sometimes -128
 	if statusCode != 0 && statusCode != math.MinInt8 {
-		return 0, errors.New(fmt.Sprintf("Bad return status on table %d", statusCode))
+		return 0, fmt.Errorf("Bad return status on table %d", statusCode)
 	}
 
 	colCount, err = readShort(r)
@@ -361,13 +361,13 @@ func deserializeTableForRows(r io.Reader) (*voltTable, error) {
 	}
 
 	rows := make([][]byte, rowCount)
-	var offset int64 = 0
+	//var offset int64 = 0
 	var rowI int32
 	for rowI = 0; rowI < rowCount; rowI++ {
 		rowLen, _ := readInt(r)
 		rows[rowI] = make([]byte, rowLen)
-		_, err = r.Read(rows[rowI])
-		offset += int64(rowLen + 4)
+		_, _ = r.Read(rows[rowI])
+		//offset += int64(rowLen + 4)
 	}
 
 	return newVoltTable(colCount, columnTypes, columnNames, rowCount, rows), nil

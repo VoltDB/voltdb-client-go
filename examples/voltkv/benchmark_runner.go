@@ -14,9 +14,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with VoltDB.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 package main
 
 import (
+	"database/sql"
 	"database/sql/driver"
 	"flag"
 	"fmt"
@@ -28,17 +30,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"database/sql"
-
 	"github.com/VoltDB/voltdb-client-go/voltdbclient"
 )
 
-// handy, rather than typing this out several times
-const HORIZONTAL_RULE = "----------" + "----------" + "----------" + "----------" +
+// horizontalRule is handy to use, rather than typing this out several times
+const horizontalRule = "----------" + "----------" + "----------" + "----------" +
 	"----------" + "----------" + "----------" + "----------" + "\n"
 
-// for use sql/driver
-const VOLTDB_DRIVER = "voltdb"
+// voltDBDriver for use sql/driver
+const voltDBDriver = "voltdb"
 
 // benchmark stats
 type benchmarkStats struct {
@@ -65,23 +65,25 @@ type benchmark struct {
 	conn *voltdbclient.Conn
 }
 
-func NewBenchmark() (*benchmark, error) {
+// newBenchmark creates a new benchmark
+func newBenchmark() (*benchmark, error) {
 	bmTemp := new(benchmark)
-	bmTemp.proc = NewPayloadProcessor(config.keysize, config.minvaluesize, config.maxvaluesize, config.entropy,
+	bmTemp.proc = newPayloadProcessor(
+		config.keysize, config.minvaluesize, config.maxvaluesize, config.entropy,
 		config.poolsize, config.usecompression)
 	periodicStats = new(benchmarkStats)
 	fullStats = new(benchmarkStats)
-	fmt.Print(HORIZONTAL_RULE)
+	fmt.Print(horizontalRule)
 	fmt.Println(" Command Line Configuration")
-	fmt.Println(HORIZONTAL_RULE)
+	fmt.Println(horizontalRule)
 	fmt.Printf("%+v\n", *config)
 	return bmTemp, nil
 }
 
 func (bm *benchmark) runBenchmark() {
-	fmt.Print(HORIZONTAL_RULE)
+	fmt.Print(horizontalRule)
 	fmt.Println(" Setup & Initialization")
-	fmt.Println(HORIZONTAL_RULE)
+	fmt.Println(horizontalRule)
 	bm.conn = connect(config.servers)
 	defer bm.conn.Close()
 
@@ -97,9 +99,9 @@ func (bm *benchmark) runBenchmark() {
 		fmt.Print("Preloading complete.\n\n")
 	}
 
-	fmt.Print(HORIZONTAL_RULE)
+	fmt.Print(horizontalRule)
 	fmt.Println(" Starting Benchmark")
-	fmt.Println(HORIZONTAL_RULE)
+	fmt.Println(horizontalRule)
 
 	// Run the benchmark loop for the requested warmup time
 	// The throughput may be throttled depending on client configuration
@@ -110,7 +112,7 @@ func (bm *benchmark) runBenchmark() {
 	case SYNC:
 		runGetPut(config.goroutines, config.getputratio, config.warmup, runGetPutSync)
 	case SQL:
-		runGetPut(config.goroutines, config.getputratio, config.warmup, runGetPutSql)
+		runGetPut(config.goroutines, config.getputratio, config.warmup, runGetPutSQL)
 	}
 
 	//reset the stats after warmup
@@ -132,7 +134,7 @@ func (bm *benchmark) runBenchmark() {
 	case SYNC:
 		runGetPut(config.goroutines, config.getputratio, config.duration, runGetPutSync)
 	case SQL:
-		runGetPut(config.goroutines, config.getputratio, config.duration, runGetPutSql)
+		runGetPut(config.goroutines, config.getputratio, config.duration, runGetPutSQL)
 	}
 
 	timeElapsed := time.Now().Sub(timeStart)
@@ -141,7 +143,7 @@ func (bm *benchmark) runBenchmark() {
 }
 
 func openAndPingDB(servers string) *sql.DB {
-	db, err := sql.Open(VOLTDB_DRIVER, servers)
+	db, err := sql.Open(voltDBDriver, servers)
 	if err != nil {
 		fmt.Println("open")
 		log.Fatal(err)
@@ -156,7 +158,7 @@ func openAndPingDB(servers string) *sql.DB {
 	return db
 }
 
-func runGetPutSql(join chan int, getputratio float64, duration time.Duration) {
+func runGetPutSQL(join chan int, getputratio float64, duration time.Duration) {
 	volt := openAndPingDB(config.servers)
 	defer volt.Close()
 
@@ -185,7 +187,7 @@ func runGetPutSql(join chan int, getputratio float64, duration time.Duration) {
 		default:
 			if rand.Float64() < getputratio {
 				rows, err := getStmt.Query(bm.proc.generateRandomKeyForRetrieval())
-				ops += handleSqlRows(rows, err)
+				ops += handleSQLRows(rows, err)
 			} else {
 				key, rawValue, storeValue := bm.proc.generateForStore()
 				atomic.AddUint64(&(fullStats.networkPutData), uint64(len(storeValue)))
@@ -242,8 +244,8 @@ func runGetPutAsync(join chan int, getputratio float64, duration time.Duration) 
 
 	timeout := time.After(duration)
 
-	gcb := NewGetCallBack(bm.proc)
-	pcb := NewPutCallBack(bm.proc)
+	gcb := newGetCallBack(bm.proc)
+	pcb := newPutCallBack(bm.proc)
 	ops := 0
 	for {
 		select {
@@ -274,10 +276,11 @@ func runGetPut(gorotines int, getputratio float64, duration time.Duration,
 		go fn(joinchan, getputratio, duration)
 	}
 
-	var totalCount = 0
+	// var totalCount = 0
 	for _, join := range joiners {
-		ops := <-join
-		totalCount += ops
+		<-join
+		// ops := <-join
+		// totalCount += ops
 		//fmt.Printf("kver %v finished and acted %v ops.\n", v, ops)
 	}
 	// fmt.Println(totalCount, fullStats.totalOps)
@@ -289,7 +292,7 @@ type getCallBack struct {
 	proc *payLoadProcessor
 }
 
-func NewGetCallBack(proc *payLoadProcessor) getCallBack {
+func newGetCallBack(proc *payLoadProcessor) getCallBack {
 	gcb := new(getCallBack)
 	gcb.proc = proc
 	return *gcb
@@ -312,7 +315,7 @@ type putCallBack struct {
 	proc *payLoadProcessor
 }
 
-func NewPutCallBack(proc *payLoadProcessor) putCallBack {
+func newPutCallBack(proc *payLoadProcessor) putCallBack {
 	pcb := new(putCallBack)
 	pcb.proc = proc
 	return *pcb
@@ -330,13 +333,13 @@ func (pcb putCallBack) ConsumeResult(res driver.Result) {
 func (pcb putCallBack) ConsumeRows(rows driver.Rows) {
 }
 
-func handleSqlRows(rows *sql.Rows, err error) (success int) {
+func handleSQLRows(rows *sql.Rows, err error) (success int) {
 	if err == nil {
 		defer rows.Close()
 		if rows.Next() {
 			atomic.AddUint64(&(fullStats.successfulGets), 1)
 			var val string
-			if err := rows.Scan(&val); err == nil {
+			if err = rows.Scan(&val); err == nil {
 				rawValue, storeValue := bm.proc.retrieveFromStore([]byte(val))
 				atomic.AddUint64(&(fullStats.networkGetData), uint64(len(storeValue)))
 				atomic.AddUint64(&(fullStats.rawGetData), uint64(len(rawValue)))
@@ -350,11 +353,9 @@ func handleSqlRows(rows *sql.Rows, err error) (success int) {
 		atomic.AddUint64(&(fullStats.totalOps), 1)
 		atomic.AddUint64(&(periodicStats.totalOps), 1)
 		return 1
-	} else {
-		log.Panic(err)
-		atomic.AddUint64(&(fullStats.failedGets), 1)
-		return 0
 	}
+	log.Panic(err)
+	atomic.AddUint64(&(fullStats.failedGets), 1)
 	return 0
 }
 
@@ -434,9 +435,9 @@ func printStatistics() {
 
 func printResults(timeElapsed time.Duration) {
 	// 1. Get/Put performance results
-	display := "\n" + HORIZONTAL_RULE +
+	display := "\n" + horizontalRule +
 		" KV Store Results\n" +
-		HORIZONTAL_RULE +
+		horizontalRule +
 		"\nA total of %v operations were posted...\n" +
 		" - GETs: %v Operations (%v Misses and %v Failures)\n" +
 		"         %v MB in compressed store data\n" +
@@ -472,9 +473,9 @@ func printResults(timeElapsed time.Duration) {
 		getThroughput+putThroughput)
 
 	// 2. Performance statistics
-	fmt.Print(HORIZONTAL_RULE)
+	fmt.Print(horizontalRule)
 	fmt.Println(" Client Workload Statistics")
-	fmt.Println(HORIZONTAL_RULE)
+	fmt.Println(horizontalRule)
 
 	fmt.Printf("Performed %v ops in %v seconds (%0.0f ops/second)\n",
 		fullStats.totalOps, timeElapsed.Seconds(),
@@ -484,7 +485,7 @@ func printResults(timeElapsed time.Duration) {
 func main() {
 	flag.StringVar(&cpuprofile, "cpuprofile", "", "name of profile file to write")
 	var err error
-	config, err = NewKVConfig()
+	config, err = newKVConfig()
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
@@ -493,6 +494,6 @@ func main() {
 	setupProfiler()
 	defer teardownProfiler()
 
-	bm, _ = NewBenchmark()
+	bm, _ = newBenchmark()
 	bm.runBenchmark()
 }

@@ -25,53 +25,53 @@ import (
 )
 
 type procedureInvocation struct {
-	handle  int64
-	isQuery bool // as opposed to an exec.
-	query   string
-	params  []driver.Value
+	handle     int64
+	isQuery    bool // as opposed to an exec.
+	query      string
+	params     []driver.Value
 	responseCh chan voltResponse
-	timeout time.Duration
-	arc   AsyncResponseConsumer
-	async bool
-	slen    int // length of pi once serialized
+	timeout    time.Duration
+	arc        AsyncResponseConsumer
+	async      bool
+	slen       int // length of pi once serialized
 }
 
 func newSyncProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, responseCh chan voltResponse, timeout time.Duration) *procedureInvocation {
-	var pi = new(procedureInvocation)
-	pi.handle = handle
-	pi.isQuery = isQuery
-	pi.query = query
-	pi.params = params
-	pi.responseCh = responseCh
-	pi.timeout = timeout
-	pi.async = false
-	pi.slen = -1
-	return pi
+	return &procedureInvocation{
+		handle:     handle,
+		isQuery:    isQuery,
+		query:      query,
+		params:     params,
+		responseCh: responseCh,
+		timeout:    timeout,
+		async:      false,
+		slen:       -1,
+	}
 }
 
 func newAsyncProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, timeout time.Duration, arc AsyncResponseConsumer) *procedureInvocation {
-	var pi = new(procedureInvocation)
-	pi.handle = handle
-	pi.isQuery = isQuery
-	pi.query = query
-	pi.params = params
-	pi.timeout = timeout
-	pi.arc = arc
-	pi.async = true
-	pi.slen = -1
-	return pi
+	return &procedureInvocation{
+		handle:  handle,
+		isQuery: isQuery,
+		query:   query,
+		params:  params,
+		timeout: timeout,
+		arc:     arc,
+		async:   true,
+		slen:    -1,
+	}
 }
 
 // a procedure invocation that will be processed based on its handle.
 func newProcedureInvocationByHandle(handle int64, isQuery bool, query string, params []driver.Value) *procedureInvocation {
-	var pi = new(procedureInvocation)
-	pi.handle = handle
-	pi.isQuery = isQuery
-	pi.query = query
-	pi.params = params
-	pi.async = true
-	pi.slen = -1
-	return pi
+	return &procedureInvocation{
+		handle:  handle,
+		isQuery: isQuery,
+		query:   query,
+		params:  params,
+		async:   true,
+		slen:    -1,
+	}
 }
 
 func (pi *procedureInvocation) getLen() int {
@@ -82,8 +82,9 @@ func (pi *procedureInvocation) getLen() int {
 }
 
 func (pi *procedureInvocation) calcLen() int {
-	// fixed - 1 for batch timeout type, 4 for str length (proc name), 8 for handle, 2 for paramCount
-	var slen int = 15
+	// fixed - 1 for batch timeout type, 4 for str length (proc name),
+	// 8 for handle, 2 for paramCount
+	var slen = 15
 	slen += len(pi.query)
 	for _, param := range pi.params {
 		slen += pi.calcParamLen(param)
@@ -118,9 +119,8 @@ func (pi *procedureInvocation) calcParamLen(param interface{}) int {
 	case reflect.Struct:
 		if _, ok := v.Interface().(time.Time); ok {
 			return 9
-		} else {
-			panic("Can't determine length of struct")
 		}
+		panic("Can't determine length of struct")
 
 	case reflect.Ptr:
 		panic("Can't marshal a pointer")

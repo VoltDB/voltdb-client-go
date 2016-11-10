@@ -19,15 +19,14 @@ package voltdbclient
 
 import (
 	"database/sql/driver"
-	"errors"
-	"strings"
 	"encoding/json"
+	"errors"
 	"math/rand"
 )
 
 func (c *Conn) subscribeTopo(nc *nodeConn) <-chan voltResponse {
 	responseCh := make(chan voltResponse, 1)
-	SubscribeTopoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Subscribe", []driver.Value{"TOPOLOGY"}, responseCh, DEFAULT_QUERY_TIMEOUT)
+	SubscribeTopoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Subscribe", []driver.Value{"TOPOLOGY"}, responseCh, DefaultQueryTimeout)
 	nc.submit(SubscribeTopoPi)
 	return responseCh
 }
@@ -36,14 +35,14 @@ func (c *Conn) getTopoStatistics(nc *nodeConn) <-chan voltResponse {
 	// TODO add sysHandle to procedureInvocation
 	// system call procedure should bypass timeout and backpressure
 	responseCh := make(chan voltResponse, 1)
-	topoStatisticsPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Statistics", []driver.Value{"TOPO", int32(JSON_FORMAT)}, responseCh, DEFAULT_QUERY_TIMEOUT)
+	topoStatisticsPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Statistics", []driver.Value{"TOPO", int32(JSONFormat)}, responseCh, DefaultQueryTimeout)
 	nc.submit(topoStatisticsPi)
 	return responseCh
 }
 
 func (c *Conn) getProcedureInfo(nc *nodeConn) <-chan voltResponse {
 	responseCh := make(chan voltResponse, 1)
-	procedureInfoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@SystemCatalog", []driver.Value{"PROCEDURES"}, responseCh, DEFAULT_QUERY_TIMEOUT)
+	procedureInfoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@SystemCatalog", []driver.Value{"PROCEDURES"}, responseCh, DefaultQueryTimeout)
 	nc.submit(procedureInfoPi)
 	return responseCh
 }
@@ -54,7 +53,8 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, *map[int][]*no
 	}
 
 	if !rows.AdvanceTable() {
-		// Just in case the new client connects to the old version of Volt that only returns 1 topology table
+		// Just in case the new client connects to the old version of Volt that only
+		// returns 1 topology table
 		return nil, nil, errors.New("Not support Legacy hashinator.")
 	} else if !rows.AdvanceRow() { //Second table contains the hash function
 		return nil, nil, errors.New("Topology description received from Volt was incomplete " +
@@ -67,8 +67,8 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, *map[int][]*no
 	var hnator hashinator
 	var err error
 	switch hashType.(string) {
-	case ELASTIC:
-		configFormat := JSON_FORMAT
+	case Elastic:
+		configFormat := JSONFormat
 		cooked := true // json format is by default cooked
 		if hnator, err = newHashinatorElastic(configFormat, cooked, hashConfig.([]byte)); err != nil {
 			return nil, nil, err
@@ -78,12 +78,13 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, *map[int][]*no
 	}
 	partitionReplicas := make(map[int][]*nodeConn)
 
-	//First table contains the description of partition ids master/slave relationships
+	// First table contains the description of partition ids master/slave
+	// relationships
 	rows.AdvanceToTable(0)
 
-	// The MPI's partition ID is 16383 (MpInitiator.MP_INIT_PID), so we shouldn't inadvertently
-	// hash to it.  Go ahead and include it in the maps, we can use it at some point to
-	// route MP transactions directly to the MPI node.
+	// The MPI's partition ID is 16383 (MpInitiator.MPInitPID), so we shouldn't
+	// inadvertently hash to it. Go ahead and include it in the maps, we can use
+	// it at some point to route MP transactions directly to the MPI node.
 
 	// TODO GetXXXBYName seems broken
 	for rows.AdvanceRow() {
@@ -91,18 +92,18 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, *map[int][]*no
 		partition, partitionErr := rows.GetInteger(0)
 		panicIfnotNil("Error get partition ", partitionErr)
 		// sites, sitesErr := rows.GetStringByName("Sites")
-		sites, sitesErr := rows.GetString(1)
+		_, sitesErr := rows.GetString(1) //sites, sitesErr := rows.GetString(1)
 		panicIfnotNil("Error get sites ", sitesErr)
 
-		connections := make([]*nodeConn, 0)
-		for _, site := range strings.Split(sites.(string), ",") {
-			site = strings.TrimSpace(site)
-			////hostId, hostIdErr := strconv.Atoi(strings.Split(site, ":")[0])
-			//panicIfnotNil("Error get hostId", hostIdErr)
-			//if _, ok := c.hostIdToConnection[hostId]; ok {
-			//	connections = append(connections, c.hostIdToConnection[hostId])
-			//}
-		}
+		var connections []*nodeConn
+		//for _, site := range strings.Split(sites.(string), ",") {
+		//site = strings.TrimSpace(site)
+		////hostId, hostIdErr := strconv.Atoi(strings.Split(site, ":")[0])
+		//panicIfnotNil("Error get hostId", hostIdErr)
+		//if _, ok := c.hostIdToConnection[hostId]; ok {
+		//	connections = append(connections, c.hostIdToConnection[hostId])
+		//}
+		//}
 		partitionReplicas[int(partition.(int32))] = connections
 
 		// leaderHost, leaderHostErr := rows.GetStringByName("Leader")
@@ -143,10 +144,10 @@ func (c *Conn) getConnByCA(nodeConns []*nodeConn, hnator hashinator, partitionMa
 	backpressure = true
 
 	// Check if the master for the partition is known.
-	var hashedPartition int = -1
+	var hashedPartition = -1
 
 	if procedureInfo, ok := (*procedureInfos)[pi.query]; ok {
-		hashedPartition = MP_INIT_PID
+		hashedPartition = MPInitPID
 		// User may have passed too few parameters to allow dispatching.
 		if procedureInfo.SinglePartition && procedureInfo.PartitionParameter < pi.getPassedParamCount() {
 			if hashedPartition, err = hnator.getHashedPartitionForParameter(procedureInfo.PartitionParameterType,
@@ -177,7 +178,7 @@ func (c *Conn) getConnByCA(nodeConns []*nodeConn, hnator hashinator, partitionMa
 		} else {
 			// Writes and Safe Reads have to go to the master
 			cxn = (*partitionMasters)[hashedPartition]
-			if (cxn != nil && !cxn.hasBP()) {
+			if cxn != nil && !cxn.hasBP() {
 				backpressure = false
 			}
 		}
@@ -186,4 +187,3 @@ func (c *Conn) getConnByCA(nodeConns []*nodeConn, hnator hashinator, partitionMa
 	// TODO Update clientAffinityStats
 	return
 }
-

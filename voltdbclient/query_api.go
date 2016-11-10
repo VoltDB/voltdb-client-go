@@ -24,15 +24,16 @@ import (
 )
 
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
-// Exec is available on both VoltConn and on VoltStatement.  Uses DEFAULT_QUERY_TIMEOUT.
+// Exec is available on both VoltConn and on VoltStatement.
+// Uses DefaultQueryTimeout.
 func (c *Conn) Exec(query string, args []driver.Value) (driver.Result, error) {
-	return c.ExecTimeout(query, args, DEFAULT_QUERY_TIMEOUT)
+	return c.ExecTimeout(query, args, DefaultQueryTimeout)
 }
 
-// Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
-// Exec is available on both VoltConn and on VoltStatement.  Specifies a duration for timeout.
+// ExecTimeout executes a query that doesn't return rows, such as an INSERT or
+// UPDATE. ExecTimeout is available on both VoltConn and on VoltStatement.
+// Specifies a duration for timeout.
 func (c *Conn) ExecTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Result, error) {
-
 	responseCh := make(chan voltResponse, 1)
 	pi := newSyncProcedureInvocation(c.getNextHandle(), false, query, args, responseCh, timeout)
 	c.inPiCh <- pi
@@ -48,20 +49,18 @@ func (c *Conn) ExecTimeout(query string, args []driver.Value, timeout time.Durat
 			panic("unexpected response type")
 		}
 	case <-time.After(pi.timeout):
-		return nil, VoltError{voltResponse: voltResponseInfo{status: CONNECTION_TIMEOUT, clusterRoundTripTime: -1}, error: errors.New("timeout")}
+		return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errors.New("timeout")}
 	}
 }
 
-// Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // ExecAsync is analogous to Exec but is run asynchronously.  That is, an
 // invocation of this method blocks only until a request is sent to the VoltDB
-// server.  Uses DEFAULT_QUERY_TIMEOUT.
+// server.  Uses DefaultQueryTimeout.
 func (c *Conn) ExecAsync(resCons AsyncResponseConsumer, query string, args []driver.Value) {
-	c.ExecAsyncTimeout(resCons, query, args, DEFAULT_QUERY_TIMEOUT)
+	c.ExecAsyncTimeout(resCons, query, args, DefaultQueryTimeout)
 }
 
-// Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
-// ExecAsync is analogous to Exec but is run asynchronously.  That is, an
+// ExecAsyncTimeout is analogous to Exec but is run asynchronously.  That is, an
 // invocation of this method blocks only until a request is sent to the VoltDB
 // server.  Specifies a duration for timeout.
 func (c *Conn) ExecAsyncTimeout(resCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) {
@@ -76,13 +75,15 @@ func (c *Conn) Prepare(query string) (driver.Stmt, error) {
 	return *stmt, nil
 }
 
-// Query executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
-// Uses DEFAULT_QUERY_TIMEOUT.
+// Query executes a query that returns rows, typically a SELECT. The args are
+// for any placeholder parameters in the query.
+// Uses DefaultQueryTimeout.
 func (c *Conn) Query(query string, args []driver.Value) (driver.Rows, error) {
-	return c.QueryTimeout(query, args, DEFAULT_QUERY_TIMEOUT)
+	return c.QueryTimeout(query, args, DefaultQueryTimeout)
 }
 
-// Query executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
+// QueryTimeout executes a query that returns rows, typically a SELECT. The args
+// are for any placeholder parameters in the query.
 // Specifies a duration for timeout.
 func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Rows, error) {
 	responseCh := make(chan voltResponse, 1)
@@ -99,20 +100,20 @@ func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Dura
 			panic("unexpected response type")
 		}
 	case <-time.After(pi.timeout):
-		return nil, VoltError{voltResponse: voltResponseInfo{status: CONNECTION_TIMEOUT, clusterRoundTripTime: -1}, error: errors.New("timeout")}
+		return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errors.New("timeout")}
 	}
 }
 
 // QueryAsync executes a query asynchronously.  The invoking thread will block
 // until the query is sent over the network to the server.  The eventual
 // response will be handled by the given AsyncResponseConsumer, this processing
-// happens in the 'response' thread.  Uses DEFAULT_QUERY_TIMEOUT.
+// happens in the 'response' thread.  Uses DefaultQueryTimeout.
 func (c *Conn) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []driver.Value) {
-	c.QueryAsyncTimeout(rowsCons, query, args, DEFAULT_QUERY_TIMEOUT)
+	c.QueryAsyncTimeout(rowsCons, query, args, DefaultQueryTimeout)
 }
 
-// QueryAsync executes a query asynchronously.  The invoking thread will block
-// until the query is sent over the network to the server.  The eventual
+// QueryAsyncTimeout executes a query asynchronously.  The invoking thread will
+// block until the query is sent over the network to the server.  The eventual
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.  Specifies a duration for timeout.
 func (c *Conn) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) {
