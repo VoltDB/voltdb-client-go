@@ -95,13 +95,12 @@ func writePasswordHashVersion(w io.Writer) error {
 	return err
 }
 
-func writeBoolean(w io.Writer, d bool) (err error) {
+func writeBoolean(w io.Writer, d bool) error {
 	if d {
-		err = writeByte(w, 0x1)
-	} else {
-		err = writeByte(w, 0x0)
-	}
-	return
+		return writeByte(w, 0x1)
+	} 
+	
+	return writeByte(w, 0x0)
 }
 
 func readBoolean(r io.Reader) (bool, error) {
@@ -196,8 +195,8 @@ func readInt(r io.Reader) (int32, error) {
 	if err != nil {
 		return 0, err
 	}
-	result := order.Uint32(bs)
-	return int32(result), nil
+	
+	return int32(order.Uint32(bs)), nil
 }
 
 func writeLong(w io.Writer, d int64) error {
