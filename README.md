@@ -43,7 +43,7 @@ with an older server.  See the 'driver_hello_world' example.
 
 ### How do I manage connection pools?
 
-When using `databas/sql` driver, connction pools are automatically managed for
+When using `database/sql` driver, connection pools are automatically managed for
 you. However there is a couple of options offered for custom control such as
 [SetConnMaxLifetime](https://golang.org/pkg/database/sql/#DB.SetConnMaxLifetime),
 [SetMaxIdleConns](https://golang.org/pkg/database/sql/#DB.SetMaxIdleConns) and
