@@ -37,3 +37,14 @@ Wire Protocol
 By default, version 1 of the VoltDB wire protocol is used; this is suitable for
 VoltDB server version 5.2 or later.  Set the wire protocol version to 0 for use
 with an older server.  See the 'driver_hello_world' example.
+
+
+## FAQ
+
+### How do I manage connection pools?
+
+When using `databas/sql` driver, connction pools are automatically managed for
+you. However there is a couple of options offered for custom control such as
+[SetConnMaxLifetime](https://golang.org/pkg/database/sql/#DB.SetConnMaxLifetime),
+[SetMaxIdleConns](https://golang.org/pkg/database/sql/#DB.SetMaxIdleConns) and
+[SetMaxOpenConns](https://golang.org/pkg/database/sql/#DB.SetMaxOpenConns)
