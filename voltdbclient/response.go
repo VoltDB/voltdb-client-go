@@ -303,7 +303,8 @@ func deserializeTableForResult(r io.Reader) (rowsAff int64, err error) {
 	if err != nil {
 		return 0, err
 	}
-	if strings.Compare("modified_tuples", cname) != 0 {
+
+	if strings.Compare("modified_tuples", cname) != 0 && cname != "STATUS" {
 		return 0, errors.New("Expected 'modified_tubles' for column name for result")
 	}
 
