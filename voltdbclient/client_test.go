@@ -18,6 +18,7 @@
 package voltdbclient
 
 import (
+	"database/sql"
 	"fmt"
 	"math/big"
 	"strings"
@@ -253,5 +254,44 @@ func checkRowData(t *testing.T, rows VoltRows, expectedID int32, nIDIsNull bool,
 		if !lastUpdatedIsNull {
 			t.Error("Unexpected null value for LAST_UPDATED\n")
 		}
+	}
+}
+
+func TestDDLResult(t *testing.T) {
+
+	// Please comment the following line  to run this test
+	//
+	// This is intentionally skipped as it requires a live voltdb connection to
+	// run. If there is a running voltdb instance you can comment t.Skip() and
+	// adjust the connection string to point to your database instance.
+	t.Skip()
+	db, err := sql.Open("voltdb", "localhost:21212")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	s := `
+	CREATE TABLE foo(
+		n INTEGER,
+	);
+	`
+	r, err := db.Exec("@AdHoc", s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last, err := r.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last != 0 {
+		t.Errorf("expected 0 got %d", last)
+	}
+	rows, err := r.RowsAffected()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Errorf("expected 0 got %d", rows)
 	}
 }
