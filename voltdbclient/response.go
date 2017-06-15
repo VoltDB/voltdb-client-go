@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"strings"
 )
 
 type voltResponse interface {
@@ -304,8 +303,8 @@ func deserializeTableForResult(r io.Reader) (rowsAff int64, err error) {
 		return 0, err
 	}
 
-	if strings.Compare("modified_tuples", cname) != 0 && cname != "STATUS" {
-		return 0, errors.New("Expected 'modified_tubles' for column name for result")
+	if cname != "modified_tuples" && cname != "STATUS" {
+		return 0, errors.New("Expected 'modified_tubles'  or STATUS  for column name for result")
 	}
 
 	rowCount, err := readInt(r)
