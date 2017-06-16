@@ -88,6 +88,7 @@ func TestEncoder_Float64(t *testing.T) {
 }
 
 func TestEncoder_String(t *testing.T) {
+	t.Parallel()
 	expected := []byte{0x00, 0x00, 0x00, 0x06, 'a', 'b', 'c', 'd', 'e', 'f'}
 	s := "abcdef"
 
@@ -109,6 +110,7 @@ func TestEncoder_String(t *testing.T) {
 }
 
 func TestEncoder_Time(t *testing.T) {
+	t.Parallel()
 	e := NewEncoder()
 
 	n, err := e.Time(time.Time{})
