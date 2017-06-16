@@ -51,3 +51,19 @@ func TestEncoder_Int16(t *testing.T) {
 	}
 
 }
+
+func TestEncoder_Int32(t *testing.T) {
+	t.Parallel()
+	sample := []int32{-100, -1, 0, 1, 100}
+	e := NewEncoder()
+	for _, v := range sample {
+		e.Reset()
+		n, err := e.Int32(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != integerSize {
+			t.Errorf("expected %d got %d", integerSize, n)
+		}
+	}
+}

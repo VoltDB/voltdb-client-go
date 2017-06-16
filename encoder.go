@@ -66,3 +66,15 @@ func (e *Encoder) uint16(v uint16) (int, error) {
 	endian.PutUint16(b, v)
 	return e.buf.Write(b)
 }
+
+// Int32 encodes int32 value to voltdb wire protocol Integer. For a successful
+// encoding the number of bytes written is 4
+func (e *Encoder) Int32(v int32) (int, error) {
+	return e.uint32(uint32(v))
+}
+
+func (e *Encoder) uint32(v uint32) (int, error) {
+	b := make([]byte, integerSize)
+	endian.PutUint32(b, v)
+	return e.buf.Write(b)
+}
