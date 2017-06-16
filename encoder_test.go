@@ -3,6 +3,7 @@ package voltdb
 import (
 	"bytes"
 	"testing"
+	"time"
 )
 
 func TestEncoder_Byte(t *testing.T) {
@@ -105,4 +106,19 @@ func TestEncoder_String(t *testing.T) {
 	if !bytes.Equal(b, expected) {
 		t.Errorf("expected %s got %s", string(expected), string(b))
 	}
+}
+
+func TestEncoder_Time(t *testing.T) {
+	e := NewEncoder()
+
+	n, err := e.Time(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != longSize {
+		t.Errorf("expected %d got %d", longSize, n)
+	}
+
+	//TODO(gernest): Add Decoder to verify the encoded values for time are
+	//correct.
 }

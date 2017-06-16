@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"time"
 )
 
 //size of bytes
@@ -127,4 +128,13 @@ func (e *Encoder) Bool(v bool) (int, error) {
 // bytes of the string.
 func (e *Encoder) String(v string) (int, error) {
 	return e.Binary([]byte(v))
+}
+
+// Time encodes time.Time value to voltdb wire protocol time.
+func (e Encoder) Time(v time.Time) (int, error) {
+	nano := v.Round(time.Microsecond).UnixNano()
+	if v.IsZero() {
+		return e.Int64(math.MinInt64)
+	}
+	return e.Int64(nano / int64(time.Microsecond))
 }
