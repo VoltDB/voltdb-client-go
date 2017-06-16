@@ -35,3 +35,19 @@ func TestEncoder_Byte(t *testing.T) {
 		//values are correct.
 	}
 }
+
+func TestEncoder_Int16(t *testing.T) {
+	t.Parallel()
+
+	var s1 int16 = 0x4BCD
+
+	e := NewEncoder()
+	n, err := e.Int16(s1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != shortSize {
+		t.Errorf("expected %d got %d", shortSize, n)
+	}
+
+}

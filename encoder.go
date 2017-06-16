@@ -54,3 +54,15 @@ func (e *Encoder) Byte(v int8) (int, error) {
 func (e *Encoder) Bytes() []byte {
 	return e.buf.Bytes()
 }
+
+// Int16 encodes int16 value to voltdb wire protocol Short. For a successful
+// encoding the number of bytes written is 2
+func (e *Encoder) Int16(v int16) (int, error) {
+	return e.uint16(uint16(v))
+}
+
+func (e *Encoder) uint16(v uint16) (int, error) {
+	b := make([]byte, shortSize)
+	endian.PutUint16(b, v)
+	return e.buf.Write(b)
+}
