@@ -121,3 +121,10 @@ func (e *Encoder) Bool(v bool) (int, error) {
 	}
 	return e.Byte(0x0)
 }
+
+// String encodes strings to voltdb wire protocol string. A string is treated
+// like []byte. We first encode the size of the string, followed by the raw
+// bytes of the string.
+func (e *Encoder) String(v string) (int, error) {
+	return e.Binary([]byte(v))
+}
