@@ -10,6 +10,78 @@ read responses.
 
     go get -v -u github.com/VoltDB/voltdb-client-go/voltdbclient
 
+# Usage
+
+As `database/sql` driver
+
+```go
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"log"
+	"os"
+
+	_ "github.com/VoltDB/voltdb-client-go/voltdbclient"
+)
+
+func main() {
+	// If using a version of VoltDB server prior to 5.2, then
+	// set the version of the wire protocol to 0.  The default
+	// value 1, indicates a server version of 5.2 or later.
+	// voltdbclient.ProtocolVersion = 0
+
+	db, err := sql.Open("voltdb", "localhost:21212")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+	defer db.Close()
+
+	err = db.Ping()
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+	rows, err := db.Query("HELLOWORLD.select", "French")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+	printRows(rows)
+
+	// with prepared statement
+	stmt, err := db.Prepare("select * from HELLOWORLD where dialect = ?")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+
+	rows, err = stmt.Query("French")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(-1)
+	}
+	printRows(rows)
+
+}
+
+func printRows(rows *sql.Rows) {
+	for rows.Next() {
+		var hello string
+		var world string
+		var dialect string
+		err := rows.Scan(&hello, &world, &dialect)
+		if err != nil {
+			fmt.Println(err)
+			break
+		}
+		fmt.Printf("SUCCESS: %s %s %s\n", hello, world, dialect)
+	}
+}
+```
+
 # Client API
 
 The VoltDB golang client implements the interfaces specified in the database/sql/driver
