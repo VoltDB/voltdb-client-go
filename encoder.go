@@ -113,3 +113,11 @@ func (e *Encoder) Binary(v []byte) (int, error) {
 	}
 	return s + n, nil
 }
+
+// Bool encodes bool values to voltdb wireprotocol boolean
+func (e *Encoder) Bool(v bool) (int, error) {
+	if v {
+		return e.Byte(0x1)
+	}
+	return e.Byte(0x0)
+}
