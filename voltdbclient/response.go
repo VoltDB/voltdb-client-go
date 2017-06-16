@@ -304,7 +304,7 @@ func deserializeTableForResult(r io.Reader) (rowsAff int64, err error) {
 	}
 
 	if cname != "modified_tuples" && cname != "STATUS" {
-		return 0, errors.New("Expected 'modified_tubles'  or STATUS  for column name for result")
+		return 0, errors.New("Expected 'modified_tuples'  or STATUS  for column name for result")
 	}
 
 	rowCount, err := readInt(r)
