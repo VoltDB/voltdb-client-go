@@ -15,8 +15,8 @@ func TestEncoder_Byte(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 1 {
-		t.Errorf("expected 1 got %d", n)
+	if n != byteSize {
+		t.Errorf("expected %d got %d", byteSize, n)
 	}
 	b := e.Bytes()
 	if b[0] != s {
