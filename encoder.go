@@ -78,3 +78,15 @@ func (e *Encoder) uint32(v uint32) (int, error) {
 	endian.PutUint32(b, v)
 	return e.buf.Write(b)
 }
+
+// Int64 encodes int64 value into voltdb wire protocol Long. For a successful
+// encoding the number of bytes written is 8
+func (e *Encoder) Int64(v int64) (int, error) {
+	return e.uint64(uint64(v))
+}
+
+func (e *Encoder) uint64(v uint64) (int, error) {
+	b := make([]byte, longSize)
+	endian.PutUint64(b, v)
+	return e.buf.Write(b)
+}
