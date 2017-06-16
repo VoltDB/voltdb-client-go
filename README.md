@@ -19,9 +19,6 @@ The VoltDB golang client supports a VoltDB specific asynchronous api in addition
 database/sql/driver api.  The VoltDB api also includes column accessors for VoltDB
 specific types.  The details of the VoltDB api can be found in the godoc.
 
-# Building
-
-The VoltDB golang client is built in the standard go manner.
 
 # Examples
 The VoltDB golang client includes three examples.  There is a simple hello world example
