@@ -6,6 +6,10 @@ The VoltDB golang client library implements the native VoltDB wire protocol. You
 use the library to connect to a VoltDB cluster, invoke stored procedures and
 read responses.
 
+# Installation
+
+    go get -v -u github.com/VoltDB/voltdb-client-go/voltdbclient
+
 # Client API
 
 The VoltDB golang client implements the interfaces specified in the database/sql/driver
