@@ -15,7 +15,7 @@ const (
 	longSize    = 8
 )
 
-// We are using big endian t encode the values for voltdb wire protocol
+// We are using big endian to encode the values for voltdb wire protocol
 var endian = binary.BigEndian
 
 // Encoder defines methods for encoding Go values to voltdb wire protocol. This
@@ -42,7 +42,7 @@ func (e *Encoder) Reset() {
 	e.buf.Reset()
 }
 
-// Byte encodes int8 value of voltdb wire protocol Byte. This returns the number
+// Byte encodes int8 value to voltdb wire protocol Byte. This returns the number
 // of bytes written and an error if any.
 //
 // For a successful encoding the value of number of bytes written is 1
@@ -102,7 +102,7 @@ func (e *Encoder) Float64(v float64) (int, error) {
 
 // Binary encodes []byte to voltdb wire protocol varbinary
 //
-// This first encodes the size of v as voltdb Short followed by v as raw bytes.
+// This first encodes the size of v as voltdb Short followed by raw bytes of v.
 func (e *Encoder) Binary(v []byte) (int, error) {
 	s, err := e.Int32(int32(len(v)))
 	if err != nil {
