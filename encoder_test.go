@@ -1,6 +1,7 @@
 package voltdb
 
 import (
+	"bytes"
 	"testing"
 )
 
@@ -82,5 +83,26 @@ func TestEncoder_Float64(t *testing.T) {
 		if n != longSize {
 			t.Errorf("expected %d got %d", longSize, n)
 		}
+	}
+}
+
+func TestEncoder_String(t *testing.T) {
+	expected := []byte{0x00, 0x00, 0x00, 0x06, 'a', 'b', 'c', 'd', 'e', 'f'}
+	s := "abcdef"
+
+	e := NewEncoder()
+
+	n, err := e.String(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ns := len(s) + integerSize
+	if n != ns {
+		t.Errorf("expected %d got %d", ns, n)
+	}
+
+	b := e.Bytes()
+	if !bytes.Equal(b, expected) {
+		t.Errorf("expected %s got %s", string(expected), string(b))
 	}
 }
