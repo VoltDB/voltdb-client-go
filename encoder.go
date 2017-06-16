@@ -98,3 +98,18 @@ func (e *Encoder) uint64(v uint64) (int, error) {
 func (e *Encoder) Float64(v float64) (int, error) {
 	return e.uint64(math.Float64bits(v))
 }
+
+// Binary encodes []byte to voltdb wire protocol varbinary
+//
+// This first encodes the size of v as voltdb Short followed by v as raw bytes.
+func (e *Encoder) Binary(v []byte) (int, error) {
+	s, err := e.Int32(int32(len(v)))
+	if err != nil {
+		return 0, err
+	}
+	n, err := e.buf.Write(v)
+	if err != nil {
+		return 0, err
+	}
+	return s + n, nil
+}
