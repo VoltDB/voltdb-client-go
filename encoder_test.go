@@ -67,3 +67,20 @@ func TestEncoder_Int32(t *testing.T) {
 		}
 	}
 }
+
+func TestEncoder_Float64(t *testing.T) {
+	t.Parallel()
+
+	sample := []float64{-100.1, -1.01, 0.0, 1.01, 100.1}
+	e := NewEncoder()
+
+	for _, v := range sample {
+		n, err := e.Float64(v)
+		if err != nil {
+			t.Error(err)
+		}
+		if n != longSize {
+			t.Errorf("expected %d got %d", longSize, n)
+		}
+	}
+}

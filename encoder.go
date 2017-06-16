@@ -3,6 +3,7 @@ package voltdb
 import (
 	"bytes"
 	"encoding/binary"
+	"math"
 )
 
 //size of bytes
@@ -89,4 +90,11 @@ func (e *Encoder) uint64(v uint64) (int, error) {
 	b := make([]byte, longSize)
 	endian.PutUint64(b, v)
 	return e.buf.Write(b)
+}
+
+// Float64 encodes float64 value to voltdb wire protocol float type. This uses
+// math.Float64bits to covert v to uint64 which is encoded into []byte of size
+// 8.  For a successful encoding the number of bytes written is 8
+func (e *Encoder) Float64(v float64) (int, error) {
+	return e.uint64(math.Float64bits(v))
 }
