@@ -209,6 +209,7 @@ func loadSamples() ([][]byte, int64, error) {
 				return err
 			}
 			handle = int64(v)
+			return nil
 		}
 		out = append(out, b)
 		return nil
