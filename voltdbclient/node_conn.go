@@ -245,6 +245,23 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 			queuedBytes -= req.numBytes
 			delete(requests, handle)
 			if req.isSync() {
+
+				//WARNING: Please do not delete the below commented code it is used to
+				//generate the test samples for deserialization that are found in
+				//test_resources/deserialize
+				//
+				// TODO : Find a better way to generate this?
+				// file := os.Getenv("DES_BATCH")
+				// err = ioutil.WriteFile(file, resp.Bytes(), 0600)
+				// if err != nil {
+				// 	log.Fatal(err)
+				// }
+				// dir := filepath.Dir(file)
+				// err = ioutil.WriteFile(filepath.Join(dir, "handle"),
+				// 	[]byte(fmt.Sprint(handle)), 0600)
+				// if err != nil {
+				// 	log.Fatal(err)
+				// }
 				nc.handleSyncResponse(handle, resp, req)
 			} else {
 				go nc.handleAsyncResponse(handle, resp, req)
