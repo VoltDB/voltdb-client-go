@@ -168,7 +168,6 @@ func BenchmarkDeserializeResponse(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	var res voltResponse
 	r := bytes.NewReader([]byte{})
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -177,12 +176,9 @@ func BenchmarkDeserializeResponse(b *testing.B) {
 		k := sampleKey()
 		r.Reset(s[k])
 		b.StartTimer()
-		res, err = deserializeResponse(r, h)
+		_, err = deserializeResponse(r, h)
 		if err != nil {
 			b.Fatal(err)
-		}
-		if res == nil {
-
 		}
 	}
 }
