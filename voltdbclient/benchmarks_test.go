@@ -3,7 +3,14 @@ package voltdbclient
 import (
 	"bytes"
 	"crypto/rand"
+	"database/sql"
 	"database/sql/driver"
+	"fmt"
+	"io/ioutil"
+	mrand "math/rand"
+	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -59,4 +66,159 @@ func byteSliceArg(i int) []byte {
 		panic(err)
 	}
 	return b
+}
+
+func TestGenerateDeserialize(t *testing.T) {
+
+	//WARNING: This is a helper testcase to create the table and populate with
+	//data that is used to benchmark deserialization functions
+	t.Skip()
+	schema := `
+create table deserialize(
+	tiny TINYINT,
+	short SMALLINT,
+	int INTEGER,
+	long BIGINT,
+	double FLOAT,
+	string VARCHAR,
+	byte_array VARBINARY,
+	time TIMESTAMP,
+)
+`
+	db, err := sql.Open("voltdb", "localhost:21212")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_, err = db.Exec("@AdHoc", schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt, err := db.Prepare(`
+insert into deserialize (tiny,short,int,long,double,string,byte_array,time)
+ values (?,?,?,?,?,?,?,?);`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 1000; i++ {
+		_, err = stmt.Exec(
+			int8(1), int16(1), int32(1), int64(1), float64(1),
+			stringArg(i), byteSliceArg(i), time.Now(),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+type dStruct struct {
+	tiny      byte
+	short     int
+	integer   int32
+	long      int64
+	double    float64
+	varchar   string
+	byteArray []byte
+	time      time.Time
+}
+
+func TestDeserializeBatches(t *testing.T) {
+	t.Skip()
+	db, err := sql.Open("voltdb", "localhost:21212")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	stmt, err := db.Prepare(`
+	select tiny,short,int,long,double,string,byte_array,time
+	from deserialize limit ?;`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := "test_resources/deserialize/"
+	limits := []int{100, 200, 300, 400, 500, 600, 700, 800, 900, 1000}
+	for _, v := range limits {
+		os.Setenv("DES_BATCH", fmt.Sprintf("%s%d.bin", dir, v))
+		rows, err := stmt.Query(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rst []dStruct
+		for rows.Next() {
+			v := dStruct{}
+			err := rows.Scan(
+				&v.tiny, &v.short,
+				&v.integer, &v.long,
+				&v.double,
+				&v.varchar, &v.byteArray,
+				&v.time,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rst = append(rst, v)
+		}
+		rows.Close()
+	}
+}
+
+func BenchmarkDeserializeResponse(b *testing.B) {
+	s, h, err := loadSamples()
+	if err != nil {
+		b.Fatal(err)
+	}
+	var res voltResponse
+	r := bytes.NewReader([]byte{})
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		k := sampleKey()
+		r.Reset(s[k])
+		b.StartTimer()
+		res, err = deserializeResponse(r, h)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if res == nil {
+
+		}
+	}
+}
+
+func loadSamples() ([][]byte, int64, error) {
+	var out [][]byte
+	var handle int64
+	dir := "./test_resources/deserialize"
+	ferr := filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		b, err := ioutil.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		base := filepath.Base(p)
+		if base == "handle" {
+			v, err := strconv.Atoi(string(b))
+			if err != nil {
+				return err
+			}
+			handle = int64(v)
+		}
+		out = append(out, b)
+		return nil
+	})
+	if ferr != nil {
+		return nil, 0, ferr
+	}
+	return out, handle, nil
+}
+
+func sampleKey() int {
+	return mrand.Intn(9)
 }

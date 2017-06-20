@@ -1,2 +1,2 @@
 bench:
-	go test -run none -v  -bench=. ./voltdbclient
+	go test -run none -v  -bench=Deserialize ./voltdbclient
