@@ -13,16 +13,23 @@ var jsonBytes []byte
 var h hashinator
 
 func BenchmarkHashinater_getHashedPartitionForParameter_int32(b *testing.B) {
-	var hashedPartition int
-	jsonBytes, _ := ioutil.ReadFile("./test_resources/jsonConfigC.bin")
-	h, _ := newHashinatorElastic(JSONFormat, true, jsonBytes)
-	partitionParameterType := int(VTInt)
-	partitionValue := driver.Value(r.Int31())
+	jsonBytes, err := ioutil.ReadFile("./test_resources/jsonConfigC.bin")
+	if err != nil {
+		b.Fatal(err)
+	}
+	h, err := newHashinatorElastic(JSONFormat, true, jsonBytes)
+	if err != nil {
+		b.Fatal(err)
+	}
+	pType := int(VTInt)
+	pVal := driver.Value(r.Int31())
 	b.ResetTimer()
-
+	b.ReportAllocs()
 	for n := 0; n < b.N; n++ {
-		hashedPartition, _ = h.getHashedPartitionForParameter(partitionParameterType, partitionValue)
-		result = hashedPartition
+		_, err = h.getHashedPartitionForParameter(pType, pVal)
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
