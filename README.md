@@ -35,19 +35,16 @@ func main() {
 	db, err := sql.Open("voltdb", "localhost:21212")
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 	defer db.Close()
 
 	err = db.Ping()
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 	rows, err := db.Query("HELLOWORLD.select", "French")
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 	printRows(rows)
 
@@ -55,13 +52,11 @@ func main() {
 	stmt, err := db.Prepare("select * from HELLOWORLD where dialect = ?")
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 
 	rows, err = stmt.Query("French")
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 	printRows(rows)
 

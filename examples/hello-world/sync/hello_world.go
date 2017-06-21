@@ -22,7 +22,6 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/VoltDB/voltdb-client-go/voltdbclient"
 )
@@ -31,19 +30,16 @@ func main() {
 	conn, err := voltdbclient.OpenConn("localhost:21212")
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 	defer conn.Close()
 
 	result, err := conn.Exec("@AdHoc", []driver.Value{"DELETE FROM HELLOWORLD;"})
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 	ra, err := result.RowsAffected()
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 	fmt.Printf("%d row(s) deleted\n", ra)
 
@@ -64,13 +60,11 @@ func main() {
 	stmt, err := conn.Prepare("select * from HELLOWORLD")
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 
 	rows, err = stmt.Query([]driver.Value{})
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 	printRow(rows)
 }
