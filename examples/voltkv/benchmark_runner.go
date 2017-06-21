@@ -147,13 +147,11 @@ func openAndPingDB(servers string) *sql.DB {
 	if err != nil {
 		fmt.Println("open")
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 	err = db.Ping()
 	if err != nil {
 		fmt.Println("open")
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 	return db
 }
@@ -167,14 +165,12 @@ func runGetPutSQL(join chan int, getputratio float64, duration time.Duration) {
 	getStmt, getErr := volt.Prepare("select value from store where key = ?;")
 	if getErr != nil {
 		log.Fatal(getErr)
-		os.Exit(-1)
 	}
 	defer getStmt.Close()
 
 	putStmt, putErr := volt.Prepare("upsert into store (key, value) values (?,?) ")
 	if putErr != nil {
 		log.Fatal(putErr)
-		os.Exit(-1)
 	}
 	defer putStmt.Close()
 
@@ -403,7 +399,6 @@ func connect(servers string) *voltdbclient.Conn {
 	conn, err := voltdbclient.OpenConn(servers)
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 	return conn
 }
@@ -488,7 +483,6 @@ func main() {
 	config, err = newKVConfig()
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 
 	setupProfiler()

@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"os"
 
 	"github.com/VoltDB/voltdb-client-go/voltdbclient"
 )
@@ -34,7 +33,6 @@ func main() {
 	conn, err := voltdbclient.OpenConn("localhost:21212")
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 	defer conn.Close()
 

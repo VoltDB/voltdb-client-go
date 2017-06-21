@@ -150,13 +150,11 @@ func openAndPingDB(servers string) *sql.DB {
 	if err != nil {
 		fmt.Println("open")
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 	err = db.Ping()
 	if err != nil {
 		fmt.Println("open")
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 	return db
 }
@@ -331,7 +329,6 @@ func connect(servers string) *voltdbclient.Conn {
 	conn, err := voltdbclient.OpenConn(servers)
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 	return conn
 }
@@ -398,7 +395,6 @@ func printResults(timeElapsed time.Duration) {
 	rows, err := bm.conn.Query("Results", []driver.Value{})
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 
 	fmt.Println("Contestant Name\t\tVotes Received")
@@ -409,12 +405,10 @@ func printResults(timeElapsed time.Duration) {
 		contestantName, contestantNameErr := voltRows.GetString(0)
 		if contestantNameErr != nil {
 			log.Fatal(contestantNameErr)
-			os.Exit(-1)
 		}
 		totalVotes, totalVotesErr := voltRows.GetBigIntByName("total_votes")
 		if totalVotesErr != nil {
 			log.Fatal(totalVotesErr)
-			os.Exit(-1)
 		}
 		fmt.Printf("%s\t\t%14d\n", contestantName, totalVotes)
 	}
@@ -422,7 +416,6 @@ func printResults(timeElapsed time.Duration) {
 		winnerName, winnerErr := voltRows.GetString(0)
 		if winnerErr != nil {
 			log.Fatal(winnerErr)
-			os.Exit(-1)
 		}
 
 		fmt.Printf("\nThe Winner is: %s\n\n", winnerName)
@@ -446,7 +439,6 @@ func main() {
 	config, err = newVoterConfig()
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(-1)
 	}
 
 	setupProfiler()
