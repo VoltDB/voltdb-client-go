@@ -164,7 +164,7 @@ func TestDeserializeBatches(t *testing.T) {
 }
 
 func BenchmarkDeserializeResponse(b *testing.B) {
-	s, h, err := loadSamples()
+	s, h, err := loadQueryResponseSamples()
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func BenchmarkDeserializeResponse(b *testing.B) {
 	}
 }
 
-func loadSamples() ([][]byte, int64, error) {
+func loadQueryResponseSamples() ([][]byte, int64, error) {
 	var out [][]byte
 	var handle int64
 	dir := "./test_resources/deserialize"
