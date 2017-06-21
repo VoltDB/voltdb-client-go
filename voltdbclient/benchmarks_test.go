@@ -122,7 +122,7 @@ type dStruct struct {
 	time      time.Time
 }
 
-func TestDeserializeBatches(t *testing.T) {
+func TestDeserializeQueryBatches(t *testing.T) {
 	t.Skip()
 	db, err := sql.Open("voltdb", "localhost:21212")
 	if err != nil {
