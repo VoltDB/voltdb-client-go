@@ -173,7 +173,7 @@ func BenchmarkDeserializeResponse(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		k := sampleKey()
+		k := queryResponseSampleKey()
 		r.Reset(s[k])
 		b.StartTimer()
 		_, err = deserializeResponse(r, h)
@@ -216,6 +216,6 @@ func loadQueryResponseSamples() ([][]byte, int64, error) {
 	return out, handle, nil
 }
 
-func sampleKey() int {
+func queryResponseSampleKey() int {
 	return mrand.Intn(9)
 }
