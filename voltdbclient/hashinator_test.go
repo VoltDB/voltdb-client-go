@@ -56,16 +56,24 @@ func BenchmarkHashinater_getHashedPartitionForParameter_int64(b *testing.B) {
 }
 
 func BenchmarkHashinater_getHashedPartitionForParameter_String(b *testing.B) {
-	var hashedPartition int
-	jsonBytes, _ := ioutil.ReadFile("./test_resources/jsonConfigC.bin")
-	h, _ := newHashinatorElastic(JSONFormat, true, jsonBytes)
-	partitionParameterType := int(VTString)
-	partitionValue := driver.Value("123456789012345")
+	jsonBytes, err := ioutil.ReadFile("./test_resources/jsonConfigC.bin")
+	if err != nil {
+		b.Fatal(err)
+	}
+	h, err := newHashinatorElastic(JSONFormat, true, jsonBytes)
+	if err != nil {
+		b.Fatal(err)
+	}
+	pType := int(VTString)
+	pVal := driver.Value("123456789012345")
 	b.ResetTimer()
+	b.ReportAllocs()
 
 	for n := 0; n < b.N; n++ {
-		hashedPartition, _ = h.getHashedPartitionForParameter(partitionParameterType, partitionValue)
-		result = hashedPartition
+		_, err = h.getHashedPartitionForParameter(pType, pVal)
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
