@@ -251,16 +251,19 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 				//
 				// TODO : Find a better way to generate this?
 				// file := os.Getenv("DES_BATCH")
-				// err = ioutil.WriteFile(file, resp.Bytes(), 0600)
-				// if err != nil {
-				// 	log.Fatal(err)
+				// if file != "" {
+				// 	err = ioutil.WriteFile(file, resp.Bytes(), 0600)
+				// 	if err != nil {
+				// 		log.Fatal(err)
+				// 	}
+				// 	dir := filepath.Dir(file)
+				// 	err = ioutil.WriteFile(filepath.Join(dir, "handle"),
+				// 		[]byte(fmt.Sprint(handle)), 0600)
+				// 	if err != nil {
+				// 		log.Fatal(err)
+				// 	}
 				// }
-				// dir := filepath.Dir(file)
-				// err = ioutil.WriteFile(filepath.Join(dir, "handle"),
-				// 	[]byte(fmt.Sprint(handle)), 0600)
-				// if err != nil {
-				// 	log.Fatal(err)
-				// }
+
 				nc.handleSyncResponse(handle, resp, req)
 			} else {
 				go nc.handleAsyncResponse(handle, resp, req)
