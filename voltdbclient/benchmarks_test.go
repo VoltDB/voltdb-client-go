@@ -219,3 +219,27 @@ func loadQueryResponseSamples() ([][]byte, int64, error) {
 func queryResponseSampleKey() int {
 	return mrand.Intn(9)
 }
+
+func BenchmarkDeserializeRows(b *testing.B) {
+	s, h, err := loadQueryResponseSamples()
+	if err != nil {
+		b.Fatal(err)
+	}
+	var res voltResponse
+	r := bytes.NewReader([]byte{})
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		r.Reset(s[queryResponseSampleKey()])
+		res, err = deserializeResponse(r, h)
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.StartTimer()
+		_, err = deserializeRows(r, res)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
