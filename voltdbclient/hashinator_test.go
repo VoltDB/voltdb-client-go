@@ -8,10 +8,6 @@ import (
 	"testing"
 )
 
-var result int
-var jsonBytes []byte
-var h hashinator
-
 func BenchmarkHashinater_getHashedPartitionForParameter_int32(b *testing.B) {
 	jsonBytes, err := ioutil.ReadFile("./test_resources/jsonConfigC.bin")
 	if err != nil {
