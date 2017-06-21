@@ -186,7 +186,7 @@ func BenchmarkDeserializeResponse(b *testing.B) {
 func loadQueryResponseSamples() ([][]byte, int64, error) {
 	var out [][]byte
 	var handle int64
-	dir := "./test_resources/deserialize"
+	dir := "./test_resources/deserialize/query/"
 	ferr := filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
