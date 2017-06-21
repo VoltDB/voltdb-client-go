@@ -218,6 +218,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 
 		select {
 		case respCh := <-nc.closeCh:
+			nc.tcpConn.Close()
 			respCh <- true
 			return
 		case pi := <-ncPiCh:
