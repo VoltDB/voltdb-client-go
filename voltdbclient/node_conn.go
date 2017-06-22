@@ -23,8 +23,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -245,25 +248,6 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 			delete(requests, handle)
 			if req.isSync() {
 
-				//WARNING: Please do not delete the below commented code it is used to
-				//generate the test samples for deserialization that are found in
-				//test_resources/deserialize
-				//
-				// TODO : Find a better way to generate this?
-				// file := os.Getenv("DES_BATCH")
-				// if file != "" {
-				// 	err = ioutil.WriteFile(file, resp.Bytes(), 0600)
-				// 	if err != nil {
-				// 		log.Fatal(err)
-				// 	}
-				// 	dir := filepath.Dir(file)
-				// 	err = ioutil.WriteFile(filepath.Join(dir, "handle"),
-				// 		[]byte(fmt.Sprint(handle)), 0600)
-				// 	if err != nil {
-				// 		log.Fatal(err)
-				// 	}
-				// }
-
 				nc.handleSyncResponse(handle, resp, req)
 			} else {
 				go nc.handleAsyncResponse(handle, resp, req)
@@ -300,6 +284,7 @@ func (nc *nodeConn) handleProcedureInvocation(writer io.Writer, pi *procedureInv
 
 func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRequest) {
 	respCh := req.getChan()
+	cp := *r.(*bytes.Buffer)
 	rsp, err := deserializeResponse(r, handle)
 	if err != nil {
 		respCh <- err.(voltResponse)
@@ -310,6 +295,24 @@ func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRe
 			respCh <- rows
 		}
 	} else {
+		//WARNING: Please do not delete the below commented code it is used to
+		//generate the test samples for deserialization that are found in
+		//test_resources/deserialize
+		//
+		// TODO : Find a better way to generate this?
+		file := os.Getenv("DES_BATCH")
+		if file != "" {
+			err = ioutil.WriteFile(file, cp.Bytes(), 0600)
+			if err != nil {
+				log.Fatal(err)
+			}
+			dir := filepath.Dir(file)
+			err = ioutil.WriteFile(filepath.Join(dir, "handle"),
+				[]byte(fmt.Sprint(handle)), 0600)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
 		if result, err := deserializeResult(r, rsp); err != nil {
 			respCh <- err.(voltResponse)
 		} else {
