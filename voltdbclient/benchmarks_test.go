@@ -123,7 +123,7 @@ type dStruct struct {
 }
 
 func TestDeserializeQueryBatches(t *testing.T) {
-	// t.Skip()
+	t.Skip()
 	db, err := sql.Open("voltdb", "localhost:21212")
 	if err != nil {
 		t.Fatal(err)
