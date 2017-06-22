@@ -123,7 +123,7 @@ type dStruct struct {
 }
 
 func TestDeserializeQueryBatches(t *testing.T) {
-	t.Skip()
+	// t.Skip()
 	db, err := sql.Open("voltdb", "localhost:21212")
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestDeserializeQueryBatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := "test_resources/deserialize/"
+	dir := "test_resources/deserialize/query/"
 	limits := []int{100, 200, 300, 400, 500, 600, 700, 800, 900, 1000}
 	for _, v := range limits {
 		os.Setenv("DES_BATCH", fmt.Sprintf("%s%d.bin", dir, v))
@@ -162,6 +162,117 @@ func TestDeserializeQueryBatches(t *testing.T) {
 		rows.Close()
 	}
 }
+func TestDeserializeExecBatchesPrep(t *testing.T) {
+	t.Skip()
+	tn := "deserialize"
+	tableSchema := `
+create table %s(
+	tiny TINYINT,
+	short SMALLINT,
+	int INTEGER,
+	long BIGINT,
+	double FLOAT,
+	string VARCHAR,
+	byte_array VARBINARY,
+	time TIMESTAMP,
+)
+`
+	db, err := sql.Open("voltdb", "localhost:21212")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	stmtStr := `
+insert into %s (tiny,short,int,long,double,string,byte_array,time)
+ values (?,?,?,?,?,?,?,?);`
+
+	names := []string{"one", "two", "three", "four", "five",
+		"six", "seven", "eight", "nine", "ten"}
+	limits := []int{100, 200, 300, 400, 500, 600, 700, 800, 900, 1000}
+	for k, n := range names {
+		tableName := fmt.Sprintf("%s_%s", tn, n)
+		nm := fmt.Sprintf(tableSchema, tableName)
+		_, err = db.Exec("@AdHoc", nm)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stmt, err := db.Prepare(fmt.Sprintf(stmtStr, tableName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < limits[k]; i++ {
+			_, err = stmt.Exec(
+				int8(1), int16(1), int32(1), int64(1), float64(1),
+				stringArg(i), byteSliceArg(i), time.Now(),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+func TestDeserializeExecBatches(t *testing.T) {
+	t.Skip()
+	schema := `
+create table deserialize_exec(
+	tiny TINYINT,
+	short SMALLINT,
+	int INTEGER,
+	long BIGINT,
+	double FLOAT,
+	string VARCHAR,
+	byte_array VARBINARY,
+	time TIMESTAMP,
+)
+`
+	db, err := sql.Open("voltdb", "localhost:21212")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer db.Close()
+
+	_, err = db.Exec("@AdHoc", `drop table deserialize_exec if exists ;`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec("@AdHoc", schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stmt := `
+	insert into deserialize_exec
+	 select * from %s ;
+	`
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := "test_resources/deserialize/exec/"
+	names := []string{"one", "two", "three", "four", "five",
+		"six", "seven", "eight", "nine", "ten"}
+	limits := []int{100, 200, 300, 400, 500, 600, 700, 800, 900, 1000}
+	tn := "deserialize"
+	for k, v := range names {
+		tableName := fmt.Sprintf("%s_%s", tn, v)
+		l := limits[k]
+		os.Setenv("DES_BATCH", fmt.Sprintf("%s%d.bin", dir, l))
+		q := fmt.Sprintf(stmt, tableName)
+		res, err := db.Exec("@AdHoc", q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != int64(l) {
+			t.Errorf("expected %d got %d", l, n)
+		}
+
+	}
+}
 
 func BenchmarkDeserializeResponse(b *testing.B) {
 	s, h, err := loadQueryResponseSamples()
@@ -174,7 +285,8 @@ func BenchmarkDeserializeResponse(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 		k := queryResponseSampleKey()
-		r.Reset(s[k])
+		v := s[k]
+		r.Reset(v)
 		b.StartTimer()
 		_, err = deserializeResponse(r, h)
 		if err != nil {
@@ -184,14 +296,26 @@ func BenchmarkDeserializeResponse(b *testing.B) {
 }
 
 func loadQueryResponseSamples() ([][]byte, int64, error) {
+	return loadSamples("query")
+}
+
+func loadExecResponseSamples() ([][]byte, int64, error) {
+	return loadSamples("exec")
+}
+
+func loadSamples(from string) ([][]byte, int64, error) {
 	var out [][]byte
 	var handle int64
-	dir := "./test_resources/deserialize/query/"
+	dir := filepath.Join("./test_resources/deserialize", from)
 	ferr := filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
+			return nil
+		}
+		ext := filepath.Ext(p)
+		if ext != ".bin" {
 			return nil
 		}
 		b, err := ioutil.ReadFile(p)
@@ -231,13 +355,40 @@ func BenchmarkDeserializeRows(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		r.Reset(s[queryResponseSampleKey()])
+		key := queryResponseSampleKey()
+		r.Reset(s[key])
+		res, err = deserializeResponse(r, h)
+		if err != nil {
+			b.Fatal(err, key)
+		}
+		b.StartTimer()
+		_, err = deserializeRows(r, res)
+		if err != nil {
+			b.Fatal(err, key)
+		}
+	}
+}
+
+func BenchmarkDeserializeResult(b *testing.B) {
+	s, h, err := loadExecResponseSamples()
+	if err != nil {
+		b.Fatal(err)
+	}
+	var res voltResponse
+	r := bytes.NewReader([]byte{})
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		k := queryResponseSampleKey()
+		v := s[k]
+		r.Reset(v)
 		res, err = deserializeResponse(r, h)
 		if err != nil {
 			b.Fatal(err)
 		}
 		b.StartTimer()
-		_, err = deserializeRows(r, res)
+		_, err = deserializeResult(r, res)
 		if err != nil {
 			b.Fatal(err)
 		}
