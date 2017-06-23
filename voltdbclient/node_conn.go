@@ -23,8 +23,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -245,6 +248,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 			queuedBytes -= req.numBytes
 			delete(requests, handle)
 			if req.isSync() {
+
 				nc.handleSyncResponse(handle, resp, req)
 			} else {
 				go nc.handleAsyncResponse(handle, resp, req)
@@ -281,23 +285,63 @@ func (nc *nodeConn) handleProcedureInvocation(writer io.Writer, pi *procedureInv
 
 func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRequest) {
 	respCh := req.getChan()
+	// cp := *r.(*bytes.Buffer) //DON'T DELETE ME
 	rsp, err := deserializeResponse(r, handle)
 	if err != nil {
 		respCh <- err.(voltResponse)
 	} else if req.isQuery() {
+
 		if rows, err := deserializeRows(r, rsp); err != nil {
 			respCh <- err.(voltResponse)
 		} else {
+			//WARNING: Please do not delete the below commented code it is used to
+			//generate the test samples for deserialization that are found in
+			//test_resources/deserialize
+			//
+			// TODO : Find a better way to generate this?
+			// e := []string{"TINY", "SHORT",
+			// 	"INT", "LONG", "DOUBLE", "STRING", "BYTE_ARRAY", "TIME"}
+			// if reflect.DeepEqual(rows.Columns(), e) {
+			// 	if err = writeSampleFile(&cp, handle); err != nil {
+			// 		log.Fatal(err)
+			// 	}
+			// }
 			respCh <- rows
 		}
 	} else {
+
 		if result, err := deserializeResult(r, rsp); err != nil {
 			respCh <- err.(voltResponse)
 		} else {
+			//WARNING: Please do not delete the below commented code it is used to
+			//generate the test samples for deserialization that are found in
+			//test_resources/deserialize
+			//
+			// TODO: Find a better way to generate this?
+			// if err = writeSampleFile(&cp, handle); err != nil {
+			// 	log.Fatal(err)
+			// }
 			respCh <- result
 		}
 	}
 
+}
+
+func writeSampleFile(cp *bytes.Buffer, handle int64) error {
+	file := os.Getenv("DES_BATCH")
+	if file != "" {
+		err := ioutil.WriteFile(file, cp.Bytes(), 0600)
+		if err != nil {
+			return err
+		}
+		dir := filepath.Dir(file)
+		err = ioutil.WriteFile(filepath.Join(dir, "handle"),
+			[]byte(fmt.Sprint(handle)), 0600)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (nc *nodeConn) handleAsyncResponse(handle int64, r io.Reader, req *networkRequest) {
