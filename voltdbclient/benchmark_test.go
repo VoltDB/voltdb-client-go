@@ -3,6 +3,7 @@ package voltdbclient
 import (
 	"bytes"
 	"crypto/rand"
+	"database/sql"
 	"database/sql/driver"
 	"io/ioutil"
 	mrand "math/rand"
@@ -282,6 +283,60 @@ func BenchmarkDeserializeResult(b *testing.B) {
 		}
 		b.StartTimer()
 		_, err = deserializeResult(r, res)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkExec(b *testing.B) {
+	schema := `
+create table bench_exec(
+	tiny TINYINT,
+	short SMALLINT,
+	int INTEGER,
+	long BIGINT,
+	double FLOAT,
+	string VARCHAR,
+	byte_array VARBINARY,
+	time TIMESTAMP,
+)
+`
+	db, err := sql.Open("voltdb", "localhost:21212")
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer db.Close()
+
+	_, err = db.Exec("@AdHoc", `drop table bench_exec if exists ;`)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer func() {
+		_, err = db.Exec("@AdHoc", `drop table bench_exec if exists ;`)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}()
+
+	_, err = db.Exec("@AdHoc", schema)
+	if err != nil {
+		b.Fatal(err)
+	}
+	stmtStr := `
+INSERT INTO bench_exec (tiny,short,int,long,double,string,byte_array,time)
+VALUES (?,?,?,?,?,?,?,?);`
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		a, bb, c, d := int8(1), int16(1), int32(1), int64(1)
+		e, f, g, h := float64(1), stringArg(i), byteSliceArg(i), time.Now()
+		b.StartTimer()
+		_, err = db.Exec("@AdHoc", stmtStr, a, bb, c, d, e, f, g, h)
 		if err != nil {
 			b.Fatal(err)
 		}
