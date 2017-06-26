@@ -3,9 +3,7 @@ package voltdbclient
 import (
 	"bytes"
 	"crypto/rand"
-	"database/sql"
 	"database/sql/driver"
-	"fmt"
 	"io/ioutil"
 	mrand "math/rand"
 	"os"
@@ -68,212 +66,6 @@ func byteSliceArg(i int) []byte {
 	return b
 }
 
-func TestGenerateDeserialize(t *testing.T) {
-
-	//WARNING: This is a helper testcase to create the table and populate with
-	//data that is used to benchmark deserialization functions
-	t.Skip()
-	schema := `
-create table deserialize(
-	tiny TINYINT,
-	short SMALLINT,
-	int INTEGER,
-	long BIGINT,
-	double FLOAT,
-	string VARCHAR,
-	byte_array VARBINARY,
-	time TIMESTAMP,
-)
-`
-	db, err := sql.Open("voltdb", "localhost:21212")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	_, err = db.Exec("@AdHoc", schema)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stmt, err := db.Prepare(`
-insert into deserialize (tiny,short,int,long,double,string,byte_array,time)
- values (?,?,?,?,?,?,?,?);`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < 1000; i++ {
-		_, err = stmt.Exec(
-			int8(1), int16(1), int32(1), int64(1), float64(1),
-			stringArg(i), byteSliceArg(i), time.Now(),
-		)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-type dStruct struct {
-	tiny      byte
-	short     int
-	integer   int32
-	long      int64
-	double    float64
-	varchar   string
-	byteArray []byte
-	time      time.Time
-}
-
-func TestDeserializeQueryBatches(t *testing.T) {
-	t.Skip()
-	db, err := sql.Open("voltdb", "localhost:21212")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	stmt, err := db.Prepare(`
-	select tiny,short,int,long,double,string,byte_array,time
-	from deserialize limit ?;`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := "test_resources/deserialize/query/"
-	limits := []int{100, 200, 300, 400, 500, 600, 700, 800, 900, 1000}
-	for _, v := range limits {
-		os.Setenv("DES_BATCH", fmt.Sprintf("%s%d.bin", dir, v))
-		rows, err := stmt.Query(v)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var rst []dStruct
-		for rows.Next() {
-			v := dStruct{}
-			err := rows.Scan(
-				&v.tiny, &v.short,
-				&v.integer, &v.long,
-				&v.double,
-				&v.varchar, &v.byteArray,
-				&v.time,
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-			rst = append(rst, v)
-		}
-		rows.Close()
-	}
-}
-func TestDeserializeExecBatchesPrep(t *testing.T) {
-	t.Skip()
-	tn := "deserialize"
-	tableSchema := `
-create table %s(
-	tiny TINYINT,
-	short SMALLINT,
-	int INTEGER,
-	long BIGINT,
-	double FLOAT,
-	string VARCHAR,
-	byte_array VARBINARY,
-	time TIMESTAMP,
-)
-`
-	db, err := sql.Open("voltdb", "localhost:21212")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	stmtStr := `
-insert into %s (tiny,short,int,long,double,string,byte_array,time)
- values (?,?,?,?,?,?,?,?);`
-
-	names := []string{"one", "two", "three", "four", "five",
-		"six", "seven", "eight", "nine", "ten"}
-	limits := []int{100, 200, 300, 400, 500, 600, 700, 800, 900, 1000}
-	for k, n := range names {
-		tableName := fmt.Sprintf("%s_%s", tn, n)
-		nm := fmt.Sprintf(tableSchema, tableName)
-		_, err = db.Exec("@AdHoc", nm)
-		if err != nil {
-			t.Fatal(err)
-		}
-		stmt, err := db.Prepare(fmt.Sprintf(stmtStr, tableName))
-		if err != nil {
-			t.Fatal(err)
-		}
-		for i := 0; i < limits[k]; i++ {
-			_, err = stmt.Exec(
-				int8(1), int16(1), int32(1), int64(1), float64(1),
-				stringArg(i), byteSliceArg(i), time.Now(),
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-}
-
-func TestDeserializeExecBatches(t *testing.T) {
-	t.Skip()
-	schema := `
-create table deserialize_exec(
-	tiny TINYINT,
-	short SMALLINT,
-	int INTEGER,
-	long BIGINT,
-	double FLOAT,
-	string VARCHAR,
-	byte_array VARBINARY,
-	time TIMESTAMP,
-)
-`
-	db, err := sql.Open("voltdb", "localhost:21212")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer db.Close()
-
-	_, err = db.Exec("@AdHoc", `drop table deserialize_exec if exists ;`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec("@AdHoc", schema)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	stmt := `
-	insert into deserialize_exec
-	 select * from %s ;
-	`
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := "test_resources/deserialize/exec/"
-	names := []string{"one", "two", "three", "four", "five",
-		"six", "seven", "eight", "nine", "ten"}
-	limits := []int{100, 200, 300, 400, 500, 600, 700, 800, 900, 1000}
-	tn := "deserialize"
-	for k, v := range names {
-		tableName := fmt.Sprintf("%s_%s", tn, v)
-		l := limits[k]
-		os.Setenv("DES_BATCH", fmt.Sprintf("%s%d.bin", dir, l))
-		q := fmt.Sprintf(stmt, tableName)
-		res, err := db.Exec("@AdHoc", q)
-		if err != nil {
-			t.Fatal(err)
-		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if n != int64(l) {
-			t.Errorf("expected %d got %d", l, n)
-		}
-
-	}
-}
-
 func BenchmarkDeserializeResponse(b *testing.B) {
 	s, h, err := loadQueryResponseSamples()
 	if err != nil {
@@ -303,6 +95,107 @@ func loadExecResponseSamples() ([][]byte, int64, error) {
 	return loadSamples("exec")
 }
 
+// This function loads deserialization sample files which are found in the
+// test_resource/deserialize directory.
+//
+// from can either be "query" or "exec" which loads query and exec samples
+// respectively
+//
+// The following steps were taken to generate the sample found in
+// `test_resources/deserialize/` directory.
+//
+// First we create a database table witht the following schema
+//
+// ```sql
+// create table deserialize(
+// 	tiny TINYINT,
+// 	short SMALLINT,
+// 	int INTEGER,
+// 	long BIGINT,
+// 	double FLOAT,
+// 	string VARCHAR,
+// 	byte_array VARBINARY,
+// 	time TIMESTAMP,
+// )
+// ```
+
+// Then 1000 records are inserted with random data.
+
+// And, we query the database with increasing limit of 100 i.e
+
+// ```sql SELECT tiny,
+//        short,
+//        INT,
+//        LONG,
+//        DOUBLE,
+//        string,
+//        byte_array,
+//        time
+// FROM   deserialize LIMIT  ?;
+// ```
+// with  arguments  100, 200, 300, 400, 500, 600, 700, 800, 900, 1000
+//
+// We then save the blob response( after taking care of decoding the messagge
+// header and properly read the message0 into a file `{limit}.bin`. The `handle`
+// file is just a helper storing the `request/response`  handle  id. This is for
+// `test_resource/deserialize/query`.
+//
+// For `test_resource/deserialize/query` , we first create 10 tables with the
+// following schema ```sql create table deserialize_{tableNumber}(
+// 	tiny TINYINT,
+// 	short SMALLINT,
+// 	int INTEGER,
+// 	long BIGINT,
+// 	double FLOAT,
+// 	string VARCHAR,
+// 	byte_array VARBINARY,
+// 	time TIMESTAMP,
+// )
+// ```
+// where by `tableNumber` is the number of the table in words ie one, two,
+// three, four ... ten. Each table is filled with 100 records.
+//
+// Then we create another table with the following schema ```sql create table
+// deserialize_exec(
+// 	tiny TINYINT,
+// 	short SMALLINT,
+// 	int INTEGER,
+// 	long BIGINT,
+// 	double FLOAT,
+// 	string VARCHAR,
+// 	byte_array VARBINARY,
+// 	time TIMESTAMP,
+// )
+// ```
+//
+// Our goal is to capture the raw bytes returned by the voltdb when executing
+// Exec commands.
+//
+// Then for each value in the sequence 100, 200, 300, 400, 500, 600, 700, 800,
+// 900, 1000 . we execute the following SQL command
+//
+// ```sql INSERT INTO deserialize_exec SELECT * FROM deserialize_{tableName} ;`
+// ```
+// where `tablename` is the index position of the sequence in words startung
+// from one i.e
+//  sequence | index | tableName
+// ----------|-------|-------------
+// 100       |  0    | one
+// 200       |  1    | two
+// 300       |  2    | three
+// 400       |  3    | four
+// 500       |  4    | five
+// 600       |  5    | six
+// 700       |  6    | seven
+// 800       |  7    | eight
+// 900       |  8    | nine
+// 1000      |  9    | ten
+//
+// We then save the blob response( after taking care of decoding the messagge
+// header and properly read the message0 into a file `{sequence}.bin`. The `handle`
+// file is just a helper storing the `request/response`  handle  id. This is for
+// `test_resource/deserialize/query`.
+//
 func loadSamples(from string) ([][]byte, int64, error) {
 	var out [][]byte
 	var handle int64
