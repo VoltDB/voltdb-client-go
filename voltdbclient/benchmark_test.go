@@ -543,3 +543,77 @@ VALUES (?,?,?,?,?,?,?,?);`
 		rows.Close()
 	}
 }
+
+func BenchmarkPrepareStmtQuery(b *testing.B) {
+	schema := `
+create table bench_prepare_query(
+	tiny TINYINT,
+	short SMALLINT,
+	int INTEGER,
+	long BIGINT,
+	double FLOAT,
+	string VARCHAR,
+	byte_array VARBINARY,
+	time TIMESTAMP,
+)
+`
+	db, err := sql.Open("voltdb", "localhost:21212")
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer db.Close()
+
+	_, err = db.Exec("@AdHoc", `drop table bench_prepare_query if exists ;`)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer func() {
+		_, err = db.Exec("@AdHoc", `drop table bench_prepare_query if exists ;`)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}()
+
+	_, err = db.Exec("@AdHoc", schema)
+	if err != nil {
+		b.Fatal(err)
+	}
+	stmtStr := `
+INSERT INTO bench_prepare_query (tiny,short,int,long,double,string,byte_array,time)
+VALUES (?,?,?,?,?,?,?,?);`
+	st, err := db.Prepare(stmtStr)
+	if err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < 1000; i++ {
+		_, err = st.Exec(
+			int8(1), int16(1), int32(1), int64(1), float64(1),
+			stringArg(i), byteSliceArg(i), time.Now(),
+		)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+	limits := []int{100, 200, 300, 400, 500, 600, 700, 800, 900, 1000}
+	qst := "select * from bench_prepare_query limit ?"
+	pst, err := db.Prepare(qst)
+	if err != nil {
+		b.Fatal(err)
+	}
+	var rows *sql.Rows
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		k := queryResponseSampleKey()
+		l := limits[k]
+		b.StartTimer()
+		rows, err = pst.Query(l)
+		if err != nil {
+			b.Fatal(err)
+		}
+		rows.Close()
+	}
+}
