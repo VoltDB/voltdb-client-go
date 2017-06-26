@@ -3,6 +3,7 @@ package voltdbclient
 import (
 	"bytes"
 	"crypto/rand"
+	"database/sql"
 	"database/sql/driver"
 	"io/ioutil"
 	mrand "math/rand"
