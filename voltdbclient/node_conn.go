@@ -245,6 +245,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 			queuedBytes -= req.numBytes
 			delete(requests, handle)
 			if req.isSync() {
+
 				nc.handleSyncResponse(handle, resp, req)
 			} else {
 				go nc.handleAsyncResponse(handle, resp, req)
@@ -285,12 +286,14 @@ func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRe
 	if err != nil {
 		respCh <- err.(voltResponse)
 	} else if req.isQuery() {
+
 		if rows, err := deserializeRows(r, rsp); err != nil {
 			respCh <- err.(voltResponse)
 		} else {
 			respCh <- rows
 		}
 	} else {
+
 		if result, err := deserializeResult(r, rsp); err != nil {
 			respCh <- err.(voltResponse)
 		} else {

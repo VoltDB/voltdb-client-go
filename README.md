@@ -112,3 +112,18 @@ you. However there is a couple of options offered for custom control such as
 [SetConnMaxLifetime](https://golang.org/pkg/database/sql/#DB.SetConnMaxLifetime),
 [SetMaxIdleConns](https://golang.org/pkg/database/sql/#DB.SetMaxIdleConns) and
 [SetMaxOpenConns](https://golang.org/pkg/database/sql/#DB.SetMaxOpenConns)
+
+# Micro benchmarks
+
+When doing development on this client, before adding new changes first you need
+to run benchmarks of the client . We have included helper make rules for this
+just run `make bench-old` which when done will create `old.bench` file on the
+root of the project.
+
+You can then go ahead and make the changes, when done you need to run benchmarks
+with the new changes by running `make bench-new` which will create `new.bench`.
+
+Compare the two benchmarks with `make benchcmp`. This will help you to see if
+there were any regressions introduced by the changes. This rule depends on
+`benchcmp` tool to be installed, if that tool is missing run `make deps` to
+install it.
