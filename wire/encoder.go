@@ -2,6 +2,7 @@ package wire
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"database/sql/driver"
 	"encoding/binary"
 	"errors"
@@ -306,4 +307,57 @@ func (e *Encoder) Args(v []driver.Value) error {
 		}
 	}
 	return nil
+}
+
+//Login encodes login details
+func (e *Encoder) Login(version int, user, password string) ([]byte, error) {
+	h := sha256.New()
+
+	_, err := h.Write([]byte(password))
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = e.Byte(int8(version))
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = e.Byte(int8(version))
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = e.String("database")
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = e.String(user)
+	if err != nil {
+		return nil, err
+	}
+	_, err = e.Write(h.Sum(nil))
+	if err != nil {
+		return nil, err
+	}
+	return Message(e.Bytes()), nil
+}
+
+func (e *Encoder) Message(v []byte) error {
+	_, err := e.Int32(int32(len(v)))
+	if err != nil {
+		return err
+	}
+	_, err = e.Write(v)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func Message(v []byte) []byte {
+	b := make([]byte, 4)
+	endian.PutUint32(b, uint32(len(v)))
+	return append(b, v...)
 }

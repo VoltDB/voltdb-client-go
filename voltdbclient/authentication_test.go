@@ -21,19 +21,19 @@ import (
 	"bytes"
 	"io/ioutil"
 	"testing"
+
+	"github.com/VoltDB/voltdb-client-go/wire"
 )
 
 func TestLoginRequest(t *testing.T) {
-	var loginBytes []byte
-	loginBuf := bytes.NewBuffer(loginBytes)
-	login, err := serializeLoginMessage(protoVersion, "hello", "world")
+	e := wire.NewEncoder()
+	v, err := e.Login(protoVersion, "hello", "world")
 	check(t, err)
-	writeLoginMessage(protoVersion, loginBuf, &login)
 
 	fileBytes, err := ioutil.ReadFile("./test_resources/authentication_request_sha256.msg")
 	check(t, err)
 
-	if !bytes.Equal(loginBuf.Bytes(), fileBytes) {
+	if !bytes.Equal(v, fileBytes) {
 		t.Fatal("login message doesn't match expected contents")
 	}
 }
