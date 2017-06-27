@@ -52,7 +52,6 @@ func (nw *networkWriter) connect(writer io.Writer, piCh <-chan *procedureInvocat
 
 func (nw *networkWriter) disconnect(piCh chan *procedureInvocation) {
 	close(piCh)
-
 }
 
 func (nw *networkWriter) hasBP() bool {
