@@ -26,6 +26,8 @@ import (
 	"log"
 	"net"
 	"time"
+
+	"github.com/VoltDB/voltdb-client-go/wire"
 )
 
 // start back pressure when this many bytes are queued for write
@@ -277,7 +279,10 @@ func (nc *nodeConn) handleProcedureInvocation(writer io.Writer, pi *procedureInv
 	}
 	(*requests)[pi.handle] = nr
 	*queuedBytes += pi.slen
-	serializePI(writer, pi)
+	e := wire.NewEncoder()
+	EncodePI(e, pi)
+	writer.Write(e.Bytes())
+	wire.PutEncoder(e)
 }
 
 func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRequest) {
@@ -330,7 +335,10 @@ func (nc *nodeConn) handleAsyncTimeout(req *networkRequest) {
 
 func (nc *nodeConn) sendPing(writer io.Writer) {
 	pi := newProcedureInvocationByHandle(PingHandle, true, "@Ping", []driver.Value{})
-	serializePI(writer, pi)
+	e := wire.NewEncoder()
+	EncodePI(e, pi)
+	writer.Write(e.Bytes())
+	wire.PutEncoder(e)
 }
 
 func writeLoginMessage(protocolVersion int, writer io.Writer, buf *bytes.Buffer) {

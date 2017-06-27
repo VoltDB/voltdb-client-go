@@ -24,6 +24,8 @@ import (
 	"log"
 	"runtime"
 	"sync"
+
+	"github.com/VoltDB/voltdb-client-go/wire"
 )
 
 type networkWriter struct {
@@ -38,9 +40,13 @@ func newNetworkWriter() *networkWriter {
 }
 
 func (nw *networkWriter) writePIs(writer io.Writer, piCh <-chan *procedureInvocation, wg *sync.WaitGroup) {
+	e := wire.NewEncoder()
 	for pi := range piCh {
-		serializePI(writer, pi)
+		e.Reset()
+		EncodePI(e, pi)
+		writer.Write(e.Bytes())
 	}
+	wire.PutEncoder(e)
 	wg.Done()
 }
 
@@ -125,4 +131,41 @@ func (nw *networkWriter) unsetBP() {
 	nw.bpMutex.Lock()
 	nw.bp = false
 	nw.bpMutex.Unlock()
+}
+
+func EncodePI(e *wire.Encoder, pi *procedureInvocation) error {
+	_, err := e.Int32(int32(pi.getLen()))
+	if err != nil {
+		return err
+	}
+
+	// batch timeout type
+	_, err = e.Byte(0)
+	if err != nil {
+		return err
+	}
+
+	_, err = e.String(pi.query)
+	if err != nil {
+		return err
+	}
+	_, err = e.Int64(pi.handle)
+	if err != nil {
+		return err
+	}
+
+	_, err = e.Int16(int16(len(pi.params)))
+	if err != nil {
+		return err
+	}
+	for i := 0; i < len(pi.params); i++ {
+		_, err = e.Marshal(pi.params[i])
+		if err != nil {
+			return err
+		}
+	}
+	if err != nil {
+		return err
+	}
+	return nil
 }

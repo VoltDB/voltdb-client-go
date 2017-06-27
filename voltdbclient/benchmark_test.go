@@ -12,19 +12,21 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/VoltDB/voltdb-client-go/wire"
 )
 
 func BenchmarkSerializeArgs(b *testing.B) {
-	var buf bytes.Buffer
 	var err error
+	e := wire.NewEncoder()
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		buf.Reset()
+		e.Reset()
 		args := sampleSerialArgs(i)
 		b.StartTimer()
-		err = serializeArgs(&buf, args)
+		err = e.Args(args)
 		if err != nil {
 			b.Error(err)
 		}

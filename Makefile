@@ -14,6 +14,12 @@ bench-new:
 benchcmp:
 	benchcmp old.bench new.bench
 
+clean:
+	rm -f *.out *.test
+
+mem: clean
+	go test -bench=. -memprofile=mem.out  ./voltdbclient
+	go tool pprof -lines  -alloc_objects *.test mem.out
 # Installs benchcmp tool
 deps:
 	go get golang.org/x/tools/cmd/benchcmp
