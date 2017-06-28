@@ -63,6 +63,7 @@ func NewEncoder() *Encoder {
 	return epool.Get().(*Encoder)
 }
 
+// PutEncoder returns a used *Encoder to the pool
 func PutEncoder(e *Encoder) {
 	e.Reset()
 	epool.Put(e)
