@@ -24,8 +24,16 @@ import (
 	"errors"
 	"strconv"
 
+	"sync"
+
 	"github.com/spaolacci/murmur3"
 )
+
+var spool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 8)
+	},
+}
 
 type hashinator interface {
 	getConfigurationType() string
@@ -66,42 +74,22 @@ func (h *hashinatorElastic) getConfigurationType() string {
 	return Elastic
 }
 
-func (h *hashinatorElastic) getHashedPartitionForParameter(partitionParameterType int, partitionValue driver.Value) (hashedPartition int, err error) {
-	return h.hashinateBytes(valueToBytes(partitionValue))
-}
-
-/**
- * Given []bytes, pick a partition to store the data.
- */
-func (h hashinatorElastic) hashinateBytes(b []byte) (partition int, err error) {
-	if b == nil {
-		return 0, nil
-	}
-
-	v1, _ := murmur3.Sum128(b)
-	hash := int(v1 >> 32)
-	partition = SearchToken2Partitions(h.tp, hash)
-	return partition, nil
-}
-
-/**
- * Converts the object into bytes for hashing.
- * return a byte array representation of obj
- * OR nil if the obj is nullValue or any other Volt representation
- * of a null value.
- */
-func valueToBytes(v driver.Value) []byte {
+func (h *hashinatorElastic) getHashedPartitionForParameter(partitionParameterType int, v driver.Value) (hashedPartition int, err error) {
 	if v == nil {
-		return nil
+		return 0, nil
 	}
 	var value uint64
 	switch v.(type) {
 	case nullValue:
-		return nil
+		return 0, nil
 	case []byte:
-		return v.([]byte)
+		v1, _ := murmur3.Sum128(v.([]byte))
+		hash := int(v1 >> 32)
+		return SearchToken2Partitions(h.tp, hash), nil
 	case string:
-		return []byte(v.(string))
+		v1, _ := murmur3.Sum128([]byte(v.(string)))
+		hash := int(v1 >> 32)
+		return SearchToken2Partitions(h.tp, hash), nil
 	case byte:
 		value = uint64(v.(byte))
 	case int8:
@@ -113,10 +101,16 @@ func valueToBytes(v driver.Value) []byte {
 	case int64:
 		value = uint64(v.(int64))
 	}
+	buf := spool.Get().([]byte)
+	defer spool.Put(buf)
+	binary.LittleEndian.PutUint64(buf, value)
+	return h.checkPertition(&buf)
+}
 
-	bs := make([]byte, 8)
-	binary.LittleEndian.PutUint64(bs, value)
-	return bs
+func (h *hashinatorElastic) checkPertition(v *[]byte) (int, error) {
+	v1, _ := murmur3.Sum128(*v)
+	hash := int(v1 >> 32)
+	return SearchToken2Partitions(h.tp, hash), nil
 }
 
 // until go 1.7, go lang won't support non-string type keys for (un-)marshal
