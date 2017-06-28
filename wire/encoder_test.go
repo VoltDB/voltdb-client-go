@@ -2,6 +2,7 @@ package wire
 
 import (
 	"bytes"
+	"io/ioutil"
 	"testing"
 	"time"
 )
@@ -165,5 +166,20 @@ func TestEncoder_FloatSLiceParam(t *testing.T) {
 
 	if e.Len() != expLen {
 		t.Fatalf("expected %d got %d", e.Len(), expLen)
+	}
+}
+
+func TestEncoder_Login(t *testing.T) {
+	e := NewEncoder()
+	v, err := e.Login(1, "hello", "world")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileBytes, err := ioutil.ReadFile("./fixture/authentication_request_sha256.msg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(v, fileBytes) {
+		t.Fatal("login message doesn't match expected contents")
 	}
 }
