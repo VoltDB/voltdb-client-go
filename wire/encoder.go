@@ -188,6 +188,8 @@ func (e *Encoder) Read(b []byte) (int, error) {
 	return e.buf.Read(b)
 }
 
+// Marshal encodes query arguments, there are values passed as driver.Value when
+// executing queries
 func (e *Encoder) Marshal(v interface{}) (int, error) {
 	switch x := v.(type) {
 	case bool:
@@ -218,6 +220,7 @@ func (e *Encoder) Marshal(v interface{}) (int, error) {
 	}
 }
 
+// MarshalBool encodes boolean argument
 func (e *Encoder) MarshalBool(v bool) (int, error) {
 	n, err := e.Byte(BoolColumn)
 	if err != nil {
@@ -230,6 +233,7 @@ func (e *Encoder) MarshalBool(v bool) (int, error) {
 	return n + i, nil
 }
 
+// MarshalByte encodes int8 argument
 func (e *Encoder) MarshalByte(v int8) (int, error) {
 	n, err := e.Byte(BoolColumn)
 	if err != nil {
@@ -242,6 +246,7 @@ func (e *Encoder) MarshalByte(v int8) (int, error) {
 	return n + i, nil
 }
 
+// MarshalShort encodes int16 argument
 func (e *Encoder) MarshalShort(v int16) (int, error) {
 	n, err := e.Byte(ShortColumn)
 	if err != nil {
@@ -254,6 +259,7 @@ func (e *Encoder) MarshalShort(v int16) (int, error) {
 	return n + i, nil
 }
 
+// MarshalInt32 encodes int32 argument
 func (e *Encoder) MarshalInt32(v int32) (int, error) {
 	n, err := e.Byte(IntColumn)
 	if err != nil {
@@ -266,6 +272,7 @@ func (e *Encoder) MarshalInt32(v int32) (int, error) {
 	return n + i, nil
 }
 
+// MarshalInt64 encodes int64 argument
 func (e *Encoder) MarshalInt64(v int64) (int, error) {
 	n, err := e.Byte(LongColumn)
 	if err != nil {
@@ -278,6 +285,7 @@ func (e *Encoder) MarshalInt64(v int64) (int, error) {
 	return n + i, nil
 }
 
+// MarshalFloat64 encodes float64 argument
 func (e *Encoder) MarshalFloat64(v float64) (int, error) {
 	n, err := e.Byte(FloatColumn)
 	if err != nil {
@@ -287,6 +295,7 @@ func (e *Encoder) MarshalFloat64(v float64) (int, error) {
 	return n + i, nil
 }
 
+// MarshalString encodes string argument
 func (e *Encoder) MarshalString(v string) (int, error) {
 	n, err := e.Byte(StringColumn)
 	if err != nil {
@@ -299,6 +308,7 @@ func (e *Encoder) MarshalString(v string) (int, error) {
 	return n + i, nil
 }
 
+// MarshalSlice encodes slice of arguments
 func (e *Encoder) MarshalSlice(v reflect.Value) (int, error) {
 	switch v.Type().Elem().Kind() {
 	case reflect.Uint8:
@@ -333,6 +343,7 @@ func (e *Encoder) MarshalSlice(v reflect.Value) (int, error) {
 	}
 }
 
+// MarshalTime encodes time.Time argument
 func (e *Encoder) MarshalTime(v time.Time) (int, error) {
 	n, err := e.Byte(TimestampColumn)
 	if err != nil {
@@ -345,6 +356,7 @@ func (e *Encoder) MarshalTime(v time.Time) (int, error) {
 	return n + i, nil
 }
 
+// Args a helper to encode driver arguments
 func (e *Encoder) Args(v []driver.Value) error {
 	_, err := e.Int16(int16(len(v)))
 	if err != nil {
@@ -394,23 +406,13 @@ func (e *Encoder) Login(version int, user, password string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Message(e.Bytes()), nil
+	return e.Message(e.Bytes()), nil
 }
 
-func (e *Encoder) Message(v []byte) error {
-	_, err := e.Int32(int32(len(v)))
-	if err != nil {
-		return err
-	}
-	_, err = e.Write(v)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func Message(v []byte) []byte {
-	b := make([]byte, 4)
+// Message encodes v into a voldb wire protocol. voltdb wire protocol message
+// comprizes of int32 encoded size of the message followed by v raw bytes.
+func (e *Encoder) Message(v []byte) []byte {
+	b := make([]byte, integerSize)
 	endian.PutUint32(b, uint32(len(v)))
 	return append(b, v...)
 }
