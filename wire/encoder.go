@@ -2,10 +2,12 @@ package wire
 
 import (
 	"bytes"
+	"crypto/sha1"
 	"crypto/sha256"
 	"database/sql/driver"
 	"encoding/binary"
 	"errors"
+	"hash"
 	"math"
 	"reflect"
 	"sync"
@@ -359,23 +361,26 @@ func (e *Encoder) Args(v []driver.Value) error {
 
 //Login encodes login details
 func (e *Encoder) Login(version int, user, password string) ([]byte, error) {
-	h := sha256.New()
-
-	_, err := h.Write([]byte(password))
+	var h hash.Hash
+	_, err := e.Byte(int8(version))
 	if err != nil {
 		return nil, err
 	}
+	if version == 0 {
+		h = sha1.New()
+	} else {
+		h = sha256.New()
 
-	_, err = e.Byte(int8(version))
+		//password hash version
+		_, err = e.Byte(1)
+		if err != nil {
+			return nil, err
+		}
+	}
+	_, err = h.Write([]byte(password))
 	if err != nil {
 		return nil, err
 	}
-
-	_, err = e.Byte(int8(version))
-	if err != nil {
-		return nil, err
-	}
-
 	_, err = e.String("database")
 	if err != nil {
 		return nil, err
