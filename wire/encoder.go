@@ -74,6 +74,7 @@ func (e *Encoder) Reset() {
 	e.buf.Reset()
 }
 
+// Len retuns the size of the cueent encoded values
 func (e *Encoder) Len() int {
 	return e.buf.Len()
 }
@@ -175,10 +176,12 @@ func (e *Encoder) Time(v time.Time) (int, error) {
 	return e.Int64(nano / int64(time.Microsecond))
 }
 
+// Write implements io.Writer interface
 func (e *Encoder) Write(b []byte) (int, error) {
 	return e.buf.Write(b)
 }
 
+// Read implements io.Reader interface
 func (e *Encoder) Read(b []byte) (int, error) {
 	return e.buf.Read(b)
 }
@@ -209,94 +212,135 @@ func (e *Encoder) Marshal(v interface{}) (int, error) {
 		case reflect.Ptr:
 			return e.Marshal(rv.Elem().Interface())
 		}
-		return 0, errors.New("vp: unknown parameter type")
+		return 0, errors.New("voltdbclient: unknown parameter type")
 	}
 }
 
 func (e *Encoder) MarshalBool(v bool) (int, error) {
-	_, err := e.Byte(BoolColumn)
+	n, err := e.Byte(BoolColumn)
 	if err != nil {
 		return 0, err
 	}
-	return e.Bool(v)
+	i, err := e.Bool(v)
+	if err != nil {
+		return 0, err
+	}
+	return n + i, nil
 }
 
 func (e *Encoder) MarshalByte(v int8) (int, error) {
-	_, err := e.Byte(BoolColumn)
+	n, err := e.Byte(BoolColumn)
 	if err != nil {
 		return 0, err
 	}
-	return e.Byte(v)
+	i, err := e.Byte(v)
+	if err != nil {
+		return 0, err
+	}
+	return n + i, nil
 }
 
 func (e *Encoder) MarshalShort(v int16) (int, error) {
-	_, err := e.Byte(ShortColumn)
+	n, err := e.Byte(ShortColumn)
 	if err != nil {
 		return 0, err
 	}
-	return e.Int16(v)
+	i, err := e.Int16(v)
+	if err != nil {
+		return 0, err
+	}
+	return n + i, nil
 }
 
 func (e *Encoder) MarshalInt32(v int32) (int, error) {
-	_, err := e.Byte(IntColumn)
+	n, err := e.Byte(IntColumn)
 	if err != nil {
 		return 0, err
 	}
-	return e.Int32(v)
+	i, err := e.Int32(v)
+	if err != nil {
+		return 0, err
+	}
+	return n + i, nil
 }
 
 func (e *Encoder) MarshalInt64(v int64) (int, error) {
-	_, err := e.Byte(LongColumn)
+	n, err := e.Byte(LongColumn)
 	if err != nil {
 		return 0, err
 	}
-	return e.Int64(v)
+	i, err := e.Int64(v)
+	if err != nil {
+		return 0, err
+	}
+	return n + i, nil
 }
 
 func (e *Encoder) MarshalFloat64(v float64) (int, error) {
-	_, err := e.Byte(FloatColumn)
+	n, err := e.Byte(FloatColumn)
 	if err != nil {
 		return 0, err
 	}
-	return e.Float64(v)
+	i, err := e.Float64(v)
+	return n + i, nil
 }
 
 func (e *Encoder) MarshalString(v string) (int, error) {
-	_, err := e.Byte(StringColumn)
+	n, err := e.Byte(StringColumn)
 	if err != nil {
 		return 0, err
 	}
-	return e.String(v)
+	i, err := e.String(v)
+	if err != nil {
+		return 0, err
+	}
+	return n + i, nil
 }
 
 func (e *Encoder) MarshalSlice(v reflect.Value) (int, error) {
 	switch v.Type().Elem().Kind() {
 	case reflect.Uint8:
-		_, err := e.Byte(VarBinColumn)
+		n, err := e.Byte(VarBinColumn)
 		if err != nil {
 			return 0, err
 		}
-		return e.Binary(v.Bytes())
+		i, err := e.Binary(v.Bytes())
+		if err != nil {
+			return 0, err
+		}
+		return n + i, nil
 	default:
-		e.Byte(ArrayColumn)
-		e.Int16(1)
+		n, err := e.Byte(ArrayColumn)
+		if err != nil {
+			return 0, err
+		}
+		s, err := e.Int16(1)
+		if err != nil {
+			return 0, err
+		}
+		size := n + s
 		l := v.Len()
 		for i := 0; i < l; i++ {
-			_, err := e.Marshal(v.Index(i).Interface())
+			c, err := e.Marshal(v.Index(i).Interface())
 			if err != nil {
 				return 0, err
 			}
+			size += c
 		}
-		return 0, nil
+		return size, nil
 	}
 }
 
 func (e *Encoder) MarshalTime(v time.Time) (int, error) {
-	_, err := e.Byte(TimestampColumn)
+	n, err := e.Byte(TimestampColumn)
 	if err != nil {
 		return 0, err
 	}
-	return e.Time(v)
+	i, err := e.Time(v)
+	if err != nil {
+		return 0, err
+	}
+	return n + i, nil
 }
 
 func (e *Encoder) Args(v []driver.Value) error {
