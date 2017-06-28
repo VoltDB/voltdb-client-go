@@ -1,4 +1,5 @@
 test:
+	go test -v ./wire
 	go test -v  ./voltdbclient
 
 bench:
