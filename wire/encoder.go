@@ -74,6 +74,10 @@ func (e *Encoder) Reset() {
 	e.buf.Reset()
 }
 
+func (e *Encoder) Len() int {
+	return e.buf.Len()
+}
+
 // Byte encodes int8 value to voltdb wire protocol Byte. This returns the number
 // of bytes written and an error if any.
 //

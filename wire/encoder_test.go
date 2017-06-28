@@ -124,3 +124,46 @@ func TestEncoder_Time(t *testing.T) {
 	//TODO(gernest): Add Decoder to verify the encoded values for time are
 	//correct.
 }
+
+func TestEncoder_PtrParam(t *testing.T) {
+	array := []int32{11, 12, 13}
+	e := NewEncoder()
+	_, err := e.Marshal(&array)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expLen := 18
+	if e.Len() != expLen {
+		t.Fatalf("expected %d got %d", expLen, e.Len())
+	}
+}
+
+func TestEncoder_StringSliceParam(t *testing.T) {
+	array := []string{"zero", "one", "two", "three", "four", "five", "six",
+		"seven", "eight", "nine", "ten", "eleven",
+		"twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
+		"eighteen", "nineteen"}
+	expLen := 213
+	e := NewEncoder()
+	_, err := e.Marshal(array)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Len() != expLen {
+		t.Fatalf("expected %d got %d", expLen, e.Len())
+	}
+}
+
+func TestEncoder_FloatSLiceParam(t *testing.T) {
+	array := []float64{-459.67, 32.0, 212.0}
+	expLen := 30
+	e := NewEncoder()
+	_, err := e.Marshal(array)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if e.Len() != expLen {
+		t.Fatalf("expected %d got %d", e.Len(), expLen)
+	}
+}

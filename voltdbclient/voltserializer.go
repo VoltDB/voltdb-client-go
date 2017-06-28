@@ -81,28 +81,6 @@ func readMessageHdr(r io.Reader) (size int32, err error) {
 	return (size), nil
 }
 
-func writeProtoVersion(w io.Writer) error {
-	var b [1]byte
-	b[0] = protoVersion
-	_, err := w.Write(b[:1])
-	return err
-}
-
-func writePasswordHashVersion(w io.Writer) error {
-	var b [1]byte
-	b[0] = 1
-	_, err := w.Write(b[:1])
-	return err
-}
-
-func writeBoolean(w io.Writer, d bool) error {
-	if d {
-		return writeByte(w, 0x1)
-	} 
-	
-	return writeByte(w, 0x0)
-}
-
 func readBoolean(r io.Reader) (bool, error) {
 	val, err := readByte(r)
 	if err != nil {
@@ -110,18 +88,6 @@ func readBoolean(r io.Reader) (bool, error) {
 	}
 	result := val != 0
 	return result, nil
-}
-
-func writeByte(w io.Writer, d int8) error {
-	var b [1]byte
-	b[0] = byte(d)
-	_, err := w.Write(b[:1])
-	return err
-}
-
-func writeBytes(w io.Writer, d []byte) error {
-	_, err := w.Write(d)
-	return err
 }
 
 func readByte(r io.Reader) (int8, error) {
@@ -161,14 +127,6 @@ func readByteArray(r io.Reader) ([]byte, error) {
 	return bs, nil
 }
 
-func writeShort(w io.Writer, d int16) error {
-	var b [2]byte
-	bs := b[:2]
-	order.PutUint16(bs, uint16(d))
-	_, err := w.Write(bs)
-	return err
-}
-
 func readShort(r io.Reader) (int16, error) {
 	var b [2]byte
 	bs := b[:2]
@@ -180,14 +138,6 @@ func readShort(r io.Reader) (int16, error) {
 	return int16(result), nil
 }
 
-func writeInt(w io.Writer, d int32) error {
-	var b [4]byte
-	bs := b[:4]
-	order.PutUint32(bs, uint32(d))
-	_, err := w.Write(bs)
-	return err
-}
-
 func readInt(r io.Reader) (int32, error) {
 	var b [4]byte
 	bs := b[:4]
@@ -195,16 +145,8 @@ func readInt(r io.Reader) (int32, error) {
 	if err != nil {
 		return 0, err
 	}
-	
-	return int32(order.Uint32(bs)), nil
-}
 
-func writeLong(w io.Writer, d int64) error {
-	var b [8]byte
-	bs := b[:8]
-	order.PutUint64(bs, uint64(d))
-	_, err := w.Write(bs)
-	return err
+	return int32(order.Uint32(bs)), nil
 }
 
 func readLong(r io.Reader) (int64, error) {
@@ -227,22 +169,6 @@ func readTimestamp(r io.Reader) (time.Time, error) {
 	return time.Time{}, err
 }
 
-func writeTimestamp(w io.Writer, t time.Time) (err error) {
-	nanoSeconds := t.Round(time.Microsecond).UnixNano()
-	if t.IsZero() {
-		return writeLong(w, math.MinInt64)
-	}
-	return writeLong(w, nanoSeconds/int64(time.Microsecond))
-}
-
-func writeFloat(w io.Writer, d float64) error {
-	var b [8]byte
-	bs := b[:8]
-	order.PutUint64(bs, math.Float64bits(d))
-	_, err := w.Write(bs)
-	return err
-}
-
 func readFloat(r io.Reader) (float64, error) {
 	var b [8]byte
 	bs := b[:8]
@@ -252,12 +178,6 @@ func readFloat(r io.Reader) (float64, error) {
 	}
 	result := order.Uint64(bs)
 	return math.Float64frombits(result), nil
-}
-
-func writeString(w io.Writer, d string) error {
-	writeInt(w, int32(len(d)))
-	_, err := io.WriteString(w, d)
-	return err
 }
 
 func readString(r io.Reader) (result string, err error) {
@@ -292,17 +212,4 @@ func readStringArray(r io.Reader) ([]string, error) {
 		arr[idx] = val
 	}
 	return arr, nil
-}
-
-// The login message password is written as a raw 20 bytes
-// without a length prefix.
-func writePasswordBytes(w io.Writer, d []byte) error {
-	_, err := w.Write(d)
-	return err
-}
-
-func writeVarbinary(w io.Writer, d []byte) error {
-	writeInt(w, int32(len(d)))
-	_, err := w.Write(d)
-	return err
 }

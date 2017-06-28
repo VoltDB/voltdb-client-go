@@ -341,23 +341,6 @@ func (nc *nodeConn) sendPing(writer io.Writer) {
 	wire.PutEncoder(e)
 }
 
-func writeLoginMessage(protocolVersion int, writer io.Writer, buf *bytes.Buffer) {
-	var netmsg bytes.Buffer
-	if protocolVersion == 0 {
-		length := buf.Len() + 1
-		writeInt(&netmsg, int32(length))
-		writeProtoVersion(&netmsg)
-	} else {
-		length := buf.Len() + 2
-		writeInt(&netmsg, int32(length))
-		writeProtoVersion(&netmsg)
-		writePasswordHashVersion(&netmsg)
-	}
-	// 1 copy + 1 n/w write benchmarks faster than 2 n/w writes.
-	io.Copy(&netmsg, buf)
-	io.Copy(writer, &netmsg)
-}
-
 func readLoginResponse(reader io.Reader) (*connectionData, error) {
 	buf, err := readMessage(reader)
 	if err != nil {
