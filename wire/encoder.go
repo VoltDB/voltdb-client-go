@@ -401,6 +401,11 @@ func (e *Encoder) Login(version int, user, password string) ([]byte, error) {
 	}
 	if version == 0 {
 		h = sha1.New()
+		//password hash version
+		_, err = e.Byte(0)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		h = sha256.New()
 
