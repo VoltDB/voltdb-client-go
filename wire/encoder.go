@@ -382,14 +382,14 @@ func (e *Encoder) Args(v []driver.Value) error {
 //
 // version 0
 // 	+------------------+--------------+-----------------------+----------+--------------------------------------+
-// 	| protocol version | service name | password hash version | username | password                              |
+// 	| protocol version | service name | password hash version | username | password                             |
 // 	+------------------+--------------+-----------------------+----------+--------------------------------------+
 // 	| 0                | database     | 0                     | foo      | sha1 encoded raw bytes of string bar |
 // 	+------------------+--------------+-----------------------+----------+--------------------------------------+
 //
 // version 1
 // 	+------------------+--------------+-----------------------+----------+----------------------------------------+
-// 	| protocol version | service name | password hash version | username | password                                |
+// 	| protocol version | service name | password hash version | username | password                               |
 // 	+------------------+--------------+-----------------------+----------+----------------------------------------+
 // 	| 1                | database     | 1                     | foo      | sha256 encoded raw bytes of string bar |
 // 	+------------------+--------------+-----------------------+----------+----------------------------------------+
