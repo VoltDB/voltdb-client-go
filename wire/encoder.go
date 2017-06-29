@@ -189,7 +189,7 @@ func (e *Encoder) Read(b []byte) (int, error) {
 	return e.buf.Read(b)
 }
 
-// Marshal encodes query arguments, there are values passed as driver.Value when
+// Marshal encodes query arguments, these are values passed as driver.Value when
 // executing queries
 func (e *Encoder) Marshal(v interface{}) (int, error) {
 	switch x := v.(type) {
