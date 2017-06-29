@@ -372,7 +372,27 @@ func (e *Encoder) Args(v []driver.Value) error {
 	return nil
 }
 
-//Login encodes login details
+//Login encodes login details. This supports both version 0 and 1 of the wire
+//protocol.
+//
+//The password is hashed using sha1 and sha356 for version 0 and 1 respectively.
+//
+// For instance if the username is foo and password is bar,  the login message
+// will be encoded as follows
+//
+// version 0
+// 	+------------------+--------------+-----------------------+----------+--------------------------------------+
+// 	| protocol version | service name | password hash version | username | password                              |
+// 	+------------------+--------------+-----------------------+----------+--------------------------------------+
+// 	| 0                | database     | 0                     | foo      | sha1 encoded raw bytes of string bar |
+// 	+------------------+--------------+-----------------------+----------+--------------------------------------+
+//
+// version 1
+// 	+------------------+--------------+-----------------------+----------+----------------------------------------+
+// 	| protocol version | service name | password hash version | username | password                                |
+// 	+------------------+--------------+-----------------------+----------+----------------------------------------+
+// 	| 1                | database     | 1                     | foo      | sha256 encoded raw bytes of string bar |
+// 	+------------------+--------------+-----------------------+----------+----------------------------------------+
 func (e *Encoder) Login(version int, user, password string) ([]byte, error) {
 	var h hash.Hash
 	_, err := e.Byte(int8(version))
