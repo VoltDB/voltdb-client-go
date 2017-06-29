@@ -26,7 +26,8 @@ const (
 const (
 	ArrayColumn     int8 = -99 // array (short)(values*)
 	NullColumn      int8 = 1   // null
-	BoolColumn      int8 = 3   // boolean, byte
+	BoolColumn      int8 = 3   // boolean
+	ByteColumn      int8 = 3   // byte
 	ShortColumn     int8 = 4   // int16
 	IntColumn       int8 = 5   // int32
 	LongColumn      int8 = 6   // int64
@@ -236,7 +237,7 @@ func (e *Encoder) MarshalBool(v bool) (int, error) {
 
 // MarshalByte encodes int8 argument
 func (e *Encoder) MarshalByte(v int8) (int, error) {
-	n, err := e.Byte(BoolColumn)
+	n, err := e.Byte(ByteColumn)
 	if err != nil {
 		return 0, err
 	}
