@@ -436,7 +436,7 @@ func (e *Encoder) Login(version int, user, password string) ([]byte, error) {
 }
 
 // Message encodes v into a voldb wire protocol. voltdb wire protocol message
-// comprizes of int32 encoded size of the message followed by v raw bytes.
+// comprizes of int32 encoded size of v followed by v raw bytes.
 func (e *Encoder) Message(v []byte) []byte {
 	b := make([]byte, integerSize)
 	endian.PutUint32(b, uint32(len(v)))
