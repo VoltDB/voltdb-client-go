@@ -328,12 +328,12 @@ func (e *Encoder) MarshalSlice(v reflect.Value) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		s, err := e.Int16(1)
+		l := v.Len()
+		s, err := e.Int16(int16(l))
 		if err != nil {
 			return 0, err
 		}
 		size := n + s
-		l := v.Len()
 		for i := 0; i < l; i++ {
 			c, err := e.Marshal(v.Index(i).Interface())
 			if err != nil {
