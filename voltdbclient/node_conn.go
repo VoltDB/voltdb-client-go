@@ -26,6 +26,8 @@ import (
 	"log"
 	"net"
 	"time"
+
+	"github.com/VoltDB/voltdb-client-go/wire"
 )
 
 // start back pressure when this many bytes are queued for write
@@ -114,6 +116,8 @@ func (nc *nodeConn) reconnect(protocolVersion int, piCh <-chan *procedureInvocat
 }
 
 func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *connectionData, error) {
+	e := wire.NewEncoder()
+	defer wire.PutEncoder(e)
 	raddr, err := net.ResolveTCPAddr("tcp", nc.connInfo)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Error resolving %v.", nc.connInfo)
@@ -122,16 +126,14 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *connecti
 	if err != nil {
 		return nil, nil, fmt.Errorf("Failed to connect to server %v.", nc.connInfo)
 	}
-	login, err := serializeLoginMessage(protocolVersion, "", "")
+	login, err := e.Login(protocolVersion, "", "")
 	if err != nil {
 		tcpConn.Close()
 		return nil, nil, fmt.Errorf("Failed to serialize login message %v.", nc.connInfo)
 	}
-
-	writeLoginMessage(protocolVersion, tcpConn, &login)
+	_, err = tcpConn.Write(login)
 	if err != nil {
-		tcpConn.Close()
-		return nil, nil, fmt.Errorf("Failed to login to server %v.", nc.connInfo)
+		return nil, nil, err
 	}
 	connData, err := readLoginResponse(tcpConn)
 	if err != nil {
@@ -277,7 +279,10 @@ func (nc *nodeConn) handleProcedureInvocation(writer io.Writer, pi *procedureInv
 	}
 	(*requests)[pi.handle] = nr
 	*queuedBytes += pi.slen
-	serializePI(writer, pi)
+	e := wire.NewEncoder()
+	EncodePI(e, pi)
+	writer.Write(e.Bytes())
+	wire.PutEncoder(e)
 }
 
 func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRequest) {
@@ -330,24 +335,10 @@ func (nc *nodeConn) handleAsyncTimeout(req *networkRequest) {
 
 func (nc *nodeConn) sendPing(writer io.Writer) {
 	pi := newProcedureInvocationByHandle(PingHandle, true, "@Ping", []driver.Value{})
-	serializePI(writer, pi)
-}
-
-func writeLoginMessage(protocolVersion int, writer io.Writer, buf *bytes.Buffer) {
-	var netmsg bytes.Buffer
-	if protocolVersion == 0 {
-		length := buf.Len() + 1
-		writeInt(&netmsg, int32(length))
-		writeProtoVersion(&netmsg)
-	} else {
-		length := buf.Len() + 2
-		writeInt(&netmsg, int32(length))
-		writeProtoVersion(&netmsg)
-		writePasswordHashVersion(&netmsg)
-	}
-	// 1 copy + 1 n/w write benchmarks faster than 2 n/w writes.
-	io.Copy(&netmsg, buf)
-	io.Copy(writer, &netmsg)
+	e := wire.NewEncoder()
+	EncodePI(e, pi)
+	writer.Write(e.Bytes())
+	wire.PutEncoder(e)
 }
 
 func readLoginResponse(reader io.Reader) (*connectionData, error) {

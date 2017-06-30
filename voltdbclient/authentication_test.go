@@ -23,21 +23,6 @@ import (
 	"testing"
 )
 
-func TestLoginRequest(t *testing.T) {
-	var loginBytes []byte
-	loginBuf := bytes.NewBuffer(loginBytes)
-	login, err := serializeLoginMessage(protoVersion, "hello", "world")
-	check(t, err)
-	writeLoginMessage(protoVersion, loginBuf, &login)
-
-	fileBytes, err := ioutil.ReadFile("./test_resources/authentication_request_sha256.msg")
-	check(t, err)
-
-	if !bytes.Equal(loginBuf.Bytes(), fileBytes) {
-		t.Fatal("login message doesn't match expected contents")
-	}
-}
-
 func TestLoginResponse(t *testing.T) {
 	b, err := ioutil.ReadFile("./test_resources/authentication_response.msg")
 	check(t, err)
