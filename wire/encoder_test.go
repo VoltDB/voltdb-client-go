@@ -27,15 +27,21 @@ func TestEncoder_Byte(t *testing.T) {
 	}
 
 	sample := []int8{-128, -10, 0, 127}
+	d := &Decoder{}
 	for _, val := range sample {
 		e.Reset()
 		_, err = e.Byte(val)
 		if err != nil {
 			t.Error(err)
 		}
-
-		//TODO(gernest): Add Decoding implementation to verify that the encoded
-		//values are correct.
+		d.SetReader(e)
+		b, err := d.Byte()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if val != b {
+			t.Errorf("expected %d got %d", val, b)
+		}
 	}
 }
 
@@ -53,12 +59,26 @@ func TestEncoder_Int16(t *testing.T) {
 		t.Errorf("expected %d got %d", shortSize, n)
 	}
 
+	d := NewDecoder(e)
+	b1, err := d.Byte()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b2, err := d.Byte()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if byte(b1) != 0x4B && byte(b2) != 0xCD {
+		t.Errorf("writeShort has %v,%v wants %v,%v", b1, b2, 0xCD, 0x4B)
+	}
 }
 
 func TestEncoder_Int32(t *testing.T) {
 	t.Parallel()
 	sample := []int32{-100, -1, 0, 1, 100}
 	e := NewEncoder()
+	d := &Decoder{}
 	for _, v := range sample {
 		e.Reset()
 		n, err := e.Int32(v)
@@ -68,6 +88,14 @@ func TestEncoder_Int32(t *testing.T) {
 		if n != integerSize {
 			t.Errorf("expected %d got %d", integerSize, n)
 		}
+		d.SetReader(e)
+		i, err := d.Int32()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v != i {
+			t.Errorf("expected %v have %v", v, i)
+		}
 	}
 }
 
@@ -76,14 +104,23 @@ func TestEncoder_Float64(t *testing.T) {
 
 	sample := []float64{-100.1, -1.01, 0.0, 1.01, 100.1}
 	e := NewEncoder()
-
+	d := &Decoder{}
 	for _, v := range sample {
+		e.Reset()
 		n, err := e.Float64(v)
 		if err != nil {
 			t.Error(err)
 		}
 		if n != longSize {
 			t.Errorf("expected %d got %d", longSize, n)
+		}
+		d.SetReader(e)
+		f, err := d.Float64()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v != f {
+			t.Errorf("expected %v have %v", v, f)
 		}
 	}
 }
@@ -108,6 +145,31 @@ func TestEncoder_String(t *testing.T) {
 	if !bytes.Equal(b, expected) {
 		t.Errorf("expected %s got %s", string(expected), string(b))
 	}
+	d := NewDecoder(e)
+	for idx, val := range expected {
+		actual, err := d.Byte()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if val != byte(actual) {
+			t.Errorf("writeString at index %v has %v wants %v", idx, actual, val)
+		}
+	}
+
+	val := "⋒♈ℱ8 ♈ᗴᔕ♈ ᔕ♈ᖇᓰﬡᘐ"
+	e.Reset()
+	_, err = e.String(val)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.SetReader(e)
+	result, err := d.String()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != result {
+		t.Errorf("expected %v received %v", val, result)
+	}
 }
 
 func TestEncoder_Time(t *testing.T) {
@@ -122,8 +184,30 @@ func TestEncoder_Time(t *testing.T) {
 		t.Errorf("expected %d got %d", longSize, n)
 	}
 
-	//TODO(gernest): Add Decoder to verify the encoded values for time are
-	//correct.
+	d := NewDecoder(e)
+	result, err := d.Time()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsZero() {
+		t.Error("timestamp round trip failed. Want zero-value have non-zero")
+	}
+
+	e.Reset()
+	ts := time.Unix(-10000, 0)
+	_, err = e.Time(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.SetReader(e)
+	result, err = d.Time()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != ts {
+		t.Errorf("timestamp round trip failed, expected %s got %s",
+			ts.String(), result.String())
+	}
 }
 
 func TestEncoder_PtrParam(t *testing.T) {
