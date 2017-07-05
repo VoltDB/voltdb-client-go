@@ -18,22 +18,8 @@
 package voltdbclient
 
 import (
-	"bytes"
-	"io/ioutil"
 	"testing"
 )
-
-func TestLoginResponse(t *testing.T) {
-	b, err := ioutil.ReadFile("./test_resources/authentication_response.msg")
-	check(t, err)
-	reader := bytes.NewReader(b)
-	connData, err := readLoginResponse(reader)
-	check(t, err)
-	// consider as passed if returns non nil connection data
-	if connData == nil {
-		t.Fatal("login response didn't return connection data")
-	}
-}
 
 func check(t *testing.T, err error) {
 	if err != nil {
