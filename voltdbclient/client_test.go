@@ -279,18 +279,15 @@ func checkRowData(t *testing.T, rows VoltRows, expectedID int32, nIDIsNull bool,
 
 func TestDDLResult(t *testing.T) {
 
-	// Please comment the following line  to run this test
-	//
-	// This is intentionally skipped as it requires a live voltdb connection to
-	// run. If there is a running voltdb instance you can comment t.Skip() and
-	// adjust the connection string to point to your database instance.
-	t.Skip()
 	db, err := sql.Open("voltdb", "localhost:21212")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-
+	_, err = db.Exec("@AdHoc", "drop table foo if exists")
+	if err != nil {
+		t.Fatal(err)
+	}
 	s := `
 	CREATE TABLE foo(
 		n INTEGER,

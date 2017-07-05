@@ -12,7 +12,7 @@ func TestDecodeLoginInfo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	info, err := NewDecoder(bytes.NewReader(b)).LoginInfo()
+	info, err := NewDecoder(bytes.NewReader(b)).Login()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,8 +23,8 @@ func TestDecodeLoginInfo(t *testing.T) {
 		t.Errorf("expected 2 got %d", info.Connection)
 	}
 	ip := "127.0.0.1"
-	if info.LeaderAddr.String() != ip {
-		t.Errorf("expected %s got %s", ip, info.LeaderAddr.String())
+	if info.LeaderAddr.IP.String() != ip {
+		t.Errorf("expected %s got %s", ip, info.LeaderAddr.IP.String())
 	}
 	build := "volt_6.1_test_build_string"
 	if info.Build != build {

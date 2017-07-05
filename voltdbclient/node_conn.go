@@ -33,17 +33,9 @@ import (
 // start back pressure when this many bytes are queued for write
 const maxQueuedBytes = 262144
 
-// connectionData are the values returned by a successful login.
-type connectionData struct {
-	hostID      int32
-	connID      int64
-	leaderAddr  int32
-	buildString string
-}
-
 type nodeConn struct {
 	connInfo string
-	connData *connectionData
+	connData *wire.ConnInfo
 	tcpConn  *net.TCPConn
 
 	drainCh chan chan bool
@@ -115,32 +107,34 @@ func (nc *nodeConn) reconnect(protocolVersion int, piCh <-chan *procedureInvocat
 	}
 }
 
-func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *connectionData, error) {
+func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.ConnInfo, error) {
 	e := wire.NewEncoder()
+	d := &wire.Decoder{}
 	defer wire.PutEncoder(e)
 	raddr, err := net.ResolveTCPAddr("tcp", nc.connInfo)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Error resolving %v.", nc.connInfo)
+		return nil, nil, fmt.Errorf("error resolving %v", nc.connInfo)
 	}
 	tcpConn, err := net.DialTCP("tcp", nil, raddr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Failed to connect to server %v.", nc.connInfo)
+		return nil, nil, fmt.Errorf("failed to connect to server %v", nc.connInfo)
 	}
 	login, err := e.Login(protocolVersion, "", "")
 	if err != nil {
 		tcpConn.Close()
-		return nil, nil, fmt.Errorf("Failed to serialize login message %v.", nc.connInfo)
+		return nil, nil, fmt.Errorf("failed to serialize login message %v", nc.connInfo)
 	}
 	_, err = tcpConn.Write(login)
 	if err != nil {
 		return nil, nil, err
 	}
-	connData, err := readLoginResponse(tcpConn)
+	d.SetReader(tcpConn)
+	i, err := d.Login()
 	if err != nil {
 		tcpConn.Close()
-		return nil, nil, fmt.Errorf("Failed to login to server %v.", nc.connInfo)
+		return nil, nil, fmt.Errorf("failed to login to server %v", nc.connInfo)
 	}
-	return tcpConn, connData, nil
+	return tcpConn, i, nil
 }
 
 func (nc *nodeConn) drain(respCh chan bool) {
@@ -179,6 +173,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 	var drainRespCh chan bool
 	var queuedBytes int
 	var bp bool
+	decoder := &wire.Decoder{}
 
 	var tci = int64(DefaultQueryTimeout / 10)                    // timeout check interval
 	tcc := time.NewTimer(time.Duration(tci) * time.Nanosecond).C // timeout check timer channel
@@ -247,6 +242,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 			queuedBytes -= req.numBytes
 			delete(requests, handle)
 			if req.isSync() {
+				decoder.SetReader(resp)
 
 				nc.handleSyncResponse(handle, resp, req)
 			} else {
@@ -287,19 +283,20 @@ func (nc *nodeConn) handleProcedureInvocation(writer io.Writer, pi *procedureInv
 
 func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRequest) {
 	respCh := req.getChan()
-	rsp, err := deserializeResponse(r, handle)
+	d := wire.NewDecoder(r)
+	rsp, err := decodeResponse(d, handle)
 	if err != nil {
 		respCh <- err.(voltResponse)
 	} else if req.isQuery() {
 
-		if rows, err := deserializeRows(r, rsp); err != nil {
+		if rows, err := decodeRows(d, rsp); err != nil {
 			respCh <- err.(voltResponse)
 		} else {
 			respCh <- rows
 		}
 	} else {
 
-		if result, err := deserializeResult(r, rsp); err != nil {
+		if result, err := decodeResult(d, rsp); err != nil {
 			respCh <- err.(voltResponse)
 		} else {
 			respCh <- result
@@ -309,17 +306,18 @@ func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRe
 }
 
 func (nc *nodeConn) handleAsyncResponse(handle int64, r io.Reader, req *networkRequest) {
-	rsp, err := deserializeResponse(r, handle)
+	d := wire.NewDecoder(r)
+	rsp, err := decodeResponse(d, handle)
 	if err != nil {
 		req.arc.ConsumeError(err)
 	} else if req.isQuery() {
-		if rows, err := deserializeRows(r, rsp); err != nil {
+		if rows, err := decodeRows(d, rsp); err != nil {
 			req.arc.ConsumeError(err)
 		} else {
 			req.arc.ConsumeRows(rows)
 		}
 	} else {
-		if result, err := deserializeResult(r, rsp); err != nil {
+		if result, err := decodeResult(d, rsp); err != nil {
 			req.arc.ConsumeError(err)
 		} else {
 			req.arc.ConsumeResult(result)
@@ -339,15 +337,6 @@ func (nc *nodeConn) sendPing(writer io.Writer) {
 	EncodePI(e, pi)
 	writer.Write(e.Bytes())
 	wire.PutEncoder(e)
-}
-
-func readLoginResponse(reader io.Reader) (*connectionData, error) {
-	buf, err := readMessage(reader)
-	if err != nil {
-		return nil, err
-	}
-	connData, err := deserializeLoginResponse(buf)
-	return connData, err
 }
 
 // AsyncResponseConsumer is a type that consumes responses from asynchronous

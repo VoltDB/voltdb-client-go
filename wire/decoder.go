@@ -31,7 +31,10 @@ type ConnInfo struct {
 	ClusterStart time.Time
 
 	// IPV4 address of the leader node
-	LeaderAddr net.IP
+	LeaderAddr struct {
+		Value int32
+		IP    net.IP
+	}
 
 	// Representation of the build of the connected node
 	Build string
@@ -51,6 +54,10 @@ func NewDecoder(src io.Reader) *Decoder {
 // read from this
 func (d *Decoder) SetReader(r io.Reader) {
 	d.r = r
+}
+
+func (d *Decoder) Reset() {
+	d.r = nil
 }
 
 func (d *Decoder) Int32() (int32, error) {
@@ -162,6 +169,11 @@ func (d *Decoder) read(size int) ([]byte, error) {
 	return b, nil
 }
 
+// Read implements io.Reader
+func (d *Decoder) Read(b []byte) (int, error) {
+	return d.r.Read(b)
+}
+
 func (d *Decoder) Message() ([]byte, error) {
 	size, err := d.MessageHeader()
 	if err != nil {
@@ -187,15 +199,15 @@ func (d *Decoder) Byte() (int8, error) {
 	return int8(b[0]), nil
 }
 
-func (d *Decoder) LoginInfo() (*ConnInfo, error) {
+func (d *Decoder) Login() (*ConnInfo, error) {
 	msg, err := d.Message()
 	if err != nil {
 		return nil, err
 	}
-	return NewDecoder(bytes.NewReader(msg)).loginInfo()
+	return NewDecoder(bytes.NewReader(msg)).LoginInfo()
 }
 
-func (d *Decoder) loginInfo() (*ConnInfo, error) {
+func (d *Decoder) LoginInfo() (*ConnInfo, error) {
 	c := &ConnInfo{}
 
 	// version
@@ -234,8 +246,9 @@ func (d *Decoder) loginInfo() (*ConnInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.LeaderAddr = make(net.IP, IntegerSize)
-	endian.PutUint32(c.LeaderAddr, uint32(leader))
+	c.LeaderAddr.Value = leader
+	c.LeaderAddr.IP = make(net.IP, IntegerSize)
+	endian.PutUint32(c.LeaderAddr.IP, uint32(leader))
 
 	build, err := d.String()
 	if err != nil {

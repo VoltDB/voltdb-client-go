@@ -75,6 +75,7 @@ func BenchmarkDeserializeResponse(b *testing.B) {
 		b.Fatal(err)
 	}
 	r := bytes.NewReader([]byte{})
+	d := &wire.Decoder{}
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -82,8 +83,9 @@ func BenchmarkDeserializeResponse(b *testing.B) {
 		k := queryResponseSampleKey()
 		v := s[k]
 		r.Reset(v)
+		d.SetReader(r)
 		b.StartTimer()
-		_, err = deserializeResponse(r, h)
+		_, err = decodeResponse(d, h)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -247,18 +249,20 @@ func BenchmarkDeserializeRows(b *testing.B) {
 	}
 	var res voltResponse
 	r := bytes.NewReader([]byte{})
+	d := &wire.Decoder{}
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 		key := queryResponseSampleKey()
 		r.Reset(s[key])
-		res, err = deserializeResponse(r, h)
+		d.SetReader(r)
+		res, err = decodeResponse(d, h)
 		if err != nil {
 			b.Fatal(err, key)
 		}
 		b.StartTimer()
-		_, err = deserializeRows(r, res)
+		_, err = decodeRows(d, res)
 		if err != nil {
 			b.Fatal(err, key)
 		}
@@ -272,6 +276,7 @@ func BenchmarkDeserializeResult(b *testing.B) {
 	}
 	var res voltResponse
 	r := bytes.NewReader([]byte{})
+	d := &wire.Decoder{}
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -279,12 +284,13 @@ func BenchmarkDeserializeResult(b *testing.B) {
 		k := queryResponseSampleKey()
 		v := s[k]
 		r.Reset(v)
-		res, err = deserializeResponse(r, h)
+		d.SetReader(r)
+		res, err = decodeResponse(d, h)
 		if err != nil {
 			b.Fatal(err)
 		}
 		b.StartTimer()
-		_, err = deserializeResult(r, res)
+		_, err = decodeResult(d, res)
 		if err != nil {
 			b.Fatal(err)
 		}
