@@ -210,6 +210,19 @@ func TestEncoder_Time(t *testing.T) {
 	}
 }
 
+func TestEncoder_PtrParam(t *testing.T) {
+	f := 451.0
+	e := NewEncoder()
+	_, err := e.Marshal(&f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expLen := 9
+	if e.Len() != expLen {
+		t.Fatalf("expected %d got %d", expLen, e.Len())
+	}
+}
+
 func TestEncoder_IntArrayParam(t *testing.T) {
 	array := []int32{11, 12, 13}
 	e := NewEncoder()
