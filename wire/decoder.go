@@ -262,6 +262,10 @@ type DecoderAt struct {
 	r io.ReaderAt
 }
 
+func NewDecoderAt(r io.ReaderAt) *DecoderAt {
+	return &DecoderAt{r: r}
+}
+
 func (d *DecoderAt) SetReaderAt(r io.ReaderAt) {
 	d.r = r
 }
