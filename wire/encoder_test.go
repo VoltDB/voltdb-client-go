@@ -210,7 +210,7 @@ func TestEncoder_Time(t *testing.T) {
 	}
 }
 
-func TestEncoder_PtrParam(t *testing.T) {
+func TestEncoder_IntArrayParam(t *testing.T) {
 	array := []int32{11, 12, 13}
 	e := NewEncoder()
 	_, err := e.Marshal(&array)
