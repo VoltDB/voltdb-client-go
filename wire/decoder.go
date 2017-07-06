@@ -12,7 +12,7 @@ import (
 //integer sizes
 const (
 	ByteSize    = 1
-	ShortSizer  = 2
+	ShortSize   = 2
 	IntegerSize = 4
 	LongSize    = 8
 )
@@ -129,7 +129,7 @@ func (d *Decoder) String() (string, error) {
 }
 
 func (d *Decoder) Uint16() (uint16, error) {
-	b, err := d.read(ShortSizer)
+	b, err := d.read(ShortSize)
 	if err != nil {
 		return 0, err
 	}
