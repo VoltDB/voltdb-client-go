@@ -72,7 +72,6 @@ func (nc *nodeConn) connect(protocolVersion int, piCh <-chan *procedureInvocatio
 	if err != nil {
 		return err
 	}
-
 	nc.connData = connData
 	nc.tcpConn = tcpConn
 
@@ -150,8 +149,10 @@ func (nc *nodeConn) hasBP() bool {
 // listen listens for messages from the server and calls back a registered listener.
 // listen blocks on input from the server and should be run as a go routine.
 func (nc *nodeConn) listen(reader io.Reader, responseCh chan<- *bytes.Buffer) {
+	d := wire.NewDecoder(reader)
+	s := &wire.Decoder{}
 	for {
-		buf, err := readMessage(reader)
+		b, err := d.Message()
 		if err != nil {
 			if responseCh == nil {
 				// exiting
@@ -159,6 +160,15 @@ func (nc *nodeConn) listen(reader io.Reader, responseCh chan<- *bytes.Buffer) {
 			}
 			// TODO: put the error on the channel
 			// the owner needs to reconnect
+			return
+		}
+		buf := bytes.NewBuffer(b)
+		s.SetReader(buf)
+		_, err = s.Byte()
+		if err != nil {
+			if responseCh == nil {
+				return
+			}
 			return
 		}
 		responseCh <- buf
@@ -182,7 +192,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 	var pingTimeout = 2 * time.Minute
 	pingSentTime := time.Now()
 	var pingOutstanding bool
-
+	d := &wire.Decoder{}
 	for {
 		// setup select cases
 		if draining {
@@ -223,7 +233,9 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 		case pi := <-piCh:
 			nc.handleProcedureInvocation(writer, pi, &requests, &queuedBytes)
 		case resp := <-responseCh:
-			handle, err := readLong(resp)
+			d.SetReader(resp)
+			handle, err := d.Int64()
+			d.Reset()
 			// can't do anything without a handle.  If reading the handle fails,
 			// then log and drop the message.
 			if err != nil {

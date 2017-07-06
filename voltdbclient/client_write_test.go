@@ -21,6 +21,8 @@ import (
 	"bytes"
 	"fmt"
 	"testing"
+
+	"github.com/VoltDB/voltdb-client-go/wire"
 )
 
 func checkSimpleBuffer(t *testing.T, r *bytes.Reader, expectedBtt byte, expectedPName string, expectedHandle int64,
@@ -85,8 +87,8 @@ func checkSimpleBuffer(t *testing.T, r *bytes.Reader, expectedBtt byte, expected
 		t.Errorf("Failed reading colType %s\n", err)
 		return
 	}
-	if colType != VTString {
-		t.Errorf("For stringParamOne, expected colType %d but saw %d\n", VTString, colType)
+	if colType != wire.StringColumn {
+		t.Errorf("For stringParamOne, expected colType %d but saw %d\n", wire.StringColumn, colType)
 		return
 	}
 	offset++
@@ -107,8 +109,8 @@ func checkSimpleBuffer(t *testing.T, r *bytes.Reader, expectedBtt byte, expected
 		t.Error(fmt.Printf("Failed reading colType %s\n", err))
 		return
 	}
-	if colType != VTString {
-		t.Errorf("For stringParamOne, expected colType %d but saw %d\n", VTString, colType)
+	if colType != wire.StringColumn {
+		t.Errorf("For stringParamOne, expected colType %d but saw %d\n", wire.StringColumn, colType)
 		return
 	}
 	offset++
@@ -129,8 +131,8 @@ func checkSimpleBuffer(t *testing.T, r *bytes.Reader, expectedBtt byte, expected
 		t.Error(fmt.Printf("Failed reading colType %s\n", err))
 		return
 	}
-	if colType != VTString {
-		t.Errorf("For stringParamOne, expected colType %d but saw %d\n", VTString, colType)
+	if colType != wire.StringColumn {
+		t.Errorf("For stringParamOne, expected colType %d but saw %d\n", wire.StringColumn, colType)
 		return
 	}
 	offset++

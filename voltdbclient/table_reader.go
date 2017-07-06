@@ -19,8 +19,11 @@ package voltdbclient
 
 import (
 	"bytes"
+	"encoding/binary"
 	"math"
 )
+
+var order = binary.BigEndian
 
 func readByteAt(r *bytes.Reader, off int64) (byte, error) {
 	var b [1]byte
