@@ -71,9 +71,28 @@ func newConn(cis []string) (*Conn, error) {
 	return c, nil
 }
 
-// OpenConn returns a new connection to the VoltDB server.  The name is a
-// string in a driver-specific format.  The returned connection can be used by
-// only one goroutine at a time.
+// OpenConn returns a new connection to the VoltDB server.  The name is a string
+// in a driver-specific format.  The returned connection can be used by only one
+// goroutine at a time.
+//
+// By default voltdb doesn't require authentication,
+// clients connecting to un secured database have access to everything.
+// Supplying connection credentials doesn't affect for non secured databases
+//
+// Here we authenticate if username and password are supplied, if they are not
+// then a connection is established without doing the authentication
+//
+// Connection string is similar to postgres, default port is 21212
+//
+// voltdb://
+// voltdb://localhost
+// voltdb://localhost:21212
+// voltdb://user@localhost
+// voltdb://user:secret@localhost
+// voltdb://other@localhost?some_param=some_value
+//
+// You can omit the port,and the default port of 21212 will be automatically
+// added for you.
 func OpenConn(ci string) (*Conn, error) {
 	cis := strings.Split(ci, ",")
 	return newConn(cis)

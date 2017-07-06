@@ -295,3 +295,25 @@ func TestDDLResult(t *testing.T) {
 		t.Errorf("expected 0 got %d", rows)
 	}
 }
+
+func TestOpenAuth(t *testing.T) {
+
+	// This tests authenticating with voltdb instance.To successful run this
+	// testcase make sure you have a voltdb instance with security enabled with
+	// username user ans password secret
+	t.Skip() // comment this to run the test
+	username := "user"
+	passwd := "secret"
+
+	conn := fmt.Sprintf("voltdb://%s:%s@localhost", username, passwd)
+	db, err := sql.Open("voltdb", conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec("@AdHoc", "drop table some_random_table if exists")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
