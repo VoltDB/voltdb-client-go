@@ -221,6 +221,23 @@ func TestEncoder_PtrParam(t *testing.T) {
 	if e.Len() != expLen {
 		t.Fatalf("expected %d got %d", expLen, e.Len())
 	}
+
+	a := NewDecoderAt(bytes.NewReader(e.Bytes()))
+	v, err := a.ByteAt(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int8(v) != FloatColumn {
+		t.Errorf("expected %v got %v", FloatColumn, v)
+	}
+
+	fv, err := a.Float64At(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fv != f {
+		t.Errorf("expected %v got %v", f, fv)
+	}
 }
 
 func TestEncoder_IntArrayParam(t *testing.T) {
@@ -234,13 +251,60 @@ func TestEncoder_IntArrayParam(t *testing.T) {
 	if e.Len() != expLen {
 		t.Fatalf("expected %d got %d", expLen, e.Len())
 	}
+
+	var offset int64
+	a := NewDecoderAt(bytes.NewReader(e.Bytes()))
+	v, err := a.ByteAt(offset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int8(v) != ArrayColumn {
+		t.Errorf("expected %v got %v", ArrayColumn, v)
+	}
+	offset++
+
+	i, err := a.Int16(offset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i != 3 {
+		t.Errorf("expected %v got %v", 3, i)
+	}
+	offset += 2
+	for _, exp := range array {
+		v, err = a.ByteAt(offset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if int8(v) != IntColumn {
+			t.Errorf("expected %v got %v", IntColumn, v)
+		}
+		offset++
+
+		iv, err := a.Int32At(offset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if iv != exp {
+			t.Errorf("expected %v got %v", exp, iv)
+		}
+		offset += 4
+	}
 }
 
 func TestEncoder_StringSliceParam(t *testing.T) {
-	array := []string{"zero", "one", "two", "three", "four", "five", "six",
-		"seven", "eight", "nine", "ten", "eleven",
-		"twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
-		"eighteen", "nineteen"}
+	array := []string{
+		"zero", "one",
+		"two", "three",
+		"four", "five",
+		"six", "seven",
+		"eight", "nine",
+		"ten", "eleven",
+		"twelve", "thirteen",
+		"fourteen", "fifteen",
+		"sixteen", "seventeen",
+		"eighteen", "nineteen",
+	}
 	expLen := 213
 	e := NewEncoder()
 	_, err := e.Marshal(array)
@@ -249,6 +313,45 @@ func TestEncoder_StringSliceParam(t *testing.T) {
 	}
 	if e.Len() != expLen {
 		t.Fatalf("expected %d got %d", expLen, e.Len())
+	}
+
+	var offset int64
+	a := NewDecoderAt(bytes.NewReader(e.Bytes()))
+	v, err := a.ByteAt(offset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int8(v) != ArrayColumn {
+		t.Errorf("expected %v got %v", ArrayColumn, v)
+	}
+	offset++
+
+	i, err := a.Int16(offset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i != 20 {
+		t.Errorf("expected %v got %v", 20, i)
+	}
+	offset += 2
+	for _, exp := range array {
+		v, err = a.ByteAt(offset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if int8(v) != StringColumn {
+			t.Errorf("expected %v got %v", StringColumn, v)
+		}
+		offset++
+
+		iv, err := a.StringAt(offset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if iv != exp {
+			t.Errorf("expected %v got %v", exp, iv)
+		}
+		offset += int64((4 + len(exp)))
 	}
 }
 
@@ -263,6 +366,45 @@ func TestEncoder_FloatSLiceParam(t *testing.T) {
 
 	if e.Len() != expLen {
 		t.Fatalf("expected %d got %d", e.Len(), expLen)
+	}
+
+	var offset int64
+	a := NewDecoderAt(bytes.NewReader(e.Bytes()))
+	v, err := a.ByteAt(offset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int8(v) != ArrayColumn {
+		t.Errorf("expected %v got %v", ArrayColumn, v)
+	}
+	offset++
+
+	i, err := a.Int16(offset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i != 3 {
+		t.Errorf("expected %v got %v", 3, i)
+	}
+	offset += 2
+	for _, exp := range array {
+		v, err = a.ByteAt(offset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if int8(v) != FloatColumn {
+			t.Errorf("expected %v got %v", FloatColumn, v)
+		}
+		offset++
+
+		iv, err := a.Float64At(offset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if iv != exp {
+			t.Errorf("expected %v got %v", exp, iv)
+		}
+		offset += 8
 	}
 }
 

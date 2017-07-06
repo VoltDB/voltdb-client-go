@@ -349,3 +349,19 @@ func (d *DecoderAt) StringAt(offset int64) (string, error) {
 	}
 	return string(b), nil
 }
+
+func (d *DecoderAt) Uint16(offset int64) (uint16, error) {
+	b, err := d.readAt(shortSize, offset)
+	if err != nil {
+		return 0, err
+	}
+	return endian.Uint16(b), nil
+}
+
+func (d *DecoderAt) Int16(offset int64) (int16, error) {
+	v, err := d.Uint16(offset)
+	if err != nil {
+		return 0, err
+	}
+	return int16(v), nil
+}
