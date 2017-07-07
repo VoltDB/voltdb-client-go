@@ -300,7 +300,7 @@ func TestOpenAuth(t *testing.T) {
 
 	// This tests authenticating with voltdb instance.To successful run this
 	// testcase make sure you have a voltdb instance with security enabled with
-	// username user ans password secret
+	// username user and password secret
 	t.Skip() // comment this to run the test
 	username := "user"
 	passwd := "secret"
