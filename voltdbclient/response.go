@@ -341,22 +341,22 @@ func decodeTableForRows(d *wire.Decoder) (*voltTable, error) {
 	// length prefixed arrays. they are really just columnCount
 	// len sequences of bytes (types) and strings (names).
 	var i int16
-	var columnTypes []int8
+	columnTypes := make([]int8, colCount)
 	for i = 0; i < colCount; i++ {
 		ct, err := d.Byte()
 		if err != nil {
 			return nil, err
 		}
-		columnTypes = append(columnTypes, ct)
+		columnTypes[i] = ct
 	}
 
-	var columnNames []string
+	columnNames := make([]string, colCount)
 	for i = 0; i < colCount; i++ {
 		cn, err := d.String()
 		if err != nil {
 			return nil, err
 		}
-		columnNames = append(columnNames, cn)
+		columnNames[i] = cn
 	}
 
 	rowCount, err := d.Int32()
