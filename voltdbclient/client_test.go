@@ -122,7 +122,9 @@ func checkRowData(t *testing.T, rows VoltRows, expectedID int32, nIDIsNull bool,
 	lastUpdatedIsNull bool, expectedLastUpdated string) {
 	// ID
 	iID, err := rows.GetIntegerByName("ID")
-	check(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	id := iID.(int32)
 	if expectedID != id {
 		t.Error(fmt.Printf("For ID, expected %d but saw %d\n", expectedID, id))
@@ -130,7 +132,9 @@ func checkRowData(t *testing.T, rows VoltRows, expectedID int32, nIDIsNull bool,
 
 	// NULLABLE_ID
 	iNID, err := rows.GetIntegerByName("NULLABLE_ID")
-	check(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if iNID != nil {
 		nID := iNID.(int32)
 		if nIDIsNull || expectedNID != nID {
@@ -144,7 +148,9 @@ func checkRowData(t *testing.T, rows VoltRows, expectedID int32, nIDIsNull bool,
 
 	// NAME
 	iName, err := rows.GetStringByName("NAME")
-	check(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if iName != nil {
 		name := iName.(string)
 		if nameIsNull || expectedName != name {
@@ -159,7 +165,9 @@ func checkRowData(t *testing.T, rows VoltRows, expectedID int32, nIDIsNull bool,
 
 	// DATA
 	iData, err := rows.GetVarbinaryByName("DATA")
-	check(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if iData != nil {
 		data := iData.([]byte)
 		if dataIsNull || !strings.HasPrefix(string(data), expectedPrefix) {
@@ -173,7 +181,9 @@ func checkRowData(t *testing.T, rows VoltRows, expectedID int32, nIDIsNull bool,
 
 	// STATUS
 	iStatus, err := rows.GetTinyIntByName("STATUS")
-	check(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if iStatus != nil {
 		status := iStatus.(int8)
 		if statusIsNull || expectedStatus != status {
@@ -187,7 +197,9 @@ func checkRowData(t *testing.T, rows VoltRows, expectedID int32, nIDIsNull bool,
 
 	// TYPE
 	iType, err := rows.GetSmallIntByName("TYPE")
-	check(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if iType != nil {
 		typ := iType.(int16)
 		if typeIsNull || expectedType != typ {
@@ -201,7 +213,9 @@ func checkRowData(t *testing.T, rows VoltRows, expectedID int32, nIDIsNull bool,
 
 	// PAN
 	iPan, err := rows.GetBigIntByName("PAN")
-	check(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if iPan != nil {
 		pan := iPan.(int64)
 		if panIsNull || expectedPan != pan {
@@ -215,7 +229,9 @@ func checkRowData(t *testing.T, rows VoltRows, expectedID int32, nIDIsNull bool,
 
 	// BALANCE_OPEN
 	iBo, err := rows.GetFloatByName("BALANCE_OPEN")
-	check(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if iBo != nil {
 		bo := iBo.(float64)
 		if boIsNull || expectedBo != bo {
@@ -229,7 +245,9 @@ func checkRowData(t *testing.T, rows VoltRows, expectedID int32, nIDIsNull bool,
 
 	// BALANCE
 	iBalance, err := rows.GetDecimalByName("BALANCE")
-	check(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if iBalance != nil {
 		balance := iBalance.(*big.Float)
 		fl, _ := balance.Float64()
@@ -244,7 +262,9 @@ func checkRowData(t *testing.T, rows VoltRows, expectedID int32, nIDIsNull bool,
 
 	// LAST_UPDATED
 	iLu, err := rows.GetTimestampByName("LAST_UPDATED")
-	check(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if iLu != nil {
 		lu := iLu.(time.Time)
 		if lastUpdatedIsNull || expectedLastUpdated != lu.String() {
@@ -259,18 +279,15 @@ func checkRowData(t *testing.T, rows VoltRows, expectedID int32, nIDIsNull bool,
 
 func TestDDLResult(t *testing.T) {
 
-	// Please comment the following line  to run this test
-	//
-	// This is intentionally skipped as it requires a live voltdb connection to
-	// run. If there is a running voltdb instance you can comment t.Skip() and
-	// adjust the connection string to point to your database instance.
-	t.Skip()
 	db, err := sql.Open("voltdb", "localhost:21212")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-
+	_, err = db.Exec("@AdHoc", "drop table foo if exists")
+	if err != nil {
+		t.Fatal(err)
+	}
 	s := `
 	CREATE TABLE foo(
 		n INTEGER,

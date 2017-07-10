@@ -20,6 +20,8 @@ package voltdbclient
 import (
 	"bytes"
 	"fmt"
+
+	"github.com/VoltDB/voltdb-client-go/wire"
 )
 
 const invalidRowIndex = -1
@@ -92,6 +94,7 @@ func (vt *voltTable) calcOffsets() error {
 }
 
 func (vt *voltTable) colLength(r *bytes.Reader, offset int32, colType int8) (int32, error) {
+	a := wire.NewDecoderAt(r)
 	switch colType {
 	case -99: // ARRAY
 		return 0, fmt.Errorf("Not supporting ARRAY")
@@ -108,7 +111,7 @@ func (vt *voltTable) colLength(r *bytes.Reader, offset int32, colType int8) (int
 	case 8: // FLOAT
 		return 8, nil
 	case 9: // STRING
-		strlen, err := readInt32At(r, int64(offset))
+		strlen, err := a.Int32At(int64(offset))
 		if err != nil {
 			return 0, err
 		}
@@ -121,7 +124,7 @@ func (vt *voltTable) colLength(r *bytes.Reader, offset int32, colType int8) (int
 	case 22: // DECIMAL
 		return 16, nil
 	case 25: // VARBINARY
-		strlen, err := readInt32At(r, int64(offset))
+		strlen, err := a.Int32At(int64(offset))
 		if err != nil {
 			return 0, err
 		}

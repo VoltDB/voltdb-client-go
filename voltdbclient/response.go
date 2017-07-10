@@ -20,8 +20,9 @@ package voltdbclient
 import (
 	"errors"
 	"fmt"
-	"io"
 	"math"
+
+	"github.com/VoltDB/voltdb-client-go/wire"
 )
 
 type voltResponse interface {
@@ -162,16 +163,17 @@ func (rs ResponseStatus) String() string {
 	panic(fmt.Sprintf("Invalid status code: %d", int(rs)))
 }
 
-func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse, volterr error) {
+func decodeResponse(d *wire.Decoder, handle int64) (rsp voltResponse, volterr error) {
 	// Some fields are optionally included in the response.  Which of these optional
 	// fields are included is indicated by this byte, 'fieldsPresent'.  The set
 	// of optional fields includes 'statusString', 'appStatusString', and 'exceptionLength'.
-	fieldsPresent, err := readUint8(r)
+	u, err := d.Byte()
 	if err != nil {
 		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 	}
+	fieldsPresent := uint8(u)
 
-	b, err := readByte(r)
+	b, err := d.Byte()
 	status := ResponseStatus(b)
 	if err != nil {
 		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
@@ -179,7 +181,7 @@ func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse, volterr e
 	var statusString string
 	if status != Success {
 		if fieldsPresent&(1<<5) != 0 {
-			statusString, err = readString(r)
+			statusString, err = d.String()
 			if err != nil {
 				return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 			}
@@ -188,7 +190,7 @@ func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse, volterr e
 		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: errors.New(errString)}
 	}
 
-	b, err = readByte(r)
+	b, err = d.Byte()
 	appStatus := ResponseStatus(b)
 	if err != nil {
 		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
@@ -196,7 +198,7 @@ func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse, volterr e
 	var appStatusString string
 	if appStatus != 0 && appStatus != math.MinInt8 {
 		if fieldsPresent&(1<<7) != 0 {
-			appStatusString, err = readString(r)
+			appStatusString, err = d.String()
 			if err != nil {
 				return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 			}
@@ -205,12 +207,12 @@ func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse, volterr e
 		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: errors.New(errString)}
 	}
 
-	clusterRoundTripTime, err := readInt(r)
+	clusterRoundTripTime, err := d.Int32()
 	if err != nil {
 		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 	}
 
-	numTables, err := readShort(r)
+	numTables, err := d.Int16()
 	if err != nil {
 		return *(newVoltRows(rsp, nil)), VoltError{voltResponse: emptyVoltResponseInfoWithLatency(clusterRoundTripTime), error: err}
 	}
@@ -223,12 +225,12 @@ func deserializeResponse(r io.Reader, handle int64) (rsp voltResponse, volterr e
 	return *(newVoltResponseInfo(handle, status, statusString, appStatus, appStatusString, clusterRoundTripTime, numTables)), nil
 }
 
-func deserializeResult(r io.Reader, rsp voltResponse) (VoltResult, error) {
+func decodeResult(d *wire.Decoder, rsp voltResponse) (VoltResult, error) {
 	numTables := rsp.getNumTables()
 	ras := make([]int64, numTables)
 	var i int16
 	for ; i < numTables; i++ {
-		ra, err := deserializeTableForResult(r)
+		ra, err := decodeTableForResult(d)
 		if err != nil {
 			return *(newVoltResult(rsp, []int64{0})), VoltError{voltResponse: rsp, error: err}
 		}
@@ -238,12 +240,12 @@ func deserializeResult(r io.Reader, rsp voltResponse) (VoltResult, error) {
 	return *res, nil
 }
 
-func deserializeRows(r io.Reader, rsp voltResponse) (VoltRows, error) {
+func decodeRows(d *wire.Decoder, rsp voltResponse) (VoltRows, error) {
 	var err error
 	numTables := rsp.getNumTables()
 	tables := make([]*voltTable, numTables)
 	for idx := range tables {
-		if tables[idx], err = deserializeTableForRows(r); err != nil {
+		if tables[idx], err = decodeTableForRows(d); err != nil {
 			return *(newVoltRows(rsp, nil)), VoltError{voltResponse: rsp, error: err}
 		}
 	}
@@ -251,17 +253,17 @@ func deserializeRows(r io.Reader, rsp voltResponse) (VoltRows, error) {
 	return *vr, nil
 }
 
-func deserializeTableCommon(r io.Reader) (colCount int16, err error) {
-	_, err = readInt(r) // ttlLength
+func decodeTableCommon(d *wire.Decoder) (colCount int16, err error) {
+	_, err = d.Int32() // ttlLength
 	if err != nil {
 		return 0, err
 	}
-	_, err = readInt(r) // metaLength
+	_, err = d.Int32() // metaLength
 	if err != nil {
 		return 0, err
 	}
 
-	statusCode, err := readByte(r)
+	statusCode, err := d.Byte()
 	if err != nil {
 		return 0, err
 	}
@@ -271,7 +273,7 @@ func deserializeTableCommon(r io.Reader) (colCount int16, err error) {
 		return 0, fmt.Errorf("Bad return status on table %d", statusCode)
 	}
 
-	colCount, err = readShort(r)
+	colCount, err = d.Int16()
 	if err != nil {
 		return 0, err
 	}
@@ -279,10 +281,12 @@ func deserializeTableCommon(r io.Reader) (colCount int16, err error) {
 }
 
 // for a result, care only about the number of rows.
-func deserializeTableForResult(r io.Reader) (rowsAff int64, err error) {
+
+// for a result, care only about the number of rows.
+func decodeTableForResult(d *wire.Decoder) (rowsAff int64, err error) {
 
 	var colCount int16
-	colCount, err = deserializeTableCommon(r)
+	colCount, err = decodeTableCommon(d)
 	if err != nil {
 		return 0, err
 	}
@@ -290,7 +294,7 @@ func deserializeTableForResult(r io.Reader) (rowsAff int64, err error) {
 		return 0, errors.New("Unexpected number of columns for result")
 	}
 
-	colType, err := readByte(r)
+	colType, err := d.Byte()
 	if err != nil {
 		return 0, err
 	}
@@ -298,7 +302,7 @@ func deserializeTableForResult(r io.Reader) (rowsAff int64, err error) {
 		return 0, errors.New("Unexpected columntype for result")
 	}
 
-	cname, err := readString(r)
+	cname, err := d.String()
 	if err != nil {
 		return 0, err
 	}
@@ -307,7 +311,7 @@ func deserializeTableForResult(r io.Reader) (rowsAff int64, err error) {
 		return 0, errors.New("Expected 'modified_tuples'  or STATUS  for column name for result")
 	}
 
-	rowCount, err := readInt(r)
+	rowCount, err := d.Int32()
 	if err != nil {
 		return 0, err
 	}
@@ -315,20 +319,20 @@ func deserializeTableForResult(r io.Reader) (rowsAff int64, err error) {
 		return 0, errors.New("Expected one row for result")
 	}
 
-	rowLen, err := readInt(r)
+	rowLen, err := d.Int32()
 	if err != nil {
 		return 0, err
 	}
 	if rowLen != 8 {
 		return 0, errors.New("Expected a long value result")
 	}
-	return readLong(r)
+	return d.Int64()
 }
 
-func deserializeTableForRows(r io.Reader) (*voltTable, error) {
+func decodeTableForRows(d *wire.Decoder) (*voltTable, error) {
 
 	var colCount int16
-	colCount, err := deserializeTableCommon(r)
+	colCount, err := decodeTableCommon(d)
 	if err != nil {
 		return nil, err
 	}
@@ -337,25 +341,25 @@ func deserializeTableForRows(r io.Reader) (*voltTable, error) {
 	// length prefixed arrays. they are really just columnCount
 	// len sequences of bytes (types) and strings (names).
 	var i int16
-	var columnTypes []int8
+	columnTypes := make([]int8, colCount)
 	for i = 0; i < colCount; i++ {
-		ct, err := readByte(r)
+		ct, err := d.Byte()
 		if err != nil {
 			return nil, err
 		}
-		columnTypes = append(columnTypes, ct)
+		columnTypes[i] = ct
 	}
 
-	var columnNames []string
+	columnNames := make([]string, colCount)
 	for i = 0; i < colCount; i++ {
-		cn, err := readString(r)
+		cn, err := d.String()
 		if err != nil {
 			return nil, err
 		}
-		columnNames = append(columnNames, cn)
+		columnNames[i] = cn
 	}
 
-	rowCount, err := readInt(r)
+	rowCount, err := d.Int32()
 	if err != nil {
 		return nil, err
 	}
@@ -364,9 +368,9 @@ func deserializeTableForRows(r io.Reader) (*voltTable, error) {
 	//var offset int64 = 0
 	var rowI int32
 	for rowI = 0; rowI < rowCount; rowI++ {
-		rowLen, _ := readInt(r)
+		rowLen, _ := d.Int32()
 		rows[rowI] = make([]byte, rowLen)
-		_, _ = r.Read(rows[rowI])
+		_, _ = d.Read(rows[rowI])
 		//offset += int64(rowLen + 4)
 	}
 

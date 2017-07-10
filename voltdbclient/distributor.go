@@ -139,7 +139,7 @@ func (c *Conn) start(cis []string) error {
 		if err == nil {
 			connected = append(connected, nc)
 			if c.useClientAffinity {
-				hostIDToConnection[int(nc.connData.hostID)] = nc
+				hostIDToConnection[int(nc.connData.HostID)] = nc
 			}
 		} else {
 			disconnected = append(disconnected, nc)

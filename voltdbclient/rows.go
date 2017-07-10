@@ -20,6 +20,7 @@ package voltdbclient
 import (
 	"bytes"
 	"database/sql/driver"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -31,6 +32,7 @@ import (
 
 var nullDecimal = [...]byte{128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 var nullTimestamp = [...]byte{128, 0, 0, 0, 0, 0, 0, 0}
+var order = binary.BigEndian
 
 // VoltRows is an implementation of database/sql/driver.Rows.
 //

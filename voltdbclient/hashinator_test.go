@@ -6,6 +6,8 @@ import (
 	"io/ioutil"
 	r "math/rand"
 	"testing"
+
+	"github.com/VoltDB/voltdb-client-go/wire"
 )
 
 func BenchmarkHashinater_getHashedPartitionForParameter_int32(b *testing.B) {
@@ -17,7 +19,7 @@ func BenchmarkHashinater_getHashedPartitionForParameter_int32(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	pType := int(VTInt)
+	pType := int(wire.IntColumn)
 	pVal := driver.Value(r.Int31())
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -38,7 +40,7 @@ func BenchmarkHashinater_getHashedPartitionForParameter_int64(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	pTyp := int(VTLong)
+	pTyp := int(wire.LongColumn)
 	pVal := driver.Value(r.Int63())
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -60,7 +62,7 @@ func BenchmarkHashinater_getHashedPartitionForParameter_String(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	pType := int(VTString)
+	pType := int(wire.StringColumn)
 	pVal := driver.Value("123456789012345")
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -84,7 +86,7 @@ func BenchmarkHashinater_getHashedPartitionForParameter_Bytes(b *testing.B) {
 	}
 	valueToHash := make([]byte, 1000)
 	_, _ = rand.Read(valueToHash)
-	pType := int(VTVarBin)
+	pType := int(wire.VarBinColumn)
 	pVal := driver.Value(valueToHash)
 	b.ResetTimer()
 	b.ReportAllocs()

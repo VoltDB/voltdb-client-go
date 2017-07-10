@@ -41,7 +41,7 @@ const (
 
 var epool = sync.Pool{
 	New: func() interface{} {
-		return &Encoder{buf: &bytes.Buffer{}}
+		return &Encoder{buf: &bytes.Buffer{}, tmp: &bytes.Buffer{}}
 	},
 }
 
@@ -57,6 +57,7 @@ var endian = binary.BigEndian
 // To retrieve []byte of the encoded values use Bytes method.
 type Encoder struct {
 	buf *bytes.Buffer
+	tmp *bytes.Buffer
 }
 
 // NewEncoder returns a new Encoder instance
@@ -76,6 +77,7 @@ func PutEncoder(e *Encoder) {
 //Call this to reuse the Encoder and avoid unnecessary allocations.
 func (e *Encoder) Reset() {
 	e.buf.Reset()
+	e.tmp.Reset()
 }
 
 // Len retuns the size of the cueent encoded values
@@ -168,7 +170,9 @@ func (e *Encoder) Bool(v bool) (int, error) {
 // like []byte. We first encode the size of the string, followed by the raw
 // bytes of the string.
 func (e *Encoder) String(v string) (int, error) {
-	return e.Binary([]byte(v))
+	e.tmp.Reset()
+	e.tmp.WriteString(v)
+	return e.Binary(e.tmp.Bytes())
 }
 
 // Time encodes time.Time value to voltdb wire protocol time.
