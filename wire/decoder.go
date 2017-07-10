@@ -300,14 +300,19 @@ func (d *Decoder) LoginInfo() (*ConnInfo, error) {
 	return c, nil
 }
 
+// DecoderAt is like Decoder but accepts additional offset that is used to
+// determine where to read on the underlying io.ReaderAt
 type DecoderAt struct {
 	r io.ReaderAt
 }
 
+// NewDecoderAt retruns new DecoderAt instance that is reading from r.
 func NewDecoderAt(r io.ReaderAt) *DecoderAt {
 	return &DecoderAt{r: r}
 }
 
+// SetReaderAt changes the underlying io.ReaderAt to r. Any next call on the
+// *Decoder methods will read from r.
 func (d *DecoderAt) SetReaderAt(r io.ReaderAt) {
 	d.r = r
 }
@@ -321,6 +326,8 @@ func (d *DecoderAt) readAt(size int, offset int64) ([]byte, error) {
 	return b, nil
 }
 
+// ByteAt decodes voltdb wire protocol encoded []byte read from the given offset
+// to int8.
 func (d *DecoderAt) ByteAt(offset int64) (byte, error) {
 	b, err := d.readAt(ByteSize, offset)
 	if err != nil {
@@ -329,6 +336,8 @@ func (d *DecoderAt) ByteAt(offset int64) (byte, error) {
 	return b[0], nil
 }
 
+// Uint32At decodes voltdb wire protocol encoded []byte read from the given
+// offset to uint32.
 func (d *DecoderAt) Uint32At(offset int64) (uint32, error) {
 	b, err := d.readAt(IntegerSize, offset)
 	if err != nil {
@@ -337,6 +346,8 @@ func (d *DecoderAt) Uint32At(offset int64) (uint32, error) {
 	return endian.Uint32(b), nil
 }
 
+// Int32At decodes voltdb wire protocol encoded []byte read from the given offset
+// to int32.
 func (d *DecoderAt) Int32At(offset int64) (int32, error) {
 	v, err := d.Uint32At(offset)
 	if err != nil {
@@ -345,6 +356,8 @@ func (d *DecoderAt) Int32At(offset int64) (int32, error) {
 	return int32(v), nil
 }
 
+// ByteSliceAt decodes voltdb wire protocol encoded []byte read from the given
+// offset to []byte.
 func (d *DecoderAt) ByteSliceAt(offset int64) ([]byte, error) {
 	size, err := d.Int32At(offset)
 	if err != nil {
@@ -356,6 +369,8 @@ func (d *DecoderAt) ByteSliceAt(offset int64) ([]byte, error) {
 	return d.readAt(int(size), offset+IntegerSize)
 }
 
+// Uint64At decodes voltdb wire protocol encoded []byte read from the given
+// offset to uint64.
 func (d *DecoderAt) Uint64At(offset int64) (uint64, error) {
 	b, err := d.readAt(LongSize, offset)
 	if err != nil {
@@ -364,6 +379,8 @@ func (d *DecoderAt) Uint64At(offset int64) (uint64, error) {
 	return endian.Uint64(b), nil
 }
 
+// Int64At decodes voltdb wire protocol encoded []byte read from the given
+// offset to int64.
 func (d *DecoderAt) Int64At(offset int64) (int64, error) {
 	v, err := d.Uint64At(offset)
 	if err != nil {
@@ -372,6 +389,8 @@ func (d *DecoderAt) Int64At(offset int64) (int64, error) {
 	return int64(v), nil
 }
 
+// Float64At decodes voltdb wire protocol encoded []byte read from the given
+// offset to float64.
 func (d *DecoderAt) Float64At(offset int64) (float64, error) {
 	v, err := d.Uint64At(offset)
 	if err != nil {
@@ -380,6 +399,8 @@ func (d *DecoderAt) Float64At(offset int64) (float64, error) {
 	return math.Float64frombits(v), nil
 }
 
+// StringAt decodes voltdb wire protocol encoded []byte read from the given
+// offset to string.
 func (d *DecoderAt) StringAt(offset int64) (string, error) {
 	size, err := d.Int32At(offset)
 	if err != nil {
@@ -392,6 +413,8 @@ func (d *DecoderAt) StringAt(offset int64) (string, error) {
 	return string(b), nil
 }
 
+// Uint16 decodes voltdb wire protocol encoded []byte read from the given
+// offset to uint16.
 func (d *DecoderAt) Uint16(offset int64) (uint16, error) {
 	b, err := d.readAt(shortSize, offset)
 	if err != nil {
@@ -400,6 +423,8 @@ func (d *DecoderAt) Uint16(offset int64) (uint16, error) {
 	return endian.Uint16(b), nil
 }
 
+// Int16 decodes voltdb wire protocol encoded []byte read from the given
+// offset to int16.
 func (d *DecoderAt) Int16(offset int64) (int16, error) {
 	v, err := d.Uint16(offset)
 	if err != nil {
