@@ -263,7 +263,7 @@ func TestEncoder_IntArrayParam(t *testing.T) {
 	}
 	offset++
 
-	i, err := a.Int16(offset)
+	i, err := a.Int16At(offset)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +326,7 @@ func TestEncoder_StringSliceParam(t *testing.T) {
 	}
 	offset++
 
-	i, err := a.Int16(offset)
+	i, err := a.Int16At(offset)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +379,7 @@ func TestEncoder_FloatSLiceParam(t *testing.T) {
 	}
 	offset++
 
-	i, err := a.Int16(offset)
+	i, err := a.Int16At(offset)
 	if err != nil {
 		t.Fatal(err)
 	}

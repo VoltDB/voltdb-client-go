@@ -413,9 +413,9 @@ func (d *DecoderAt) StringAt(offset int64) (string, error) {
 	return string(b), nil
 }
 
-// Uint16 decodes voltdb wire protocol encoded []byte read from the given
+// Uint16At decodes voltdb wire protocol encoded []byte read from the given
 // offset to uint16.
-func (d *DecoderAt) Uint16(offset int64) (uint16, error) {
+func (d *DecoderAt) Uint16At(offset int64) (uint16, error) {
 	b, err := d.readAt(shortSize, offset)
 	if err != nil {
 		return 0, err
@@ -423,10 +423,10 @@ func (d *DecoderAt) Uint16(offset int64) (uint16, error) {
 	return endian.Uint16(b), nil
 }
 
-// Int16 decodes voltdb wire protocol encoded []byte read from the given
+// Int16At decodes voltdb wire protocol encoded []byte read from the given
 // offset to int16.
-func (d *DecoderAt) Int16(offset int64) (int16, error) {
-	v, err := d.Uint16(offset)
+func (d *DecoderAt) Int16At(offset int64) (int16, error) {
+	v, err := d.Uint16At(offset)
 	if err != nil {
 		return 0, err
 	}
