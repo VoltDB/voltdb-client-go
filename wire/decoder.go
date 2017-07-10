@@ -21,8 +21,8 @@ const (
 // from the database on a successful login.
 type ConnInfo struct {
 
-	// Host is the host ID of the volt node
-	Host int32
+	// HostID is the host ID of the volt node
+	HostID int32
 
 	// Connection unique id for the connection in the current volt node
 	Connection int64
@@ -270,7 +270,7 @@ func (d *Decoder) LoginInfo() (*ConnInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.Host = host
+	c.HostID = host
 
 	conn, err := d.Int64()
 	if err != nil {
