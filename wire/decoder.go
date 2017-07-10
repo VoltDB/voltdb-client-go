@@ -56,10 +56,12 @@ func (d *Decoder) SetReader(r io.Reader) {
 	d.r = r
 }
 
+// Reset clears the underlying io.Reader . This sets the reader to nil.
 func (d *Decoder) Reset() {
 	d.r = nil
 }
 
+// Int32 reads and decodes voltdb wire protocol encoded []byte to int32.
 func (d *Decoder) Int32() (int32, error) {
 	u, err := d.Uint32()
 	if err != nil {
@@ -68,6 +70,11 @@ func (d *Decoder) Int32() (int32, error) {
 	return int32(u), nil
 }
 
+// Uint32 reads and decodes voltdb wire protocol encoded []byte into uint32.
+//
+// This reads 4 bytes from the the underlying io.Reader, assuming the io.Reader
+// is for voltdb wire protocol encoded bytes stream. Then the bytes read are
+// decoded as uint32 using big endianess
 func (d *Decoder) Uint32() (uint32, error) {
 	b, err := d.read(IntegerSize)
 	if err != nil {
@@ -76,6 +83,7 @@ func (d *Decoder) Uint32() (uint32, error) {
 	return endian.Uint32(b), nil
 }
 
+// Int64 reads and decodes voltdb wire protocol encoded []byte to int64.
 func (d *Decoder) Int64() (int64, error) {
 	u, err := d.Uint64()
 	if err != nil {
@@ -84,6 +92,11 @@ func (d *Decoder) Int64() (int64, error) {
 	return int64(u), nil
 }
 
+// Uint64 reads and decodes voltdb wire protocol encoded []byte into uint64.
+//
+// This reads 8 bytes from the the underlying io.Reader, assuming the io.Reader
+// is for voltdb wire protocol encoded bytes stream. Then the bytes read are
+// decoded as uint64 using big endianess
 func (d *Decoder) Uint64() (uint64, error) {
 	b, err := d.read(LongSize)
 	if err != nil {
@@ -92,6 +105,7 @@ func (d *Decoder) Uint64() (uint64, error) {
 	return endian.Uint64(b), nil
 }
 
+// Time reads and decodes voltdb wire protocol encoded []byte to time.Time.
 func (d *Decoder) Time() (time.Time, error) {
 	v, err := d.Int64()
 	if err != nil {
@@ -104,6 +118,7 @@ func (d *Decoder) Time() (time.Time, error) {
 	return time.Time{}, nil
 }
 
+// Float64 reads and decodes voltdb wire protocol encoded []byte to float64.
 func (d *Decoder) Float64() (float64, error) {
 	v, err := d.Uint64()
 	if err != nil {
@@ -112,6 +127,7 @@ func (d *Decoder) Float64() (float64, error) {
 	return math.Float64frombits(v), nil
 }
 
+// String reads and decodes voltdb wire protocol encoded []byte to string.
 func (d *Decoder) String() (string, error) {
 	length, err := d.Int32()
 	if err != nil {
@@ -128,6 +144,11 @@ func (d *Decoder) String() (string, error) {
 	return string(b), nil
 }
 
+// Uint16 reads and decodes voltdb wire protocol encoded []byte into uint16.
+//
+// This reads 2 bytes from the the underlying io.Reader, assuming the io.Reader
+// is for voltdb wire protocol encoded bytes stream. Then the bytes read are
+// decoded as uint16 using big endianess
 func (d *Decoder) Uint16() (uint16, error) {
 	b, err := d.read(ShortSize)
 	if err != nil {
@@ -136,6 +157,7 @@ func (d *Decoder) Uint16() (uint16, error) {
 	return endian.Uint16(b), nil
 }
 
+// Int16 reads and decodes voltdb wire protocol encoded []byte to int16.
 func (d *Decoder) Int16() (int16, error) {
 	v, err := d.Uint16()
 	if err != nil {
@@ -144,6 +166,7 @@ func (d *Decoder) Int16() (int16, error) {
 	return int16(v), nil
 }
 
+// StringSlice reads and decodes voltdb wire protocol encoded []byte to []string.
 func (d *Decoder) StringSlice() ([]string, error) {
 	size, err := d.Int16()
 	if err != nil {
@@ -174,6 +197,13 @@ func (d *Decoder) Read(b []byte) (int, error) {
 	return d.r.Read(b)
 }
 
+// Message reads a voltdb wire protocol encoded message block from the
+// underlying io.Reader.
+//
+// A message is represented as, a message header followed by the message body.
+// The message header is an int32 value dictacting the size of the message i.e
+// how many bytes  the message body occupies. The message body is the next n
+// bytes after the message header where n is the value of the message header.
 func (d *Decoder) Message() ([]byte, error) {
 	size, err := d.MessageHeader()
 	if err != nil {
@@ -187,10 +217,13 @@ func (d *Decoder) Message() ([]byte, error) {
 	return b, nil
 }
 
+// MessageHeader reads an int32 value representing the size of the encoded
+// message body.
 func (d *Decoder) MessageHeader() (int32, error) {
 	return d.Int32()
 }
 
+// Byte reads and decodes voltdb wire protocol encoded []byte to int8.
 func (d *Decoder) Byte() (int8, error) {
 	b, err := d.read(ByteSize)
 	if err != nil {
@@ -199,6 +232,14 @@ func (d *Decoder) Byte() (int8, error) {
 	return int8(b[0]), nil
 }
 
+// Login decodes response message received after successful logging to a voltdb
+// database.
+//
+// The response is first decoded for voltdb wire protocol message i.e first we
+// read an int32 value to know the size of the encoded response, then we read
+// the next n bytes where n is the size of the message.
+//
+// The message is then decoded  to *ConnInfo by calling (*Decoder).LoginInfo.
 func (d *Decoder) Login() (*ConnInfo, error) {
 	msg, err := d.Message()
 	if err != nil {
@@ -207,6 +248,7 @@ func (d *Decoder) Login() (*ConnInfo, error) {
 	return NewDecoder(bytes.NewReader(msg)).LoginInfo()
 }
 
+//LoginInfo decodes login message.
 func (d *Decoder) LoginInfo() (*ConnInfo, error) {
 	c := &ConnInfo{}
 
