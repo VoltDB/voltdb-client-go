@@ -250,7 +250,9 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIDToCon
 					partitionReplicas = tmpPartitionReplicas
 					topoStatsCh = nil
 				} else {
-					hasTopoStats = false
+					if err.Error() != errLegacyHashinator.Error() {
+						hasTopoStats = false
+					}
 				}
 			default:
 				hasTopoStats = false
@@ -259,7 +261,7 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIDToCon
 			switch prInfoResp.(type) {
 			case VoltRows:
 				tmpProcedureInfos, err := c.updateProcedurePartitioning(prInfoResp.(VoltRows))
-				if err != nil {
+				if err == nil {
 					procedureInfos = tmpProcedureInfos
 					prInfoCh = nil
 				} else {
