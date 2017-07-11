@@ -24,6 +24,8 @@ import (
 	"math/rand"
 )
 
+var errLegacyHashinator = errors.New("Not support Legacy hashinator.")
+
 func (c *Conn) subscribeTopo(nc *nodeConn) <-chan voltResponse {
 	responseCh := make(chan voltResponse, 1)
 	SubscribeTopoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Subscribe", []driver.Value{"TOPOLOGY"}, responseCh, DefaultQueryTimeout)
@@ -55,7 +57,7 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, *map[int][]*no
 	if !rows.AdvanceTable() {
 		// Just in case the new client connects to the old version of Volt that only
 		// returns 1 topology table
-		return nil, nil, errors.New("Not support Legacy hashinator.")
+		return nil, nil, errLegacyHashinator
 	} else if !rows.AdvanceRow() { //Second table contains the hash function
 		return nil, nil, errors.New("Topology description received from Volt was incomplete " +
 			"performance will be lower because transactions can't be routed at this client")
