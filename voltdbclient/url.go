@@ -25,6 +25,7 @@ func parseURL(src string) (*url.URL, error) {
 			}
 		}
 	} else {
+		// need go version >= 1.8 to use this method.
 		if u.Port() == "" {
 			u.Host = u.Host + ":21212"
 		}
