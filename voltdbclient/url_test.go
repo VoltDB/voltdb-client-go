@@ -23,28 +23,33 @@ func TestParseURL(t *testing.T) {
 	}
 
 	for _, s := range sample {
-		u, err := parseURL(s.conn)
-		if s.pass {
-			if err != nil {
-				t.Fatal(err)
+		s := s //capture variable
+		t.Run("", func(t *testing.T) {
+			t.Parallel()
+			u, err := parseURL(s.conn)
+			if s.pass {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if u.Scheme != s.scheme {
+					t.Errorf("expected %s got %s", s.scheme, u.Scheme)
+				}
+				if u.User.Username() != s.user {
+					t.Errorf("expected %s got %s", s.user, u.User)
+				}
+				p, _ := u.User.Password()
+				if p != s.passwd {
+					t.Errorf("expected %s got %s", s.passwd, p)
+				}
+				if u.Host != s.host {
+					t.Errorf("expected %s got %s", s.host, u.Host)
+				}
+			} else {
+				if err == nil {
+					t.Fatal("expected an error")
+				}
 			}
-			if u.Scheme != s.scheme {
-				t.Errorf("expected %s got %s", s.scheme, u.Scheme)
-			}
-			if u.User.Username() != s.user {
-				t.Errorf("expected %s got %s", s.user, u.User)
-			}
-			p, _ := u.User.Password()
-			if p != s.passwd {
-				t.Errorf("expected %s got %s", s.passwd, p)
-			}
-			if u.Host != s.host {
-				t.Errorf("expected %s got %s", s.host, u.Host)
-			}
-		} else {
-			if err == nil {
-				t.Fatal("expected an error")
-			}
-		}
+		})
+
 	}
 }
