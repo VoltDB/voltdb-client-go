@@ -1,4 +1,4 @@
-[![GoDoc](https://godoc.org/github.com/VoltDB/voltdb-client-go/voltdbclient?status.svg)](https://godoc.org/github.com/VoltDB/voltdb-client-go/voltdbclient) 
+[![GoDoc](https://godoc.org/github.com/VoltDB/voltdb-client-go/voltdbclient?status.svg)](https://godoc.org/github.com/VoltDB/voltdb-client-go/voltdbclient)
 
 # VoltDB Golang Client Library
 
@@ -9,6 +9,10 @@ read responses.
 # Installation
 
     go get -v -u github.com/VoltDB/voltdb-client-go/voltdbclient
+
+# Requirements
+
+    go version >= 1.8
 
 # Usage
 
