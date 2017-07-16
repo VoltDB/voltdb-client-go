@@ -32,6 +32,7 @@ import (
 
 // start back pressure when this many bytes are queued for write
 const maxQueuedBytes = 262144
+const maxResponseBuffer = 10000
 
 type nodeConn struct {
 	connInfo string
@@ -75,7 +76,7 @@ func (nc *nodeConn) connect(protocolVersion int, piCh <-chan *procedureInvocatio
 	nc.connData = connData
 	nc.tcpConn = tcpConn
 
-	responseCh := make(chan *bytes.Buffer, 10)
+	responseCh := make(chan *bytes.Buffer, maxResponseBuffer)
 	go nc.listen(tcpConn, responseCh)
 
 	nc.drainCh = make(chan chan bool, 1)
@@ -99,7 +100,7 @@ func (nc *nodeConn) reconnect(protocolVersion int, piCh <-chan *procedureInvocat
 		nc.tcpConn = tcpConn
 		nc.connData = connData
 
-		responseCh := make(chan *bytes.Buffer, 10)
+		responseCh := make(chan *bytes.Buffer, maxResponseBuffer)
 		go nc.listen(tcpConn, responseCh)
 		go nc.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh)
 		break
