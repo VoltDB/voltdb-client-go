@@ -189,7 +189,6 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 	var drainRespCh chan bool
 	var queuedBytes int
 	var bp bool
-	decoder := &wire.Decoder{}
 
 	var tci = int64(DefaultQueryTimeout / 10)                    // timeout check interval
 	tcc := time.NewTimer(time.Duration(tci) * time.Nanosecond).C // timeout check timer channel
@@ -260,7 +259,6 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 			queuedBytes -= req.numBytes
 			delete(requests, handle)
 			if req.isSync() {
-				decoder.SetReader(resp)
 
 				nc.handleSyncResponse(handle, resp, req)
 			} else {
