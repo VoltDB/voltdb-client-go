@@ -264,7 +264,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 
 				nc.handleSyncResponse(handle, resp, req)
 			} else {
-				go nc.handleAsyncResponse(handle, resp, req)
+				nc.handleAsyncResponse(handle, resp, req)
 			}
 		case respBPCh := <-bpCh:
 			respBPCh <- bp
