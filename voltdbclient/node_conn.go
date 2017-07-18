@@ -32,6 +32,7 @@ import (
 
 // start back pressure when this many bytes are queued for write
 const maxQueuedBytes = 262144
+const maxResponseBuffer = 10000
 
 type nodeConn struct {
 	connInfo string
@@ -75,7 +76,7 @@ func (nc *nodeConn) connect(protocolVersion int, piCh <-chan *procedureInvocatio
 	nc.connData = connData
 	nc.tcpConn = tcpConn
 
-	responseCh := make(chan *bytes.Buffer, 10)
+	responseCh := make(chan *bytes.Buffer, maxResponseBuffer)
 	go nc.listen(tcpConn, responseCh)
 
 	nc.drainCh = make(chan chan bool, 1)
@@ -99,7 +100,7 @@ func (nc *nodeConn) reconnect(protocolVersion int, piCh <-chan *procedureInvocat
 		nc.tcpConn = tcpConn
 		nc.connData = connData
 
-		responseCh := make(chan *bytes.Buffer, 10)
+		responseCh := make(chan *bytes.Buffer, maxResponseBuffer)
 		go nc.listen(tcpConn, responseCh)
 		go nc.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh)
 		break
@@ -188,7 +189,6 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 	var drainRespCh chan bool
 	var queuedBytes int
 	var bp bool
-	decoder := &wire.Decoder{}
 
 	var tci = int64(DefaultQueryTimeout / 10)                    // timeout check interval
 	tcc := time.NewTimer(time.Duration(tci) * time.Nanosecond).C // timeout check timer channel
@@ -259,11 +259,10 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 			queuedBytes -= req.numBytes
 			delete(requests, handle)
 			if req.isSync() {
-				decoder.SetReader(resp)
 
 				nc.handleSyncResponse(handle, resp, req)
 			} else {
-				go nc.handleAsyncResponse(handle, resp, req)
+				nc.handleAsyncResponse(handle, resp, req)
 			}
 		case respBPCh := <-bpCh:
 			respBPCh <- bp
