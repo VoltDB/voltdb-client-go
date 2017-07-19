@@ -76,7 +76,8 @@ func (d *Decoder) Int32() (int32, error) {
 // is for voltdb wire protocol encoded bytes stream. Then the bytes read are
 // decoded as uint32 using big endianess
 func (d *Decoder) Uint32() (uint32, error) {
-	b, err := d.read(IntegerSize)
+	b := make([]byte, IntegerSize)
+	_, err := d.r.Read(b)
 	if err != nil {
 		return 0, err
 	}
@@ -98,7 +99,8 @@ func (d *Decoder) Int64() (int64, error) {
 // is for voltdb wire protocol encoded bytes stream. Then the bytes read are
 // decoded as uint64 using big endianess
 func (d *Decoder) Uint64() (uint64, error) {
-	b, err := d.read(LongSize)
+	b := make([]byte, LongSize)
+	_, err := d.r.Read(b)
 	if err != nil {
 		return 0, err
 	}
@@ -150,7 +152,8 @@ func (d *Decoder) String() (string, error) {
 // is for voltdb wire protocol encoded bytes stream. Then the bytes read are
 // decoded as uint16 using big endianess
 func (d *Decoder) Uint16() (uint16, error) {
-	b, err := d.read(ShortSize)
+	b := make([]byte, ShortSize)
+	_, err := d.r.Read(b)
 	if err != nil {
 		return 0, err
 	}
@@ -181,15 +184,6 @@ func (d *Decoder) StringSlice() ([]string, error) {
 		a[i] = v
 	}
 	return a, nil
-}
-
-func (d *Decoder) read(size int) ([]byte, error) {
-	b := make([]byte, size)
-	_, err := d.r.Read(b)
-	if err != nil {
-		return nil, err
-	}
-	return b, nil
 }
 
 // Read implements io.Reader
@@ -225,11 +219,13 @@ func (d *Decoder) MessageHeader() (int32, error) {
 
 // Byte reads and decodes voltdb wire protocol encoded []byte to int8.
 func (d *Decoder) Byte() (int8, error) {
-	b, err := d.read(ByteSize)
+	b := make([]byte, ByteSize)
+	_, err := d.r.Read(b)
 	if err != nil {
 		return 0, err
 	}
-	return int8(b[0]), nil
+	v := b[0]
+	return int8(v), nil
 }
 
 // Login decodes response message received after successful logging to a voltdb
