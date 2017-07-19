@@ -39,6 +39,8 @@ const (
 	VarBinColumn    int8 = 25  // varbinary (int)(bytes)
 )
 
+var errUnknownParam = errors.New("voltdbclient: unknown parameter type")
+
 var epool = sync.Pool{
 	New: func() interface{} {
 		return &Encoder{buf: &bytes.Buffer{}, tmp: &bytes.Buffer{}}
@@ -222,7 +224,7 @@ func (e *Encoder) Marshal(v interface{}) (int, error) {
 		case reflect.Ptr:
 			return e.Marshal(rv.Elem().Interface())
 		}
-		return 0, errors.New("voltdbclient: unknown parameter type")
+		return 0, errUnknownParam
 	}
 }
 

@@ -76,12 +76,14 @@ func (d *Decoder) Int32() (int32, error) {
 // is for voltdb wire protocol encoded bytes stream. Then the bytes read are
 // decoded as uint32 using big endianess
 func (d *Decoder) Uint32() (uint32, error) {
-	b := make([]byte, IntegerSize)
+	var a [IntegerSize]byte
+	b := a[:]
 	_, err := d.r.Read(b)
 	if err != nil {
 		return 0, err
 	}
-	return endian.Uint32(b), nil
+	v := endian.Uint32(b)
+	return v, nil
 }
 
 // Int64 reads and decodes voltdb wire protocol encoded []byte to int64.
@@ -99,12 +101,14 @@ func (d *Decoder) Int64() (int64, error) {
 // is for voltdb wire protocol encoded bytes stream. Then the bytes read are
 // decoded as uint64 using big endianess
 func (d *Decoder) Uint64() (uint64, error) {
-	b := make([]byte, LongSize)
+	var a [LongSize]byte
+	b := a[:]
 	_, err := d.r.Read(b)
 	if err != nil {
 		return 0, err
 	}
-	return endian.Uint64(b), nil
+	v := endian.Uint64(b)
+	return v, nil
 }
 
 // Time reads and decodes voltdb wire protocol encoded []byte to time.Time.
@@ -152,12 +156,14 @@ func (d *Decoder) String() (string, error) {
 // is for voltdb wire protocol encoded bytes stream. Then the bytes read are
 // decoded as uint16 using big endianess
 func (d *Decoder) Uint16() (uint16, error) {
-	b := make([]byte, ShortSize)
+	var a [ShortSize]byte
+	b := a[:]
 	_, err := d.r.Read(b)
 	if err != nil {
 		return 0, err
 	}
-	return endian.Uint16(b), nil
+	v := endian.Uint16(b)
+	return v, nil
 }
 
 // Int16 reads and decodes voltdb wire protocol encoded []byte to int16.
@@ -219,12 +225,13 @@ func (d *Decoder) MessageHeader() (int32, error) {
 
 // Byte reads and decodes voltdb wire protocol encoded []byte to int8.
 func (d *Decoder) Byte() (int8, error) {
-	b := make([]byte, ByteSize)
+	var a [ByteSize]byte
+	b := a[:]
 	_, err := d.r.Read(b)
 	if err != nil {
 		return 0, err
 	}
-	v := b[0]
+	v := a[0]
 	return int8(v), nil
 }
 
