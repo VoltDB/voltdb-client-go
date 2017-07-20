@@ -18,8 +18,8 @@ func TestEncoder_Byte(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != byteSize {
-		t.Errorf("expected %d got %d", byteSize, n)
+	if n != ByteSize {
+		t.Errorf("expected %d got %d", ByteSize, n)
 	}
 	b := e.Bytes()
 	if b[0] != s {
@@ -55,8 +55,8 @@ func TestEncoder_Int16(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != shortSize {
-		t.Errorf("expected %d got %d", shortSize, n)
+	if n != ShortSize {
+		t.Errorf("expected %d got %d", ShortSize, n)
 	}
 
 	d := NewDecoder(e)
@@ -85,8 +85,8 @@ func TestEncoder_Int32(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if n != integerSize {
-			t.Errorf("expected %d got %d", integerSize, n)
+		if n != IntegerSize {
+			t.Errorf("expected %d got %d", IntegerSize, n)
 		}
 		d.SetReader(e)
 		i, err := d.Int32()
@@ -111,8 +111,8 @@ func TestEncoder_Float64(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		if n != longSize {
-			t.Errorf("expected %d got %d", longSize, n)
+		if n != LongSize {
+			t.Errorf("expected %d got %d", LongSize, n)
 		}
 		d.SetReader(e)
 		f, err := d.Float64()
@@ -136,7 +136,7 @@ func TestEncoder_String(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ns := len(s) + integerSize
+	ns := len(s) + IntegerSize
 	if n != ns {
 		t.Errorf("expected %d got %d", ns, n)
 	}
@@ -180,8 +180,8 @@ func TestEncoder_Time(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != longSize {
-		t.Errorf("expected %d got %d", longSize, n)
+	if n != LongSize {
+		t.Errorf("expected %d got %d", LongSize, n)
 	}
 
 	d := NewDecoder(e)

@@ -419,7 +419,7 @@ func (d *DecoderAt) StringAt(offset int64) (string, error) {
 // Uint16At decodes voltdb wire protocol encoded []byte read from the given
 // offset to uint16.
 func (d *DecoderAt) Uint16At(offset int64) (uint16, error) {
-	b, err := d.readAt(shortSize, offset)
+	b, err := d.readAt(ShortSize, offset)
 	if err != nil {
 		return 0, err
 	}
