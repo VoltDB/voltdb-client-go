@@ -10,7 +10,6 @@ import (
 	"hash"
 	"math"
 	"reflect"
-	"sync"
 	"time"
 )
 
@@ -36,12 +35,6 @@ const (
 
 var errUnknownParam = errors.New("voltdbclient: unknown parameter type")
 
-var epool = sync.Pool{
-	New: func() interface{} {
-		return &Encoder{buf: &bytes.Buffer{}, tmp: &bytes.Buffer{}}
-	},
-}
-
 // We are using big endian to encode the values for voltdb wire protocol
 var endian = binary.BigEndian
 
@@ -59,13 +52,7 @@ type Encoder struct {
 
 // NewEncoder returns a new Encoder instance
 func NewEncoder() *Encoder {
-	return epool.Get().(*Encoder)
-}
-
-// PutEncoder returns a used *Encoder to the pool
-func PutEncoder(e *Encoder) {
-	e.Reset()
-	epool.Put(e)
+	return &Encoder{buf: &bytes.Buffer{}, tmp: &bytes.Buffer{}}
 }
 
 //Reset resets the underlying buffer. This will remove any values that were
