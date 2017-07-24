@@ -11,7 +11,7 @@ read responses.
     go get -v -u github.com/VoltDB/voltdb-client-go/voltdbclient
 
 # Requirements
-    Recomended version;
+    Recommend version:
     go version >= 1.8
 
 # Usage
