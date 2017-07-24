@@ -10,17 +10,11 @@ import (
 	"hash"
 	"math"
 	"reflect"
-	"sync"
 	"time"
 )
 
 //size of bytes
-const (
-	byteSize    = 1
-	shortSize   = 2
-	integerSize = 4
-	longSize    = 8
-)
+const ()
 
 //Column types
 const (
@@ -39,11 +33,7 @@ const (
 	VarBinColumn    int8 = 25  // varbinary (int)(bytes)
 )
 
-var epool = sync.Pool{
-	New: func() interface{} {
-		return &Encoder{buf: &bytes.Buffer{}, tmp: &bytes.Buffer{}}
-	},
-}
+var errUnknownParam = errors.New("voltdbclient: unknown parameter type")
 
 // We are using big endian to encode the values for voltdb wire protocol
 var endian = binary.BigEndian
@@ -62,13 +52,7 @@ type Encoder struct {
 
 // NewEncoder returns a new Encoder instance
 func NewEncoder() *Encoder {
-	return epool.Get().(*Encoder)
-}
-
-// PutEncoder returns a used *Encoder to the pool
-func PutEncoder(e *Encoder) {
-	e.Reset()
-	epool.Put(e)
+	return &Encoder{buf: &bytes.Buffer{}, tmp: &bytes.Buffer{}}
 }
 
 //Reset resets the underlying buffer. This will remove any values that were
@@ -90,7 +74,7 @@ func (e *Encoder) Len() int {
 //
 // For a successful encoding the value of number of bytes written is 1
 func (e *Encoder) Byte(v int8) (int, error) {
-	b := make([]byte, byteSize)
+	b := make([]byte, ByteSize)
 	b[0] = byte(v)
 	return e.buf.Write(b)
 }
@@ -107,7 +91,7 @@ func (e *Encoder) Int16(v int16) (int, error) {
 }
 
 func (e *Encoder) uint16(v uint16) (int, error) {
-	b := make([]byte, shortSize)
+	b := make([]byte, ShortSize)
 	endian.PutUint16(b, v)
 	return e.buf.Write(b)
 }
@@ -119,7 +103,7 @@ func (e *Encoder) Int32(v int32) (int, error) {
 }
 
 func (e *Encoder) uint32(v uint32) (int, error) {
-	b := make([]byte, integerSize)
+	b := make([]byte, IntegerSize)
 	endian.PutUint32(b, v)
 	return e.buf.Write(b)
 }
@@ -131,7 +115,7 @@ func (e *Encoder) Int64(v int64) (int, error) {
 }
 
 func (e *Encoder) uint64(v uint64) (int, error) {
-	b := make([]byte, longSize)
+	b := make([]byte, LongSize)
 	endian.PutUint64(b, v)
 	return e.buf.Write(b)
 }
@@ -222,7 +206,7 @@ func (e *Encoder) Marshal(v interface{}) (int, error) {
 		case reflect.Ptr:
 			return e.Marshal(rv.Elem().Interface())
 		}
-		return 0, errors.New("voltdbclient: unknown parameter type")
+		return 0, errUnknownParam
 	}
 }
 
@@ -443,7 +427,7 @@ func (e *Encoder) Login(version int, user, password string) ([]byte, error) {
 // Message encodes v into a voldb wire protocol. voltdb wire protocol message
 // comprizes of int32 encoded size of v followed by v raw bytes.
 func (e *Encoder) Message(v []byte) []byte {
-	b := make([]byte, integerSize)
+	b := make([]byte, IntegerSize)
 	endian.PutUint32(b, uint32(len(v)))
 	return append(b, v...)
 }

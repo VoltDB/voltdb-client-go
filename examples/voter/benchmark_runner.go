@@ -25,6 +25,7 @@ import (
 	"log"
 	"os"
 	"reflect"
+	"runtime"
 	"runtime/pprof"
 	"sync/atomic"
 	"time"
@@ -349,6 +350,7 @@ func takeMemProfile() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		runtime.GC()
 		pprof.WriteHeapProfile(f)
 		f.Close()
 		return
@@ -443,6 +445,7 @@ func main() {
 
 	setupProfiler()
 	defer teardownProfiler()
+	defer takeMemProfile()
 
 	bm, _ = newBenchmark()
 	bm.runBenchmark()

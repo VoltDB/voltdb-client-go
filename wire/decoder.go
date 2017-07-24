@@ -76,11 +76,14 @@ func (d *Decoder) Int32() (int32, error) {
 // is for voltdb wire protocol encoded bytes stream. Then the bytes read are
 // decoded as uint32 using big endianess
 func (d *Decoder) Uint32() (uint32, error) {
-	b, err := d.read(IntegerSize)
+	var a [IntegerSize]byte
+	b := a[:]
+	_, err := d.r.Read(b)
 	if err != nil {
 		return 0, err
 	}
-	return endian.Uint32(b), nil
+	v := endian.Uint32(b)
+	return v, nil
 }
 
 // Int64 reads and decodes voltdb wire protocol encoded []byte to int64.
@@ -98,11 +101,14 @@ func (d *Decoder) Int64() (int64, error) {
 // is for voltdb wire protocol encoded bytes stream. Then the bytes read are
 // decoded as uint64 using big endianess
 func (d *Decoder) Uint64() (uint64, error) {
-	b, err := d.read(LongSize)
+	var a [LongSize]byte
+	b := a[:]
+	_, err := d.r.Read(b)
 	if err != nil {
 		return 0, err
 	}
-	return endian.Uint64(b), nil
+	v := endian.Uint64(b)
+	return v, nil
 }
 
 // Time reads and decodes voltdb wire protocol encoded []byte to time.Time.
@@ -150,11 +156,14 @@ func (d *Decoder) String() (string, error) {
 // is for voltdb wire protocol encoded bytes stream. Then the bytes read are
 // decoded as uint16 using big endianess
 func (d *Decoder) Uint16() (uint16, error) {
-	b, err := d.read(ShortSize)
+	var a [ShortSize]byte
+	b := a[:]
+	_, err := d.r.Read(b)
 	if err != nil {
 		return 0, err
 	}
-	return endian.Uint16(b), nil
+	v := endian.Uint16(b)
+	return v, nil
 }
 
 // Int16 reads and decodes voltdb wire protocol encoded []byte to int16.
@@ -181,15 +190,6 @@ func (d *Decoder) StringSlice() ([]string, error) {
 		a[i] = v
 	}
 	return a, nil
-}
-
-func (d *Decoder) read(size int) ([]byte, error) {
-	b := make([]byte, size)
-	_, err := d.r.Read(b)
-	if err != nil {
-		return nil, err
-	}
-	return b, nil
 }
 
 // Read implements io.Reader
@@ -225,11 +225,14 @@ func (d *Decoder) MessageHeader() (int32, error) {
 
 // Byte reads and decodes voltdb wire protocol encoded []byte to int8.
 func (d *Decoder) Byte() (int8, error) {
-	b, err := d.read(ByteSize)
+	var a [ByteSize]byte
+	b := a[:]
+	_, err := d.r.Read(b)
 	if err != nil {
 		return 0, err
 	}
-	return int8(b[0]), nil
+	v := a[0]
+	return int8(v), nil
 }
 
 // Login decodes response message received after successful logging to a voltdb
@@ -416,7 +419,7 @@ func (d *DecoderAt) StringAt(offset int64) (string, error) {
 // Uint16At decodes voltdb wire protocol encoded []byte read from the given
 // offset to uint16.
 func (d *DecoderAt) Uint16At(offset int64) (uint16, error) {
-	b, err := d.readAt(shortSize, offset)
+	b, err := d.readAt(ShortSize, offset)
 	if err != nil {
 		return 0, err
 	}

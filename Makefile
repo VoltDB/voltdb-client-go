@@ -2,6 +2,10 @@ test:
 	go test -v ./wire
 	go test -v  ./voltdbclient
 
+test-race:
+	go test -v -race ./wire
+	go test -v -race ./voltdbclient
+
 bench:
 	go test -run none -v  -bench=. ./voltdbclient
 

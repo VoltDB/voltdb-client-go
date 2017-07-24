@@ -18,60 +18,8 @@
 package voltdbclient
 
 import (
-	"io"
-	"sync"
-
 	"github.com/VoltDB/voltdb-client-go/wire"
 )
-
-type networkWriter struct {
-	bp      bool
-	bpMutex sync.RWMutex
-}
-
-func newNetworkWriter() *networkWriter {
-	var nw = new(networkWriter)
-	nw.bp = false
-	return nw
-}
-
-func (nw *networkWriter) writePIs(writer io.Writer, piCh <-chan *procedureInvocation, wg *sync.WaitGroup) {
-	e := wire.NewEncoder()
-	for pi := range piCh {
-		e.Reset()
-		EncodePI(e, pi)
-		writer.Write(e.Bytes())
-	}
-	wire.PutEncoder(e)
-	wg.Done()
-}
-
-func (nw *networkWriter) connect(writer io.Writer, piCh <-chan *procedureInvocation, wg *sync.WaitGroup) {
-	go nw.writePIs(writer, piCh, wg)
-}
-
-func (nw *networkWriter) disconnect(piCh chan *procedureInvocation) {
-	close(piCh)
-}
-
-func (nw *networkWriter) hasBP() bool {
-	nw.bpMutex.RLock()
-	bp := nw.bp
-	nw.bpMutex.RUnlock()
-	return bp
-}
-
-func (nw *networkWriter) setBP() {
-	nw.bpMutex.Lock()
-	nw.bp = true
-	nw.bpMutex.Unlock()
-}
-
-func (nw *networkWriter) unsetBP() {
-	nw.bpMutex.Lock()
-	nw.bp = false
-	nw.bpMutex.Unlock()
-}
 
 func EncodePI(e *wire.Encoder, pi *procedureInvocation) error {
 	_, err := e.Int32(int32(pi.getLen()))
