@@ -48,3 +48,22 @@ func TestParseURL(t *testing.T) {
 		}
 	}
 }
+
+
+func TestGetPort(t *testing.T) {
+	sample := []struct {
+		host, port string
+	}{
+		{"localhost:21212", "21212"},
+		{":21212", "21212"},
+		{"[2001:db8:85a3:8d3:1319:8a2e:370:7348]:21212", "21212"},
+		{"[2001:db8:85a3:8d3:1319:8a2e:370:7348]", ""},
+	}
+
+	for _, v := range sample {
+		o := getPort(v.host)
+		if o != v.port {
+			t.Errorf("expected %s got %s", v.port, o)
+		}
+	}
+}
