@@ -37,7 +37,8 @@ func (c *Conn) ExecTimeout(query string, args []driver.Value, timeout time.Durat
 	responseCh := make(chan voltResponse, 1)
 	pi := newSyncProcedureInvocation(c.getNextHandle(), false, query, args, responseCh, timeout)
 	c.inPiCh <- pi
-
+	tm := time.NewTimer(pi.timeout)
+	defer tm.Stop()
 	select {
 	case resp := <-pi.responseCh:
 		switch resp.(type) {
@@ -48,7 +49,7 @@ func (c *Conn) ExecTimeout(query string, args []driver.Value, timeout time.Durat
 		default:
 			panic("unexpected response type")
 		}
-	case <-time.After(pi.timeout):
+	case <-tm.C:
 		return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errors.New("timeout")}
 	}
 }
@@ -89,6 +90,8 @@ func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Dura
 	responseCh := make(chan voltResponse, 1)
 	pi := newSyncProcedureInvocation(c.getNextHandle(), true, query, args, responseCh, timeout)
 	c.inPiCh <- pi
+	tm := time.NewTimer(pi.timeout)
+	defer tm.Stop()
 	select {
 	case resp := <-pi.responseCh:
 		switch resp.(type) {
@@ -99,7 +102,7 @@ func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Dura
 		default:
 			panic("unexpected response type")
 		}
-	case <-time.After(pi.timeout):
+	case <-tm.C:
 		return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errors.New("timeout")}
 	}
 }
