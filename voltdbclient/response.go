@@ -53,39 +53,31 @@ type voltResponseInfo struct {
 }
 
 func newVoltResponseInfo(handle int64, status ResponseStatus, statusString string, appStatus ResponseStatus, appStatusString string, clusterRoundTripTime int32, numTables int16) *voltResponseInfo {
-	var vrsp = new(voltResponseInfo)
-	vrsp.handle = handle
-	vrsp.status = status
-	vrsp.statusString = statusString
-	vrsp.appStatus = appStatus
-	vrsp.appStatusString = appStatusString
-	vrsp.clusterRoundTripTime = clusterRoundTripTime
-	vrsp.numTables = numTables
-	return vrsp
+	return &voltResponseInfo{
+		handle:               handle,
+		status:               status,
+		statusString:         statusString,
+		appStatus:            appStatus,
+		appStatusString:      appStatusString,
+		clusterRoundTripTime: clusterRoundTripTime,
+		numTables:            numTables,
+	}
 }
 
 func emptyVoltResponseInfo() voltResponseInfo {
-	var vrsp = new(voltResponseInfo)
-	vrsp.handle = 0
-	vrsp.status = Success
-	vrsp.statusString = ""
-	vrsp.appStatus = UninitializedAppStatusCode
-	vrsp.appStatusString = ""
-	vrsp.clusterRoundTripTime = -1
-	vrsp.numTables = 0
-	return *vrsp
+	return voltResponseInfo{
+		status:               Success,
+		appStatus:            UninitializedAppStatusCode,
+		clusterRoundTripTime: -1,
+	}
 }
 
 func emptyVoltResponseInfoWithLatency(rtt int32) voltResponseInfo {
-	var vrsp = new(voltResponseInfo)
-	vrsp.handle = 0
-	vrsp.status = Success
-	vrsp.statusString = ""
-	vrsp.appStatus = UninitializedAppStatusCode
-	vrsp.appStatusString = ""
-	vrsp.clusterRoundTripTime = rtt
-	vrsp.numTables = 0
-	return *vrsp
+	return voltResponseInfo{
+		status:               Success,
+		appStatus:            UninitializedAppStatusCode,
+		clusterRoundTripTime: rtt,
+	}
 }
 
 func (vrsp voltResponseInfo) getAppStatus() ResponseStatus {
@@ -137,27 +129,28 @@ const (
 
 // Represent a ResponseStatus as a string.
 func (rs ResponseStatus) String() string {
-	if rs == Success {
+	switch rs {
+	case Success:
 		return "SUCCESS"
-	} else if rs == UserAbort {
+	case UserAbort:
 		return "USER ABORT"
-	} else if rs == GracefulFailure {
+	case GracefulFailure:
 		return "GRACEFUL FAILURE"
-	} else if rs == UnexpectedFailure {
+	case UnexpectedFailure:
 		return "UNEXPECTED FAILURE"
-	} else if rs == ConnectionLost {
+	case ConnectionLost:
 		return "CONNECTION LOST"
-	} else if rs == ServerUnavailable {
+	case ServerUnavailable:
 		return "SERVER UNAVAILABLE"
-	} else if rs == ConnectionTimeout {
+	case ConnectionTimeout:
 		return "CONNECTION TIMEOUT"
-	} else if rs == ResponseUnknown {
+	case ResponseUnknown:
 		return "RESPONSE UNKNOWN"
-	} else if rs == TXNRestart {
+	case TXNRestart:
 		return "TXN RESTART"
-	} else if rs == OperationalFailure {
+	case OperationalFailure:
 		return "OPERATIONAL FAILURE"
-	} else if rs == UninitializedAppStatusCode {
+	case UninitializedAppStatusCode:
 		return "UNINITIALIZED APP STATUS CODE"
 	}
 	panic(fmt.Sprintf("Invalid status code: %d", int(rs)))
@@ -281,8 +274,6 @@ func decodeTableCommon(d *wire.Decoder) (colCount int16, err error) {
 }
 
 // for a result, care only about the number of rows.
-
-// for a result, care only about the number of rows.
 func decodeTableForResult(d *wire.Decoder) (rowsAff int64, err error) {
 
 	var colCount int16
@@ -365,13 +356,11 @@ func decodeTableForRows(d *wire.Decoder) (*voltTable, error) {
 	}
 
 	rows := make([][]byte, rowCount)
-	//var offset int64 = 0
 	var rowI int32
 	for rowI = 0; rowI < rowCount; rowI++ {
 		rowLen, _ := d.Int32()
 		rows[rowI] = make([]byte, rowLen)
 		_, _ = d.Read(rows[rowI])
-		//offset += int64(rowLen + 4)
 	}
 
 	return newVoltTable(colCount, columnTypes, columnNames, rowCount, rows), nil

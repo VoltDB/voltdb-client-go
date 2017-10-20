@@ -28,8 +28,7 @@ type VoltDriver struct{}
 
 // NewVoltDriver returns a new instance of a VoltDB driver.
 func NewVoltDriver() *VoltDriver {
-	var vd = new(VoltDriver)
-	return vd
+	return &VoltDriver{}
 }
 
 // Open a connection to the VoltDB server.
