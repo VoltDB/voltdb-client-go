@@ -40,19 +40,20 @@ type voltTable struct {
 }
 
 func newVoltTable(columnCount int16, columnTypes []int8, columnNames []string, rowCount int32, rows [][]byte) *voltTable {
-	var vt = new(voltTable)
-	vt.columnCount = columnCount
-	vt.columnTypes = columnTypes
-	vt.columnNames = columnNames
-	vt.numRows = rowCount
-	vt.rows = rows
+	var vt = &voltTable{
+		columnCount: columnCount,
+		columnTypes: columnTypes,
+		columnNames: columnNames,
+		numRows:     rowCount,
+		rows:        rows,
+		rowIndex:    invalidRowIndex,
+		cnToCi:      make(map[string]int16),
+	}
 
 	// store columnName to columnIndex
-	vt.cnToCi = make(map[string]int16)
 	for ci, cn := range columnNames {
 		vt.cnToCi[cn] = int16(ci)
 	}
-	vt.rowIndex = invalidRowIndex
 	return vt
 }
 

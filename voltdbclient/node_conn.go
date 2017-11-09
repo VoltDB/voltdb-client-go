@@ -50,15 +50,15 @@ type nodeConn struct {
 }
 
 func newNodeConn(ci string, ncPiCh chan *procedureInvocation) *nodeConn {
-	var nc = new(nodeConn)
-	nc.connInfo = ci
-	nc.ncPiCh = ncPiCh
-	nc.bpCh = make(chan chan bool)
-	nc.closeCh = make(chan chan bool)
-	nc.drainCh = make(chan chan bool)
-	nc.decoder = wire.NewDecoder(nil)
-	nc.encoder = wire.NewEncoder()
-	return nc
+	return &nodeConn{
+		connInfo: ci,
+		ncPiCh:   ncPiCh,
+		bpCh:     make(chan chan bool),
+		closeCh:  make(chan chan bool),
+		drainCh:  make(chan chan bool),
+		decoder:  wire.NewDecoder(nil),
+		encoder:  wire.NewEncoder(),
+	}
 }
 
 func (nc *nodeConn) submit(pi *procedureInvocation) {
@@ -93,7 +93,6 @@ func (nc *nodeConn) connect(protocolVersion int, piCh <-chan *procedureInvocatio
 // the 'processAsyncs' goroutine and channel stay in place over
 // a reconnect, they're not affected.
 func (nc *nodeConn) reconnect(protocolVersion int, piCh <-chan *procedureInvocation) {
-
 	for {
 		tcpConn, connData, err := nc.networkConnect(protocolVersion)
 		if err != nil {
@@ -162,7 +161,6 @@ func (nc *nodeConn) hasBP() bool {
 // listen listens for messages from the server and calls back a registered listener.
 // listen blocks on input from the server and should be run as a go routine.
 func (nc *nodeConn) listen(reader io.Reader, responseCh chan<- *bytes.Buffer) {
-
 	d := wire.NewDecoder(reader)
 	s := &wire.Decoder{}
 	for {
@@ -190,7 +188,6 @@ func (nc *nodeConn) listen(reader io.Reader, responseCh chan<- *bytes.Buffer) {
 }
 
 func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, responseCh <-chan *bytes.Buffer, bpCh <-chan chan bool, drainCh chan chan bool) {
-
 	// declare mutable state
 	requests := make(map[int64]*networkRequest)
 	ncPiCh := nc.ncPiCh

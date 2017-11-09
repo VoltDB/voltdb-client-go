@@ -25,11 +25,10 @@ type VoltResult struct {
 }
 
 func newVoltResult(resp voltResponse, rowsAff []int64) *VoltResult {
-	var vr = new(VoltResult)
-	vr.voltResponse = resp
-	vr.rowsAff = rowsAff
-	vr.ti = 0
-	return vr
+	return &VoltResult{
+		voltResponse: resp,
+		rowsAff:      rowsAff,
+	}
 }
 
 // AdvanceTable advances to the next table. Returns false if there isn't a next

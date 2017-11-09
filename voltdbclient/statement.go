@@ -35,12 +35,11 @@ type VoltStatement struct {
 }
 
 func newVoltStatement(d *Conn, query string) *VoltStatement {
-	var vs = new(VoltStatement)
-	vs.d = d
-	vs.query = query
-	idx := inputFinder.FindAllStringIndex(query, -1)
-	vs.numInput = len(idx)
-	return vs
+	return &VoltStatement{
+		query:    query,
+		numInput: len(inputFinder.FindAllStringIndex(query, -1)),
+		d:        d,
+	}
 }
 
 // Close closes the statement.  Close is a noop for VoltDB as the VoltDB server
@@ -63,9 +62,7 @@ func (vs VoltStatement) Exec(args []driver.Value) (driver.Result, error) {
 // ExecTimeout executes a query that doesn't return rows, such as an INSERT or
 // UPDATE.  Specifies a duration for timeout.
 func (vs VoltStatement) ExecTimeout(args []driver.Value, timeout time.Duration) (driver.Result, error) {
-	args = append(args, "")
-	copy(args[1:], args[0:])
-	args[0] = vs.query
+	args = append([]driver.Value{vs.query}, args...)
 	return vs.d.ExecTimeout("@AdHoc", args, timeout)
 }
 
@@ -77,9 +74,7 @@ func (vs VoltStatement) ExecAsync(resCons AsyncResponseConsumer, args []driver.V
 // ExecAsyncTimeout asynchronously runs an Exec. Specifies a duration for
 // timeout.
 func (vs VoltStatement) ExecAsyncTimeout(resCons AsyncResponseConsumer, args []driver.Value, timeout time.Duration) {
-	args = append(args, "")
-	copy(args[1:], args[0:])
-	args[0] = vs.query
+	args = append([]driver.Value{vs.query}, args...)
 	vs.d.ExecAsyncTimeout(resCons, "@AdHoc", args, timeout)
 }
 
@@ -92,9 +87,7 @@ func (vs VoltStatement) Query(args []driver.Value) (driver.Rows, error) {
 // QueryTimeout executes a query that may return rows, such as a SELECT.
 // Specifies a duration for timeout.
 func (vs VoltStatement) QueryTimeout(args []driver.Value, timeout time.Duration) (driver.Rows, error) {
-	args = append(args, "")
-	copy(args[1:], args[0:])
-	args[0] = vs.query
+	args = append([]driver.Value{vs.query}, args...)
 	return vs.d.QueryTimeout("@AdHoc", args, timeout)
 }
 
@@ -106,8 +99,6 @@ func (vs VoltStatement) QueryAsync(rowsCons AsyncResponseConsumer, args []driver
 // QueryAsyncTimeout asynchronously runs a Query. Specifies a duration for
 // timeout.
 func (vs VoltStatement) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, args []driver.Value, timeout time.Duration) {
-	args = append(args, "")
-	copy(args[1:], args[0:])
-	args[0] = vs.query
+	args = append([]driver.Value{vs.query}, args...)
 	vs.d.QueryAsyncTimeout(rowsCons, "@AdHoc", args, timeout)
 }

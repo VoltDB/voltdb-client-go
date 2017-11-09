@@ -54,12 +54,11 @@ type latencyLimiter struct {
 }
 
 func newLatencyLimiter(latencyTarget int32) *latencyLimiter {
-	var ll = new(latencyLimiter)
-	ll.blockStart = time.Now()
-	ll.maxOutTxns = OutTXNsLimit
-	ll.outTxns = 0
-	ll.latencyTarget = latencyTarget
-	return ll
+	return &latencyLimiter{
+		blockStart:    time.Now(),
+		maxOutTxns:    OutTXNsLimit,
+		latencyTarget: latencyTarget,
+	}
 }
 
 func (ll *latencyLimiter) limit(timeout time.Duration) error {

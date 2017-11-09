@@ -34,29 +34,29 @@ type networkRequest struct {
 }
 
 func newSyncRequest(handle int64, ch chan voltResponse, isQuery bool, numBytes int, timeout time.Duration, submitted time.Time) *networkRequest {
-	var nr = new(networkRequest)
-	nr.handle = handle
-	nr.query = isQuery
-	nr.ch = ch
-	nr.sync = true
-	nr.arc = nil
-	nr.numBytes = numBytes
-	nr.submitted = submitted
-	nr.timeout = timeout
-	return nr
+	return &networkRequest{
+		handle:    handle,
+		query:     isQuery,
+		ch:        ch,
+		sync:      true,
+		arc:       nil,
+		numBytes:  numBytes,
+		submitted: submitted,
+		timeout:   timeout,
+	}
 }
 
 func newAsyncRequest(handle int64, ch chan voltResponse, isQuery bool, arc AsyncResponseConsumer, numBytes int, timeout time.Duration, submitted time.Time) *networkRequest {
-	var nr = new(networkRequest)
-	nr.handle = handle
-	nr.query = isQuery
-	nr.ch = ch
-	nr.sync = false
-	nr.arc = arc
-	nr.numBytes = numBytes
-	nr.submitted = submitted
-	nr.timeout = timeout
-	return nr
+	return &networkRequest{
+		handle:    handle,
+		query:     isQuery,
+		ch:        ch,
+		sync:      false,
+		arc:       arc,
+		numBytes:  numBytes,
+		submitted: submitted,
+		timeout:   timeout,
+	}
 }
 
 func (nr *networkRequest) getArc() AsyncResponseConsumer {

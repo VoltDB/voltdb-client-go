@@ -60,10 +60,10 @@ func clear(v interface{}) {
 func fromGzip(compressed []byte) ([]byte, error) {
 	var b = bytes.NewReader(compressed)
 	r, err := gzip.NewReader(b)
-	defer r.Close()
 	if err != nil {
 		return nil, err
 	}
+	defer r.Close()
 	decompressed, err := ioutil.ReadAll(r)
 	if err != nil {
 		return nil, err

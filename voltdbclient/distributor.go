@@ -53,21 +53,20 @@ type Conn struct {
 }
 
 func newConn(cis []string) (*Conn, error) {
-	var c = new(Conn)
-	c.inPiCh = make(chan *procedureInvocation, 1000)
-	c.allNcsPiCh = make(chan *procedureInvocation, 1000)
-	c.closeCh = make(chan chan bool)
-	c.open = atomic.Value{}
+	var c = &Conn{
+		inPiCh:            make(chan *procedureInvocation, 1000),
+		allNcsPiCh:        make(chan *procedureInvocation, 1000),
+		closeCh:           make(chan chan bool),
+		rl:                newTxnLimiter(),
+		drainCh:           make(chan chan bool),
+		useClientAffinity: true,
+	}
 	c.open.Store(true)
-	c.rl = newTxnLimiter()
-	c.drainCh = make(chan chan bool)
-	c.useClientAffinity = true
-	c.sendReadsToReplicasBytDefaultIfCAEnabled = false
 
-	err := c.start(cis)
-	if err != nil {
+	if err := c.start(cis); err != nil {
 		return nil, err
 	}
+
 	return c, nil
 }
 
@@ -126,28 +125,31 @@ func OpenConnWithMaxOutstandingTxns(ci string, maxOutTxns int) (*Conn, error) {
 }
 
 func (c *Conn) start(cis []string) error {
+	var (
+		err                error
+		connected          []*nodeConn
+		disconnected       []*nodeConn
+		hostIDToConnection = make(map[int]*nodeConn)
+	)
 
-	var connected []*nodeConn
-	var disconnected []*nodeConn
-	hostIDToConnection := make(map[int]*nodeConn)
-	var err error
 	for _, ci := range cis {
 		ncPiCh := make(chan *procedureInvocation, 1000)
 		nc := newNodeConn(ci, ncPiCh)
 
-		err = nc.connect(ProtocolVersion, c.allNcsPiCh)
-		if err == nil {
-			connected = append(connected, nc)
-			if c.useClientAffinity {
-				hostIDToConnection[int(nc.connData.HostID)] = nc
-			}
-		} else {
+		if err = nc.connect(ProtocolVersion, c.allNcsPiCh); err != nil {
 			disconnected = append(disconnected, nc)
+			continue
+		}
+		connected = append(connected, nc)
+		if c.useClientAffinity {
+			hostIDToConnection[int(nc.connData.HostID)] = nc
 		}
 	}
+
 	if len(connected) == 0 {
-		return fmt.Errorf("%v %v", "No valid connections", err)
+		return fmt.Errorf("No valid connections %v", err)
 	}
+
 	go c.loop(connected, disconnected, &hostIDToConnection)
 	return nil
 }

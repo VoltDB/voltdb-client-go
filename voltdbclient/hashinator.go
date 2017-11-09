@@ -54,13 +54,15 @@ func newHashinatorElastic(hashConfigFormat int, cooked bool, hashConfig []byte) 
 	if hashConfigFormat != JSONFormat {
 		return nil, errors.New("Only support JSON format hashconfig.")
 	}
-	h = new(hashinatorElastic)
+
 	if cooked {
 		hashConfig, err = fromGzip(hashConfig)
 		if err != nil {
 			return nil, err
 		}
 	}
+
+	h = &hashinatorElastic{}
 
 	// unmarshall json
 	if err = h.unmarshalJSONConfig(hashConfig); err != nil {

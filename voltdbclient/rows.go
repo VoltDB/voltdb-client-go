@@ -51,13 +51,12 @@ type VoltRows struct {
 }
 
 func newVoltRows(resp voltResponse, tables []*voltTable) *VoltRows {
-	var vr = new(VoltRows)
-	vr.voltResponse = resp
-	vr.tables = tables
+	var vr = &VoltRows{
+		voltResponse: resp,
+		tables:       tables,
+	}
 	if len(tables) == 0 {
 		vr.tableIndex = -1
-	} else {
-		vr.tableIndex = 0
 	}
 	return vr
 }
