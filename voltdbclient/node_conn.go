@@ -279,7 +279,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 			for _, req := range requests {
 				if time.Now().After(req.submitted.Add(req.timeout)) {
 					queuedBytes -= req.numBytes
-					nc.handleAsyncTimeout(req)
+					nc.handleTimeout(req)
 					delete(requests, req.handle)
 				}
 			}
@@ -348,10 +348,15 @@ func (nc *nodeConn) handleAsyncResponse(handle int64, r io.Reader, req *networkR
 	}
 }
 
-func (nc *nodeConn) handleAsyncTimeout(req *networkRequest) {
+func (nc *nodeConn) handleTimeout(req *networkRequest) {
 	err := errors.New("timeout")
 	verr := VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
-	req.arc.ConsumeError(verr)
+	if req.isSync() {
+		respCh := req.getChan()
+		respCh <- verr
+	} else {
+		req.arc.ConsumeError(verr)
+	}
 }
 
 func (nc *nodeConn) sendPing(writer io.Writer) {
