@@ -133,9 +133,7 @@ func (c *Conn) start(cis []string) error {
 	)
 
 	for _, ci := range cis {
-		ncPiCh := make(chan *procedureInvocation, 1000)
-		nc := newNodeConn(ci, ncPiCh)
-
+		nc := newNodeConn(ci)
 		if err = nc.connect(ProtocolVersion); err != nil {
 			disconnected = append(disconnected, nc)
 			continue

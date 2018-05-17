@@ -52,10 +52,10 @@ type nodeConn struct {
 	queuedBytes int
 }
 
-func newNodeConn(ci string, ncPiCh chan *procedureInvocation) *nodeConn {
+func newNodeConn(ci string) *nodeConn {
 	return &nodeConn{
 		connInfo:   ci,
-		ncPiCh:     ncPiCh,
+		ncPiCh:     make(chan *procedureInvocation, 1000),
 		bpCh:       make(chan chan bool),
 		closeCh:    make(chan chan bool),
 		drainCh:    make(chan chan bool),
