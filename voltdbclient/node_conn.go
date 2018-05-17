@@ -50,6 +50,7 @@ type nodeConn struct {
 	responseCh  chan *bytes.Buffer
 	requests    map[int64]*networkRequest
 	queuedBytes int
+	bp          bool
 }
 
 func newNodeConn(ci string) *nodeConn {
@@ -66,8 +67,8 @@ func newNodeConn(ci string) *nodeConn {
 	}
 }
 
-func (nc *nodeConn) submit(pi *procedureInvocation) {
-	nc.ncPiCh <- pi
+func (nc *nodeConn) submit(pi *procedureInvocation) (int, error) {
+	return nc.handleProcedureInvocation(pi)
 }
 
 // when the node conn is closed by its owning distributer
@@ -192,11 +193,11 @@ func (nc *nodeConn) listen() {
 func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 	// declare mutable state
 	// requests := make(map[int64]*networkRequest)
-	ncPiCh := nc.ncPiCh
+	// ncPiCh := nc.ncPiCh
 	var draining bool
 	var drainRespCh chan bool
 	// var queuedBytes int
-	var bp bool
+	// var bp bool
 
 	var tci = int64(DefaultQueryTimeout / 10)                    // timeout check interval
 	tcc := time.NewTimer(time.Duration(tci) * time.Nanosecond).C // timeout check timer channel
@@ -215,13 +216,13 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 			}
 		}
 
-		if nc.queuedBytes > maxQueuedBytes && ncPiCh != nil {
-			ncPiCh = nil
-			bp = true
-		} else if ncPiCh == nil {
-			ncPiCh = nc.ncPiCh
-			bp = false
-		}
+		// if nc.queuedBytes > maxQueuedBytes && ncPiCh != nil {
+		// 	ncPiCh = nil
+		// 	nc.bp = true
+		// } else if ncPiCh == nil {
+		// 	ncPiCh = nc.ncPiCh
+		// 	nc.bp = false
+		// }
 
 		// ping
 		pingSinceSent := time.Now().Sub(pingSentTime)
@@ -240,8 +241,8 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 			nc.tcpConn.Close()
 			respCh <- true
 			return
-		case pi := <-ncPiCh:
-			nc.handleProcedureInvocation(pi)
+		// case pi := <-ncPiCh:
+		// 	nc.handleProcedureInvocation(pi)
 		case resp := <-nc.responseCh:
 			nc.decoder.SetReader(resp)
 			handle, err := nc.decoder.Int64()
@@ -271,7 +272,7 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 			}
 
 		case respBPCh := <-bpCh:
-			respBPCh <- bp
+			respBPCh <- nc.bp
 		case drainRespCh = <-drainCh:
 			draining = true
 		// check for timed out procedure invocations

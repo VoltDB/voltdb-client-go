@@ -313,7 +313,7 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 	// check error channel to see if any lost connections.
 }
 
-func (c *Conn) submit(pi *procedureInvocation) {
+func (c *Conn) submit(pi *procedureInvocation) (int, error) {
 	var nc *nodeConn
 	var backpressure = true
 	var err error
@@ -326,7 +326,7 @@ func (c *Conn) submit(pi *procedureInvocation) {
 	} else {
 		// c.allNcsPiCh <- pi
 	}
-	c.subscribedConnection.submit(pi)
+	return c.subscribedConnection.submit(pi)
 }
 
 // Begin starts a transaction.
