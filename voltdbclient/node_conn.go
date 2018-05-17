@@ -44,10 +44,12 @@ type nodeConn struct {
 	closeCh chan chan bool
 
 	// channel for pi's meant specifically for this connection.
-	ncPiCh     chan *procedureInvocation
-	decoder    *wire.Decoder
-	encoder    *wire.Encoder
-	responseCh chan *bytes.Buffer
+	ncPiCh      chan *procedureInvocation
+	decoder     *wire.Decoder
+	encoder     *wire.Encoder
+	responseCh  chan *bytes.Buffer
+	requests    map[int64]*networkRequest
+	queuedBytes int
 }
 
 func newNodeConn(ci string, ncPiCh chan *procedureInvocation) *nodeConn {
@@ -60,6 +62,7 @@ func newNodeConn(ci string, ncPiCh chan *procedureInvocation) *nodeConn {
 		decoder:    wire.NewDecoder(nil),
 		encoder:    wire.NewEncoder(),
 		responseCh: make(chan *bytes.Buffer, maxResponseBuffer),
+		requests:   make(map[int64]*networkRequest),
 	}
 }
 
@@ -188,11 +191,11 @@ func (nc *nodeConn) listen() {
 
 func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 	// declare mutable state
-	requests := make(map[int64]*networkRequest)
+	// requests := make(map[int64]*networkRequest)
 	ncPiCh := nc.ncPiCh
 	var draining bool
 	var drainRespCh chan bool
-	var queuedBytes int
+	// var queuedBytes int
 	var bp bool
 
 	var tci = int64(DefaultQueryTimeout / 10)                    // timeout check interval
@@ -205,14 +208,14 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 	for {
 		// setup select cases
 		if draining {
-			if queuedBytes == 0 && len(nc.ncPiCh) == 0 {
+			if nc.queuedBytes == 0 && len(nc.ncPiCh) == 0 {
 				drainRespCh <- true
 				drainRespCh = nil
 				draining = false
 			}
 		}
 
-		if queuedBytes > maxQueuedBytes && ncPiCh != nil {
+		if nc.queuedBytes > maxQueuedBytes && ncPiCh != nil {
 			ncPiCh = nil
 			bp = true
 		} else if ncPiCh == nil {
@@ -238,7 +241,7 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 			respCh <- true
 			return
 		case pi := <-ncPiCh:
-			nc.handleProcedureInvocation(pi, &requests, &queuedBytes)
+			nc.handleProcedureInvocation(pi)
 		case resp := <-nc.responseCh:
 			nc.decoder.SetReader(resp)
 			handle, err := nc.decoder.Int64()
@@ -252,15 +255,15 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 				pingOutstanding = false
 				continue
 			}
-			req := requests[handle]
+			req := nc.requests[handle]
 			if req == nil {
 				// there's a race here with timeout.  A request can be timed out and
 				// then a response received.  In this case drop the response.
 				continue
 			}
-			queuedBytes -= req.numBytes
+			nc.queuedBytes -= req.numBytes
 
-			delete(requests, handle)
+			delete(nc.requests, handle)
 			if req.isSync() {
 				nc.handleSyncResponse(handle, resp, req)
 			} else {
@@ -273,11 +276,11 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 			draining = true
 		// check for timed out procedure invocations
 		case <-tcc:
-			for _, req := range requests {
+			for _, req := range nc.requests {
 				if time.Now().After(req.submitted.Add(req.timeout)) {
-					queuedBytes -= req.numBytes
+					nc.queuedBytes -= req.numBytes
 					nc.handleTimeout(req)
-					delete(requests, req.handle)
+					delete(nc.requests, req.handle)
 				}
 			}
 			tcc = time.NewTimer(time.Duration(tci) * time.Nanosecond).C
@@ -285,19 +288,19 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 	}
 }
 
-func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation, requests *map[int64]*networkRequest, queuedBytes *int) {
+func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, error) {
 	var nr *networkRequest
 	if pi.isAsync() {
 		nr = newAsyncRequest(pi.handle, pi.responseCh, pi.isQuery, pi.arc, pi.getLen(), pi.timeout, time.Now())
 	} else {
 		nr = newSyncRequest(pi.handle, pi.responseCh, pi.isQuery, pi.getLen(), pi.timeout, time.Now())
 	}
-	(*requests)[pi.handle] = nr
-	*queuedBytes += pi.slen
+	nc.requests[pi.handle] = nr
+	nc.queuedBytes += pi.slen
 	nc.encoder.Reset()
 	EncodePI(nc.encoder, pi)
-	nc.tcpConn.Write(nc.encoder.Bytes())
-	nc.encoder.Reset()
+	defer nc.encoder.Reset()
+	return nc.tcpConn.Write(nc.encoder.Bytes())
 }
 
 func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRequest) {
