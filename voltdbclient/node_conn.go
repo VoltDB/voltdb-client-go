@@ -81,11 +81,11 @@ func (nc *nodeConn) connect(protocolVersion int, piCh <-chan *procedureInvocatio
 	nc.tcpConn = tcpConn
 
 	responseCh := make(chan *bytes.Buffer, maxResponseBuffer)
-	go nc.listen(tcpConn, responseCh)
+	go nc.listen(responseCh)
 
 	nc.drainCh = make(chan chan bool, 1)
 
-	go nc.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh)
+	go nc.loop(piCh, responseCh, nc.bpCh, nc.drainCh)
 	return nil
 }
 
@@ -104,8 +104,8 @@ func (nc *nodeConn) reconnect(protocolVersion int, piCh <-chan *procedureInvocat
 		nc.connData = connData
 
 		responseCh := make(chan *bytes.Buffer, maxResponseBuffer)
-		go nc.listen(tcpConn, responseCh)
-		go nc.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh)
+		go nc.listen(responseCh)
+		go nc.loop(piCh, responseCh, nc.bpCh, nc.drainCh)
 		break
 	}
 }
@@ -160,8 +160,8 @@ func (nc *nodeConn) hasBP() bool {
 
 // listen listens for messages from the server and calls back a registered listener.
 // listen blocks on input from the server and should be run as a go routine.
-func (nc *nodeConn) listen(reader io.Reader, responseCh chan<- *bytes.Buffer) {
-	d := wire.NewDecoder(reader)
+func (nc *nodeConn) listen(responseCh chan<- *bytes.Buffer) {
+	d := wire.NewDecoder(nc.tcpConn)
 	s := &wire.Decoder{}
 	for {
 		b, err := d.Message()
@@ -187,7 +187,7 @@ func (nc *nodeConn) listen(reader io.Reader, responseCh chan<- *bytes.Buffer) {
 	}
 }
 
-func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, responseCh <-chan *bytes.Buffer, bpCh <-chan chan bool, drainCh chan chan bool) {
+func (nc *nodeConn) loop(piCh <-chan *procedureInvocation, responseCh <-chan *bytes.Buffer, bpCh <-chan chan bool, drainCh chan chan bool) {
 	// declare mutable state
 	requests := make(map[int64]*networkRequest)
 	ncPiCh := nc.ncPiCh
@@ -228,7 +228,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 				// TODO: should disconnect
 			}
 		} else if pingSinceSent > pingTimeout/3 {
-			nc.sendPing(writer)
+			nc.sendPing(nc.tcpConn)
 			pingOutstanding = true
 			pingSentTime = time.Now()
 		}
@@ -239,9 +239,9 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 			respCh <- true
 			return
 		case pi := <-ncPiCh:
-			nc.handleProcedureInvocation(writer, pi, &requests, &queuedBytes)
+			nc.handleProcedureInvocation(pi, &requests, &queuedBytes)
 		case pi := <-piCh:
-			nc.handleProcedureInvocation(writer, pi, &requests, &queuedBytes)
+			nc.handleProcedureInvocation(pi, &requests, &queuedBytes)
 		case resp := <-responseCh:
 			nc.decoder.SetReader(resp)
 			handle, err := nc.decoder.Int64()
@@ -288,7 +288,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 	}
 }
 
-func (nc *nodeConn) handleProcedureInvocation(writer io.Writer, pi *procedureInvocation, requests *map[int64]*networkRequest, queuedBytes *int) {
+func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation, requests *map[int64]*networkRequest, queuedBytes *int) {
 	var nr *networkRequest
 	if pi.isAsync() {
 		nr = newAsyncRequest(pi.handle, pi.responseCh, pi.isQuery, pi.arc, pi.getLen(), pi.timeout, time.Now())
@@ -299,7 +299,7 @@ func (nc *nodeConn) handleProcedureInvocation(writer io.Writer, pi *procedureInv
 	*queuedBytes += pi.slen
 	nc.encoder.Reset()
 	EncodePI(nc.encoder, pi)
-	writer.Write(nc.encoder.Bytes())
+	nc.tcpConn.Write(nc.encoder.Bytes())
 	nc.encoder.Reset()
 }
 
