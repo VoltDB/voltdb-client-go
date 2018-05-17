@@ -44,20 +44,22 @@ type nodeConn struct {
 	closeCh chan chan bool
 
 	// channel for pi's meant specifically for this connection.
-	ncPiCh  chan *procedureInvocation
-	decoder *wire.Decoder
-	encoder *wire.Encoder
+	ncPiCh     chan *procedureInvocation
+	decoder    *wire.Decoder
+	encoder    *wire.Encoder
+	responseCh chan *bytes.Buffer
 }
 
 func newNodeConn(ci string, ncPiCh chan *procedureInvocation) *nodeConn {
 	return &nodeConn{
-		connInfo: ci,
-		ncPiCh:   ncPiCh,
-		bpCh:     make(chan chan bool),
-		closeCh:  make(chan chan bool),
-		drainCh:  make(chan chan bool),
-		decoder:  wire.NewDecoder(nil),
-		encoder:  wire.NewEncoder(),
+		connInfo:   ci,
+		ncPiCh:     ncPiCh,
+		bpCh:       make(chan chan bool),
+		closeCh:    make(chan chan bool),
+		drainCh:    make(chan chan bool),
+		decoder:    wire.NewDecoder(nil),
+		encoder:    wire.NewEncoder(),
+		responseCh: make(chan *bytes.Buffer, maxResponseBuffer),
 	}
 }
 
@@ -80,12 +82,11 @@ func (nc *nodeConn) connect(protocolVersion int, piCh <-chan *procedureInvocatio
 	nc.connData = connData
 	nc.tcpConn = tcpConn
 
-	responseCh := make(chan *bytes.Buffer, maxResponseBuffer)
-	go nc.listen(responseCh)
+	go nc.listen()
 
 	nc.drainCh = make(chan chan bool, 1)
 
-	go nc.loop(piCh, responseCh, nc.bpCh, nc.drainCh)
+	go nc.loop(piCh, nc.bpCh, nc.drainCh)
 	return nil
 }
 
@@ -102,10 +103,8 @@ func (nc *nodeConn) reconnect(protocolVersion int, piCh <-chan *procedureInvocat
 		}
 		nc.tcpConn = tcpConn
 		nc.connData = connData
-
-		responseCh := make(chan *bytes.Buffer, maxResponseBuffer)
-		go nc.listen(responseCh)
-		go nc.loop(piCh, responseCh, nc.bpCh, nc.drainCh)
+		go nc.listen()
+		go nc.loop(piCh, nc.bpCh, nc.drainCh)
 		break
 	}
 }
@@ -160,13 +159,13 @@ func (nc *nodeConn) hasBP() bool {
 
 // listen listens for messages from the server and calls back a registered listener.
 // listen blocks on input from the server and should be run as a go routine.
-func (nc *nodeConn) listen(responseCh chan<- *bytes.Buffer) {
+func (nc *nodeConn) listen() {
 	d := wire.NewDecoder(nc.tcpConn)
 	s := &wire.Decoder{}
 	for {
 		b, err := d.Message()
 		if err != nil {
-			if responseCh == nil {
+			if nc.responseCh == nil {
 				// exiting
 				return
 			}
@@ -178,16 +177,16 @@ func (nc *nodeConn) listen(responseCh chan<- *bytes.Buffer) {
 		s.SetReader(buf)
 		_, err = s.Byte()
 		if err != nil {
-			if responseCh == nil {
+			if nc.responseCh == nil {
 				return
 			}
 			return
 		}
-		responseCh <- buf
+		nc.responseCh <- buf
 	}
 }
 
-func (nc *nodeConn) loop(piCh <-chan *procedureInvocation, responseCh <-chan *bytes.Buffer, bpCh <-chan chan bool, drainCh chan chan bool) {
+func (nc *nodeConn) loop(piCh <-chan *procedureInvocation, bpCh <-chan chan bool, drainCh chan chan bool) {
 	// declare mutable state
 	requests := make(map[int64]*networkRequest)
 	ncPiCh := nc.ncPiCh
@@ -242,7 +241,7 @@ func (nc *nodeConn) loop(piCh <-chan *procedureInvocation, responseCh <-chan *by
 			nc.handleProcedureInvocation(pi, &requests, &queuedBytes)
 		case pi := <-piCh:
 			nc.handleProcedureInvocation(pi, &requests, &queuedBytes)
-		case resp := <-responseCh:
+		case resp := <-nc.responseCh:
 			nc.decoder.SetReader(resp)
 			handle, err := nc.decoder.Int64()
 			nc.decoder.Reset()
