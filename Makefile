@@ -32,3 +32,10 @@ cpu: clean
 # Installs benchcmp tool
 deps:
 	go get golang.org/x/tools/cmd/benchcmp
+
+down:
+	voltadmin shutdown
+
+voter:
+	go install ./examples/voter
+	./voter --runtype=sync --servers="localhost:21212,localhost:21222,localhost:21232"
