@@ -74,7 +74,7 @@ func (nc *nodeConn) close() chan bool {
 	return respCh
 }
 
-func (nc *nodeConn) connect(protocolVersion int, piCh <-chan *procedureInvocation) error {
+func (nc *nodeConn) connect(protocolVersion int) error {
 	tcpConn, connData, err := nc.networkConnect(protocolVersion)
 	if err != nil {
 		return err
@@ -86,14 +86,14 @@ func (nc *nodeConn) connect(protocolVersion int, piCh <-chan *procedureInvocatio
 
 	nc.drainCh = make(chan chan bool, 1)
 
-	go nc.loop(piCh, nc.bpCh, nc.drainCh)
+	go nc.loop(nc.bpCh, nc.drainCh)
 	return nil
 }
 
 // called when the network listener loses connection.
 // the 'processAsyncs' goroutine and channel stay in place over
 // a reconnect, they're not affected.
-func (nc *nodeConn) reconnect(protocolVersion int, piCh <-chan *procedureInvocation) {
+func (nc *nodeConn) reconnect(protocolVersion int) {
 	for {
 		tcpConn, connData, err := nc.networkConnect(protocolVersion)
 		if err != nil {
@@ -104,7 +104,7 @@ func (nc *nodeConn) reconnect(protocolVersion int, piCh <-chan *procedureInvocat
 		nc.tcpConn = tcpConn
 		nc.connData = connData
 		go nc.listen()
-		go nc.loop(piCh, nc.bpCh, nc.drainCh)
+		go nc.loop(nc.bpCh, nc.drainCh)
 		break
 	}
 }
@@ -186,7 +186,7 @@ func (nc *nodeConn) listen() {
 	}
 }
 
-func (nc *nodeConn) loop(piCh <-chan *procedureInvocation, bpCh <-chan chan bool, drainCh chan chan bool) {
+func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 	// declare mutable state
 	requests := make(map[int64]*networkRequest)
 	ncPiCh := nc.ncPiCh
@@ -205,7 +205,7 @@ func (nc *nodeConn) loop(piCh <-chan *procedureInvocation, bpCh <-chan chan bool
 	for {
 		// setup select cases
 		if draining {
-			if queuedBytes == 0 && len(nc.ncPiCh) == 0 && len(piCh) == 0 {
+			if queuedBytes == 0 && len(nc.ncPiCh) == 0 {
 				drainRespCh <- true
 				drainRespCh = nil
 				draining = false
@@ -238,8 +238,6 @@ func (nc *nodeConn) loop(piCh <-chan *procedureInvocation, bpCh <-chan chan bool
 			respCh <- true
 			return
 		case pi := <-ncPiCh:
-			nc.handleProcedureInvocation(pi, &requests, &queuedBytes)
-		case pi := <-piCh:
 			nc.handleProcedureInvocation(pi, &requests, &queuedBytes)
 		case resp := <-nc.responseCh:
 			nc.decoder.SetReader(resp)

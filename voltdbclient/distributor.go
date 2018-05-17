@@ -42,8 +42,8 @@ var ProtocolVersion = 1
 
 // Conn holds the set of currently active connections.
 type Conn struct {
-	inPiCh                                   chan *procedureInvocation
-	allNcsPiCh                               chan *procedureInvocation
+	inPiCh chan *procedureInvocation
+	// allNcsPiCh                               chan *procedureInvocation
 	closeCh                                  chan chan bool
 	open                                     atomic.Value
 	rl                                       rateLimiter
@@ -54,8 +54,8 @@ type Conn struct {
 
 func newConn(cis []string) (*Conn, error) {
 	var c = &Conn{
-		inPiCh:            make(chan *procedureInvocation, 1000),
-		allNcsPiCh:        make(chan *procedureInvocation, 1000),
+		inPiCh: make(chan *procedureInvocation, 1000),
+		// allNcsPiCh:        make(chan *procedureInvocation, 1000),
 		closeCh:           make(chan chan bool),
 		rl:                newTxnLimiter(),
 		drainCh:           make(chan chan bool),
@@ -136,7 +136,7 @@ func (c *Conn) start(cis []string) error {
 		ncPiCh := make(chan *procedureInvocation, 1000)
 		nc := newNodeConn(ci, ncPiCh)
 
-		if err = nc.connect(ProtocolVersion, c.allNcsPiCh); err != nil {
+		if err = nc.connect(ProtocolVersion); err != nil {
 			disconnected = append(disconnected, nc)
 			continue
 		}
@@ -211,7 +211,7 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIDToCon
 		select {
 		case closeRespCh = <-c.closeCh:
 			c.inPiCh = nil
-			c.allNcsPiCh = nil
+			// c.allNcsPiCh = nil
 			c.drainCh = nil
 			c.closeCh = nil
 			if len(connected) == 0 {
@@ -280,10 +280,11 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIDToCon
 				nc, backpressure, err = c.getConnByCA(connected, hnator, &partitionMasters, partitionReplicas, procedureInfos, pi)
 			}
 			if err != nil && !backpressure && nc != nil {
-				nc.submit(pi)
+				// nc.submit(pi)
 			} else {
-				c.allNcsPiCh <- pi
+				// c.allNcsPiCh <- pi
 			}
+			subscribedConnection.submit(pi)
 		case drainRespCh = <-c.drainCh:
 			if !draining {
 				if len(connected) == 0 {
