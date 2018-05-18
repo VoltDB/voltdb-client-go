@@ -186,13 +186,6 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 
 	// TODO: resubsribe when we lose the subscribed connection
 	var (
-		// subscribedConnection *nodeConn
-		// subTopoCh   <-chan voltResponse
-		// topoStatsCh <-chan voltResponse
-		// hasTopoStats   bool
-		// prInfoCh <-chan voltResponse
-		// fetchedCatalog bool
-
 		closeRespCh           chan bool
 		closingNcsCh          chan bool
 		outstandingCloseCount int
@@ -201,12 +194,6 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 		drainRespCh           chan bool
 		drainingNcsCh         chan bool
 		outstandingDrainCount int
-
-		// hnator            hashinator
-		// partitionReplicas *map[int][]*nodeConn
-		// partitionMasters = make(map[int]*nodeConn)
-
-		// procedureInfos *map[string]procedure
 	)
 
 	for {
@@ -219,8 +206,6 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 		}
 		select {
 		case closeRespCh = <-c.closeCh:
-			// c.inPiCh = nil
-			// c.allNcsPiCh = nil
 			c.drainCh = nil
 			c.closeCh = nil
 			if len(c.connected) == 0 {

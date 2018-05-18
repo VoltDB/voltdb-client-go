@@ -39,10 +39,9 @@ const maxQueuedBytes = 262144
 const maxResponseBuffer = 10000
 
 type nodeConn struct {
-	connInfo string
-	connData *wire.ConnInfo
-	tcpConn  *net.TCPConn
-
+	connInfo     string
+	connData     *wire.ConnInfo
+	tcpConn      *net.TCPConn
 	drainCh      chan chan bool
 	bpCh         chan chan bool
 	closeCh      chan chan bool
@@ -183,13 +182,8 @@ func (nc *nodeConn) listen() {
 }
 
 func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
-	// declare mutable state
-	// requests := make(map[int64]*networkRequest)
-	// ncPiCh := nc.ncPiCh
 	var draining bool
 	var drainRespCh chan bool
-	// var queuedBytes int
-	// var bp bool
 
 	var tci = int64(DefaultQueryTimeout / 10)                    // timeout check interval
 	tcc := time.NewTimer(time.Duration(tci) * time.Nanosecond).C // timeout check timer channel
@@ -208,14 +202,6 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 			}
 		}
 
-		// if nc.queuedBytes > maxQueuedBytes && ncPiCh != nil {
-		// 	ncPiCh = nil
-		// 	nc.bp = true
-		// } else if ncPiCh == nil {
-		// 	ncPiCh = nc.ncPiCh
-		// 	nc.bp = false
-		// }
-
 		// ping
 		pingSinceSent := time.Now().Sub(pingSentTime)
 		if pingOutstanding {
@@ -233,8 +219,6 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 			nc.tcpConn.Close()
 			respCh <- true
 			return
-		// case pi := <-ncPiCh:
-		// 	nc.handleProcedureInvocation(pi)
 		case resp := <-nc.responseCh:
 			decoder := wire.NewDecoder(resp)
 			handle, err := decoder.Int64()
