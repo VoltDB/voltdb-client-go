@@ -43,14 +43,9 @@ type nodeConn struct {
 	connData *wire.ConnInfo
 	tcpConn  *net.TCPConn
 
-	drainCh chan chan bool
-	bpCh    chan chan bool
-	closeCh chan chan bool
-
-	// channel for pi's meant specifically for this connection.
-	// ncPiCh       chan *procedureInvocation
-	decoder      *wire.Decoder
-	encoder      *wire.Encoder
+	drainCh      chan chan bool
+	bpCh         chan chan bool
+	closeCh      chan chan bool
 	responseCh   chan *bytes.Buffer
 	requests     map[int64]*networkRequest
 	queuedBytes  int
@@ -60,13 +55,10 @@ type nodeConn struct {
 
 func newNodeConn(ci string) *nodeConn {
 	return &nodeConn{
-		connInfo: ci,
-		// ncPiCh:     make(chan *procedureInvocation, 1000),
+		connInfo:   ci,
 		bpCh:       make(chan chan bool),
 		closeCh:    make(chan chan bool),
 		drainCh:    make(chan chan bool),
-		decoder:    wire.NewDecoder(nil),
-		encoder:    wire.NewEncoder(),
 		responseCh: make(chan *bytes.Buffer, maxResponseBuffer),
 		requests:   make(map[int64]*networkRequest),
 	}
@@ -119,10 +111,6 @@ func (nc *nodeConn) reconnect(protocolVersion int) {
 }
 
 func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.ConnInfo, error) {
-	defer func() {
-		nc.decoder.Reset()
-		nc.encoder.Reset()
-	}()
 	u, err := parseURL(nc.connInfo)
 	if err != nil {
 		return nil, nil, err
@@ -136,8 +124,8 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.Con
 		return nil, nil, fmt.Errorf("failed to connect to server %v", nc.connInfo)
 	}
 	pass, _ := u.User.Password()
-	nc.encoder.Reset()
-	login, err := nc.encoder.Login(protocolVersion, u.User.Username(), pass)
+	encoder := wire.NewEncoder()
+	login, err := encoder.Login(protocolVersion, u.User.Username(), pass)
 	if err != nil {
 		tcpConn.Close()
 		return nil, nil, fmt.Errorf("failed to serialize login message %v", nc.connInfo)
@@ -146,9 +134,8 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.Con
 	if err != nil {
 		return nil, nil, err
 	}
-	nc.decoder.Reset()
-	nc.decoder.SetReader(tcpConn)
-	i, err := nc.decoder.Login()
+	decoder := wire.NewDecoder(tcpConn)
+	i, err := decoder.Login()
 	if err != nil {
 		tcpConn.Close()
 		return nil, nil, fmt.Errorf("failed to login to server %v", nc.connInfo)
@@ -249,9 +236,8 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 		// case pi := <-ncPiCh:
 		// 	nc.handleProcedureInvocation(pi)
 		case resp := <-nc.responseCh:
-			nc.decoder.SetReader(resp)
-			handle, err := nc.decoder.Int64()
-			nc.decoder.Reset()
+			decoder := wire.NewDecoder(resp)
+			handle, err := decoder.Int64()
 			// can't do anything without a handle.  If reading the handle fails,
 			// then log and drop the message.
 			if err != nil {
@@ -303,10 +289,9 @@ func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, err
 	}
 	nc.requests[pi.handle] = nr
 	nc.queuedBytes += pi.slen
-	nc.encoder.Reset()
-	EncodePI(nc.encoder, pi)
-	defer nc.encoder.Reset()
-	n, err := nc.tcpConn.Write(nc.encoder.Bytes())
+	encoder := wire.NewEncoder()
+	EncodePI(encoder, pi)
+	n, err := nc.tcpConn.Write(encoder.Bytes())
 	if err != nil {
 		return n, fmt.Errorf("%s: %v", nc.connInfo, err)
 	}
@@ -315,23 +300,21 @@ func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, err
 
 func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRequest) {
 	respCh := req.getChan()
-	nc.decoder.SetReader(r)
-	defer nc.decoder.Reset()
-	rsp, err := decodeResponse(nc.decoder, handle)
+	decoder := wire.NewDecoder(r)
+	rsp, err := decodeResponse(decoder, handle)
 	if err != nil {
 		e := err.(VoltError)
 		e.error = fmt.Errorf("%s: %v", nc.connInfo, e.error)
 		respCh <- e
 	} else if req.isQuery() {
 
-		if rows, err := decodeRows(nc.decoder, rsp); err != nil {
+		if rows, err := decodeRows(decoder, rsp); err != nil {
 			respCh <- err.(voltResponse)
 		} else {
 			respCh <- rows
 		}
 	} else {
-
-		if result, err := decodeResult(nc.decoder, rsp); err != nil {
+		if result, err := decodeResult(decoder, rsp); err != nil {
 			respCh <- err.(voltResponse)
 		} else {
 			respCh <- result
@@ -373,10 +356,9 @@ func (nc *nodeConn) handleTimeout(req *networkRequest) {
 
 func (nc *nodeConn) sendPing(writer io.Writer) {
 	pi := newProcedureInvocationByHandle(PingHandle, true, "@Ping", []driver.Value{})
-	nc.encoder.Reset()
-	EncodePI(nc.encoder, pi)
-	writer.Write(nc.encoder.Bytes())
-	nc.encoder.Reset()
+	encoder := wire.NewEncoder()
+	EncodePI(encoder, pi)
+	writer.Write(encoder.Bytes())
 }
 
 // AsyncResponseConsumer is a type that consumes responses from asynchronous
