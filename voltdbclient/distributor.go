@@ -42,7 +42,7 @@ var ProtocolVersion = 1
 
 // Conn holds the set of currently active connections.
 type Conn struct {
-	inPiCh chan *procedureInvocation
+	// inPiCh chan *procedureInvocation
 	// allNcsPiCh                               chan *procedureInvocation
 	closeCh                                  chan chan bool
 	open                                     atomic.Value
@@ -65,7 +65,7 @@ type Conn struct {
 
 func newConn(cis []string) (*Conn, error) {
 	var c = &Conn{
-		inPiCh: make(chan *procedureInvocation, 1000),
+		// inPiCh: make(chan *procedureInvocation, 1000),
 		// allNcsPiCh:        make(chan *procedureInvocation, 1000),
 		closeCh:           make(chan chan bool),
 		rl:                newTxnLimiter(),
@@ -211,16 +211,15 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 
 	for {
 		if draining {
-			if len(c.inPiCh) == 0 && outstandingDrainCount == 0 {
+			if outstandingDrainCount == 0 {
 				drainRespCh <- true
 				drainingNcsCh = nil
 				draining = false
 			}
 		}
-		c.availableConn()
 		select {
 		case closeRespCh = <-c.closeCh:
-			c.inPiCh = nil
+			// c.inPiCh = nil
 			// c.allNcsPiCh = nil
 			c.drainCh = nil
 			c.closeCh = nil
@@ -282,8 +281,6 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 			default:
 				c.fetchedCatalog = false
 			}
-		case pi := <-c.inPiCh:
-			c.submit(pi)
 		case drainRespCh = <-c.drainCh:
 			if !draining {
 				if len(c.connected) == 0 {
@@ -314,19 +311,20 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 }
 
 func (c *Conn) submit(pi *procedureInvocation) (int, error) {
-	var nc *nodeConn
-	var backpressure = true
-	var err error
-	if c.useClientAffinity && c.hnator != nil && c.partitionReplicas != nil && c.procedureInfos != nil {
-		nc, backpressure, err =
-			c.getConnByCA(c.connected, c.hnator, &c.partitionMasters, c.partitionReplicas, c.procedureInfos, pi)
-	}
-	if err != nil && !backpressure && nc != nil {
-		// nc.submit(pi)
-	} else {
-		// c.allNcsPiCh <- pi
-	}
-	return c.subscribedConnection.submit(pi)
+	nc := c.availableConn()
+	// var nc *nodeConn
+	// var backpressure = true
+	// var err error
+	// if c.useClientAffinity && c.hnator != nil && c.partitionReplicas != nil && c.procedureInfos != nil {
+	// 	nc, backpressure, err =
+	// 		c.getConnByCA(c.connected, c.hnator, &c.partitionMasters, c.partitionReplicas, c.procedureInfos, pi)
+	// }
+	// if err != nil && !backpressure && nc != nil {
+	// 	// nc.submit(pi)
+	// } else {
+	// 	// c.allNcsPiCh <- pi
+	// }
+	return nc.submit(pi)
 }
 
 // Begin starts a transaction.

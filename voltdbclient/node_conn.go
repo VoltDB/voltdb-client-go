@@ -30,6 +30,10 @@ import (
 	"github.com/VoltDB/voltdb-client-go/wire"
 )
 
+func init() {
+	log.SetFlags(log.Lshortfile)
+}
+
 // start back pressure when this many bytes are queued for write
 const maxQueuedBytes = 262144
 const maxResponseBuffer = 10000
@@ -44,19 +48,20 @@ type nodeConn struct {
 	closeCh chan chan bool
 
 	// channel for pi's meant specifically for this connection.
-	ncPiCh      chan *procedureInvocation
-	decoder     *wire.Decoder
-	encoder     *wire.Encoder
-	responseCh  chan *bytes.Buffer
-	requests    map[int64]*networkRequest
-	queuedBytes int
-	bp          bool
+	// ncPiCh       chan *procedureInvocation
+	decoder      *wire.Decoder
+	encoder      *wire.Encoder
+	responseCh   chan *bytes.Buffer
+	requests     map[int64]*networkRequest
+	queuedBytes  int
+	bp           bool
+	disconnected bool
 }
 
 func newNodeConn(ci string) *nodeConn {
 	return &nodeConn{
-		connInfo:   ci,
-		ncPiCh:     make(chan *procedureInvocation, 1000),
+		connInfo: ci,
+		// ncPiCh:     make(chan *procedureInvocation, 1000),
 		bpCh:       make(chan chan bool),
 		closeCh:    make(chan chan bool),
 		drainCh:    make(chan chan bool),
@@ -209,7 +214,7 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 	for {
 		// setup select cases
 		if draining {
-			if nc.queuedBytes == 0 && len(nc.ncPiCh) == 0 {
+			if nc.queuedBytes == 0 {
 				drainRespCh <- true
 				drainRespCh = nil
 				draining = false
@@ -301,7 +306,11 @@ func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, err
 	nc.encoder.Reset()
 	EncodePI(nc.encoder, pi)
 	defer nc.encoder.Reset()
-	return nc.tcpConn.Write(nc.encoder.Bytes())
+	n, err := nc.tcpConn.Write(nc.encoder.Bytes())
+	if err != nil {
+		return n, fmt.Errorf("%s: %v", nc.connInfo, err)
+	}
+	return 0, nil
 }
 
 func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRequest) {
@@ -310,7 +319,9 @@ func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRe
 	defer nc.decoder.Reset()
 	rsp, err := decodeResponse(nc.decoder, handle)
 	if err != nil {
-		respCh <- err.(voltResponse)
+		e := err.(VoltError)
+		e.error = fmt.Errorf("%s: %v", nc.connInfo, e.error)
+		respCh <- e
 	} else if req.isQuery() {
 
 		if rows, err := decodeRows(nc.decoder, rsp); err != nil {
