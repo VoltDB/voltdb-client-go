@@ -25,6 +25,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/VoltDB/voltdb-client-go/wire"
@@ -33,6 +34,8 @@ import (
 func init() {
 	log.SetFlags(log.Lshortfile)
 }
+
+var errClosedConnection = errors.New("sending procedure invocation on a closed connection")
 
 // start back pressure when this many bytes are queued for write
 const maxQueuedBytes = 262144
@@ -50,6 +53,15 @@ type nodeConn struct {
 	queuedBytes  int
 	bp           bool
 	disconnected bool
+	closed       atomic.Value
+}
+
+func (nc *nodeConn) isClosed() bool {
+	v := nc.closed.Load()
+	if v == nil {
+		return false
+	}
+	return v.(bool)
 }
 
 func newNodeConn(ci string) *nodeConn {
@@ -64,6 +76,9 @@ func newNodeConn(ci string) *nodeConn {
 }
 
 func (nc *nodeConn) submit(pi *procedureInvocation) (int, error) {
+	if nc.isClosed() {
+		return 0, errClosedConnection
+	}
 	return nc.handleProcedureInvocation(pi)
 }
 
@@ -158,6 +173,9 @@ func (nc *nodeConn) listen() {
 	d := wire.NewDecoder(nc.tcpConn)
 	s := &wire.Decoder{}
 	for {
+		if nc.isClosed() {
+			return
+		}
 		b, err := d.Message()
 		if err != nil {
 			if nc.responseCh == nil {
@@ -193,6 +211,9 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 	pingSentTime := time.Now()
 	var pingOutstanding bool
 	for {
+		if nc.isClosed() {
+			return
+		}
 		// setup select cases
 		if draining {
 			if nc.queuedBytes == 0 {
@@ -217,6 +238,7 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 		select {
 		case respCh := <-nc.closeCh:
 			nc.tcpConn.Close()
+			nc.closed.Store(true)
 			respCh <- true
 			return
 		case resp := <-nc.responseCh:
