@@ -301,6 +301,7 @@ func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, err
 	if err != nil {
 		return n, fmt.Errorf("%s: %v", nc.connInfo, err)
 	}
+	pi.conn = nc
 	return 0, nil
 }
 
