@@ -209,7 +209,7 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 				// TODO: should disconnect
 			}
 		} else if pingSinceSent > pingTimeout/3 {
-			nc.sendPing(nc.tcpConn)
+			nc.sendPing()
 			pingOutstanding = true
 			pingSentTime = time.Now()
 		}
@@ -338,11 +338,15 @@ func (nc *nodeConn) handleTimeout(req *networkRequest) {
 	}
 }
 
-func (nc *nodeConn) sendPing(writer io.Writer) {
+func (nc *nodeConn) sendPing() error {
 	pi := newProcedureInvocationByHandle(PingHandle, true, "@Ping", []driver.Value{})
 	encoder := wire.NewEncoder()
-	EncodePI(encoder, pi)
-	writer.Write(encoder.Bytes())
+	err := EncodePI(encoder, pi)
+	if err != nil {
+		return err
+	}
+	_, err = nc.tcpConn.Write(encoder.Bytes())
+	return err
 }
 
 // AsyncResponseConsumer is a type that consumes responses from asynchronous
