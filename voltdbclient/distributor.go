@@ -19,6 +19,7 @@ package voltdbclient
 
 import (
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -31,6 +32,8 @@ const (
 	// DefaultQueryTimeout time out for queries.
 	DefaultQueryTimeout time.Duration = 2 * time.Minute
 )
+
+var errNoActiveConn = errors.New("no active connection found")
 
 var handle int64
 var sHandle int64 = -1
@@ -163,23 +166,39 @@ func (c *Conn) start(cis []string) error {
 	return nil
 }
 
-func (c *Conn) availableConn() *nodeConn {
+func (c *Conn) getAvailableConn() (*nodeConn, error) {
+	size := len(c.connected)
+	idx := rand.Intn(size)
+	nc := c.connected[idx]
+	return nc, nil
+}
+
+func (c *Conn) availableConn() (*nodeConn, error) {
 	if c.useClientAffinity && c.subscribedConnection == nil && len(c.connected) > 0 {
-		nc := c.connected[rand.Intn(len(c.connected))]
+		nc, err := c.getAvailableConn()
+		if err != nil {
+			return nil, err
+		}
 		c.subTopoCh = c.subscribeTopo(nc)
 		c.subscribedConnection = nc
 	}
 	if c.useClientAffinity && !c.hasTopoStats && len(c.connected) > 0 {
-		nc := c.connected[rand.Intn(len(c.connected))]
+		nc, err := c.getAvailableConn()
+		if err != nil {
+			return nil, err
+		}
 		c.topoStatsCh = c.getTopoStatistics(nc)
 		c.hasTopoStats = true
 	}
 	if c.useClientAffinity && !c.fetchedCatalog && len(c.connected) > 0 {
-		nc := c.connected[rand.Intn(len(c.connected))]
+		nc, err := c.getAvailableConn()
+		if err != nil {
+			return nil, err
+		}
 		c.prInfoCh = c.getProcedureInfo(nc)
 		c.fetchedCatalog = true
 	}
-	return c.subscribedConnection
+	return c.subscribedConnection, nil
 }
 
 func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeConn) {
@@ -296,7 +315,15 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 }
 
 func (c *Conn) submit(pi *procedureInvocation) (int, error) {
-	nc := c.availableConn()
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println(err)
+		}
+	}()
+	nc, err := c.availableConn()
+	if err != nil {
+		return 0, err
+	}
 	// var nc *nodeConn
 	// var backpressure = true
 	// var err error

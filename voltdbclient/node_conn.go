@@ -361,6 +361,11 @@ func (nc *nodeConn) handleTimeout(req *networkRequest) {
 	}
 }
 
+func (nc *nodeConn) markAsClosed() {
+	nc.closed.Store(true)
+	nc.tcpConn.Close()
+}
+
 func (nc *nodeConn) sendPing() error {
 	pi := newProcedureInvocationByHandle(PingHandle, true, "@Ping", []driver.Value{})
 	encoder := wire.NewEncoder()

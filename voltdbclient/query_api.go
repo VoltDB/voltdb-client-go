@@ -20,7 +20,6 @@ package voltdbclient
 import (
 	"database/sql/driver"
 	"errors"
-	"fmt"
 	"time"
 )
 
@@ -101,27 +100,19 @@ func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Dura
 		return nil, err
 	}
 	tm := time.NewTimer(pi.timeout)
-	ticker := time.NewTicker(time.Second)
 	defer tm.Stop()
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			if err := pi.conn.sendPing(); err != nil {
-				fmt.Println(err)
-			}
-		case resp := <-pi.responseCh:
-			switch e := resp.(type) {
-			case VoltRows:
-				return e, nil
-			case VoltError:
-				return nil, e
-			default:
-				panic("unexpected response type")
-			}
-		case <-tm.C:
-			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errTimeoutExecutingQuery}
+	select {
+	case resp := <-pi.responseCh:
+		switch e := resp.(type) {
+		case VoltRows:
+			return e, nil
+		case VoltError:
+			return nil, e
+		default:
+			panic("unexpected response type")
 		}
+	case <-tm.C:
+		return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errTimeoutExecutingQuery}
 	}
 
 }
