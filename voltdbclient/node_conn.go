@@ -25,6 +25,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/VoltDB/voltdb-client-go/wire"
@@ -50,6 +51,7 @@ type nodeConn struct {
 	queuedBytes  int
 	bp           bool
 	disconnected bool
+	closed       atomic.Value
 }
 
 func newNodeConn(ci string) *nodeConn {
@@ -64,7 +66,21 @@ func newNodeConn(ci string) *nodeConn {
 }
 
 func (nc *nodeConn) submit(pi *procedureInvocation) (int, error) {
+	if nc.isClosed() {
+		return 0, fmt.Errorf("%s: writing on a closed node connection", nc.connInfo)
+	}
 	return nc.handleProcedureInvocation(pi)
+}
+
+func (nc *nodeConn) markClosed() {
+	nc.closed.Store(true)
+}
+
+func (nc *nodeConn) isClosed() bool {
+	if v := nc.closed.Load(); v != nil {
+		return v.(bool)
+	}
+	return false
 }
 
 // when the node conn is closed by its owning distributer
@@ -279,6 +295,7 @@ func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, err
 	if err != nil {
 		return n, fmt.Errorf("%s: %v", nc.connInfo, err)
 	}
+	pi.conn = nc
 	return 0, nil
 }
 
