@@ -163,19 +163,38 @@ func (c *Conn) start(cis []string) error {
 	return nil
 }
 
+func (c *Conn) getConn() *nodeConn {
+	size := len(c.connected)
+	idx := rand.Intn(size)
+	nc := c.connected[idx]
+	if nc.isClosed() {
+		for {
+			n := rand.Intn(size)
+			if n != idx {
+				return c.connected[n]
+			}
+		}
+	}
+	return nc
+}
+
 func (c *Conn) availableConn() *nodeConn {
+	nc := c.getConn()
+	if nc.isClosed() {
+		for _, v := range c.connected {
+			fmt.Println(v.connInfo)
+		}
+		log.Fatal("Closed")
+	}
+	c.subscribedConnection = nc
 	if c.useClientAffinity && c.subscribedConnection == nil && len(c.connected) > 0 {
-		nc := c.connected[rand.Intn(len(c.connected))]
 		c.subTopoCh = c.subscribeTopo(nc)
-		c.subscribedConnection = nc
 	}
 	if c.useClientAffinity && !c.hasTopoStats && len(c.connected) > 0 {
-		nc := c.connected[rand.Intn(len(c.connected))]
 		c.topoStatsCh = c.getTopoStatistics(nc)
 		c.hasTopoStats = true
 	}
 	if c.useClientAffinity && !c.fetchedCatalog && len(c.connected) > 0 {
-		nc := c.connected[rand.Intn(len(c.connected))]
 		c.prInfoCh = c.getProcedureInfo(nc)
 		c.fetchedCatalog = true
 	}
@@ -297,6 +316,9 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 
 func (c *Conn) submit(pi *procedureInvocation) (int, error) {
 	nc := c.availableConn()
+	if nc.isClosed() {
+		nc = c.availableConn()
+	}
 	// var nc *nodeConn
 	// var backpressure = true
 	// var err error

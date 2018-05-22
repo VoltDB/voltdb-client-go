@@ -67,13 +67,15 @@ func newNodeConn(ci string) *nodeConn {
 
 func (nc *nodeConn) submit(pi *procedureInvocation) (int, error) {
 	if nc.isClosed() {
-		return 0, fmt.Errorf("%s: writing on a closed node connection", nc.connInfo)
+		return 0, fmt.Errorf("%s:%d writing on a closed node connection",
+			nc.connInfo, pi.handle)
 	}
 	return nc.handleProcedureInvocation(pi)
 }
 
 func (nc *nodeConn) markClosed() {
 	nc.closed.Store(true)
+	nc.tcpConn.Close()
 }
 
 func (nc *nodeConn) isClosed() bool {
@@ -355,11 +357,16 @@ func (nc *nodeConn) handleTimeout(req *networkRequest) {
 	}
 }
 
-func (nc *nodeConn) sendPing(writer io.Writer) {
+func (nc *nodeConn) Ping() error {
+	return nc.sendPing(nc.tcpConn)
+}
+
+func (nc *nodeConn) sendPing(writer io.Writer) error {
 	pi := newProcedureInvocationByHandle(PingHandle, true, "@Ping", []driver.Value{})
 	encoder := wire.NewEncoder()
 	EncodePI(encoder, pi)
-	writer.Write(encoder.Bytes())
+	_, err := writer.Write(encoder.Bytes())
+	return err
 }
 
 // AsyncResponseConsumer is a type that consumes responses from asynchronous
