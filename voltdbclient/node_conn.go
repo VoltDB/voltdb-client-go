@@ -25,44 +25,61 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/VoltDB/voltdb-client-go/wire"
 )
+
+func init() {
+	log.SetFlags(log.Lshortfile)
+}
+
+var errClosedConnection = errors.New("sending procedure invocation on a closed connection")
 
 // start back pressure when this many bytes are queued for write
 const maxQueuedBytes = 262144
 const maxResponseBuffer = 10000
 
 type nodeConn struct {
-	connInfo string
-	connData *wire.ConnInfo
-	tcpConn  *net.TCPConn
-
-	drainCh chan chan bool
-	bpCh    chan chan bool
-	closeCh chan chan bool
-
-	// channel for pi's meant specifically for this connection.
-	ncPiCh  chan *procedureInvocation
-	decoder *wire.Decoder
-	encoder *wire.Encoder
+	connInfo     string
+	connData     *wire.ConnInfo
+	tcpConn      *net.TCPConn
+	drainCh      chan chan bool
+	bpCh         chan chan bool
+	closeCh      chan chan bool
+	responseCh   chan *bytes.Buffer
+	requests     map[int64]*networkRequest
+	queuedBytes  int
+	bp           bool
+	disconnected bool
+	closed       atomic.Value
 }
 
-func newNodeConn(ci string, ncPiCh chan *procedureInvocation) *nodeConn {
+func (nc *nodeConn) isClosed() bool {
+	v := nc.closed.Load()
+	if v == nil {
+		return false
+	}
+	return v.(bool)
+}
+
+func newNodeConn(ci string) *nodeConn {
 	return &nodeConn{
-		connInfo: ci,
-		ncPiCh:   ncPiCh,
-		bpCh:     make(chan chan bool),
-		closeCh:  make(chan chan bool),
-		drainCh:  make(chan chan bool),
-		decoder:  wire.NewDecoder(nil),
-		encoder:  wire.NewEncoder(),
+		connInfo:   ci,
+		bpCh:       make(chan chan bool),
+		closeCh:    make(chan chan bool),
+		drainCh:    make(chan chan bool),
+		responseCh: make(chan *bytes.Buffer, maxResponseBuffer),
+		requests:   make(map[int64]*networkRequest),
 	}
 }
 
-func (nc *nodeConn) submit(pi *procedureInvocation) {
-	nc.ncPiCh <- pi
+func (nc *nodeConn) submit(pi *procedureInvocation) (int, error) {
+	if nc.isClosed() {
+		return 0, errClosedConnection
+	}
+	return nc.handleProcedureInvocation(pi)
 }
 
 // when the node conn is closed by its owning distributer
@@ -72,7 +89,7 @@ func (nc *nodeConn) close() chan bool {
 	return respCh
 }
 
-func (nc *nodeConn) connect(protocolVersion int, piCh <-chan *procedureInvocation) error {
+func (nc *nodeConn) connect(protocolVersion int) error {
 	tcpConn, connData, err := nc.networkConnect(protocolVersion)
 	if err != nil {
 		return err
@@ -80,19 +97,18 @@ func (nc *nodeConn) connect(protocolVersion int, piCh <-chan *procedureInvocatio
 	nc.connData = connData
 	nc.tcpConn = tcpConn
 
-	responseCh := make(chan *bytes.Buffer, maxResponseBuffer)
-	go nc.listen(tcpConn, responseCh)
+	go nc.listen()
 
 	nc.drainCh = make(chan chan bool, 1)
 
-	go nc.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh)
+	go nc.loop(nc.bpCh, nc.drainCh)
 	return nil
 }
 
 // called when the network listener loses connection.
 // the 'processAsyncs' goroutine and channel stay in place over
 // a reconnect, they're not affected.
-func (nc *nodeConn) reconnect(protocolVersion int, piCh <-chan *procedureInvocation) {
+func (nc *nodeConn) reconnect(protocolVersion int) {
 	for {
 		tcpConn, connData, err := nc.networkConnect(protocolVersion)
 		if err != nil {
@@ -102,19 +118,13 @@ func (nc *nodeConn) reconnect(protocolVersion int, piCh <-chan *procedureInvocat
 		}
 		nc.tcpConn = tcpConn
 		nc.connData = connData
-
-		responseCh := make(chan *bytes.Buffer, maxResponseBuffer)
-		go nc.listen(tcpConn, responseCh)
-		go nc.loop(tcpConn, piCh, responseCh, nc.bpCh, nc.drainCh)
+		go nc.listen()
+		go nc.loop(nc.bpCh, nc.drainCh)
 		break
 	}
 }
 
 func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.ConnInfo, error) {
-	defer func() {
-		nc.decoder.Reset()
-		nc.encoder.Reset()
-	}()
 	u, err := parseURL(nc.connInfo)
 	if err != nil {
 		return nil, nil, err
@@ -128,8 +138,8 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.Con
 		return nil, nil, fmt.Errorf("failed to connect to server %v", nc.connInfo)
 	}
 	pass, _ := u.User.Password()
-	nc.encoder.Reset()
-	login, err := nc.encoder.Login(protocolVersion, u.User.Username(), pass)
+	encoder := wire.NewEncoder()
+	login, err := encoder.Login(protocolVersion, u.User.Username(), pass)
 	if err != nil {
 		tcpConn.Close()
 		return nil, nil, fmt.Errorf("failed to serialize login message %v", nc.connInfo)
@@ -138,9 +148,8 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.Con
 	if err != nil {
 		return nil, nil, err
 	}
-	nc.decoder.Reset()
-	nc.decoder.SetReader(tcpConn)
-	i, err := nc.decoder.Login()
+	decoder := wire.NewDecoder(tcpConn)
+	i, err := decoder.Login()
 	if err != nil {
 		tcpConn.Close()
 		return nil, nil, fmt.Errorf("failed to login to server %v", nc.connInfo)
@@ -160,13 +169,16 @@ func (nc *nodeConn) hasBP() bool {
 
 // listen listens for messages from the server and calls back a registered listener.
 // listen blocks on input from the server and should be run as a go routine.
-func (nc *nodeConn) listen(reader io.Reader, responseCh chan<- *bytes.Buffer) {
-	d := wire.NewDecoder(reader)
+func (nc *nodeConn) listen() {
+	d := wire.NewDecoder(nc.tcpConn)
 	s := &wire.Decoder{}
 	for {
+		if nc.isClosed() {
+			return
+		}
 		b, err := d.Message()
 		if err != nil {
-			if responseCh == nil {
+			if nc.responseCh == nil {
 				// exiting
 				return
 			}
@@ -178,23 +190,18 @@ func (nc *nodeConn) listen(reader io.Reader, responseCh chan<- *bytes.Buffer) {
 		s.SetReader(buf)
 		_, err = s.Byte()
 		if err != nil {
-			if responseCh == nil {
+			if nc.responseCh == nil {
 				return
 			}
 			return
 		}
-		responseCh <- buf
+		nc.responseCh <- buf
 	}
 }
 
-func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, responseCh <-chan *bytes.Buffer, bpCh <-chan chan bool, drainCh chan chan bool) {
-	// declare mutable state
-	requests := make(map[int64]*networkRequest)
-	ncPiCh := nc.ncPiCh
+func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 	var draining bool
 	var drainRespCh chan bool
-	var queuedBytes int
-	var bp bool
 
 	var tci = int64(DefaultQueryTimeout / 10)                    // timeout check interval
 	tcc := time.NewTimer(time.Duration(tci) * time.Nanosecond).C // timeout check timer channel
@@ -204,21 +211,16 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 	pingSentTime := time.Now()
 	var pingOutstanding bool
 	for {
+		if nc.isClosed() {
+			return
+		}
 		// setup select cases
 		if draining {
-			if queuedBytes == 0 && len(nc.ncPiCh) == 0 && len(piCh) == 0 {
+			if nc.queuedBytes == 0 {
 				drainRespCh <- true
 				drainRespCh = nil
 				draining = false
 			}
-		}
-
-		if queuedBytes > maxQueuedBytes && ncPiCh != nil {
-			ncPiCh = nil
-			bp = true
-		} else if ncPiCh == nil {
-			ncPiCh = nc.ncPiCh
-			bp = false
 		}
 
 		// ping
@@ -228,7 +230,7 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 				// TODO: should disconnect
 			}
 		} else if pingSinceSent > pingTimeout/3 {
-			nc.sendPing(writer)
+			nc.sendPing()
 			pingOutstanding = true
 			pingSentTime = time.Now()
 		}
@@ -236,16 +238,12 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 		select {
 		case respCh := <-nc.closeCh:
 			nc.tcpConn.Close()
+			nc.closed.Store(true)
 			respCh <- true
 			return
-		case pi := <-ncPiCh:
-			nc.handleProcedureInvocation(writer, pi, &requests, &queuedBytes)
-		case pi := <-piCh:
-			nc.handleProcedureInvocation(writer, pi, &requests, &queuedBytes)
-		case resp := <-responseCh:
-			nc.decoder.SetReader(resp)
-			handle, err := nc.decoder.Int64()
-			nc.decoder.Reset()
+		case resp := <-nc.responseCh:
+			decoder := wire.NewDecoder(resp)
+			handle, err := decoder.Int64()
 			// can't do anything without a handle.  If reading the handle fails,
 			// then log and drop the message.
 			if err != nil {
@@ -255,15 +253,15 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 				pingOutstanding = false
 				continue
 			}
-			req := requests[handle]
+			req := nc.requests[handle]
 			if req == nil {
 				// there's a race here with timeout.  A request can be timed out and
 				// then a response received.  In this case drop the response.
 				continue
 			}
-			queuedBytes -= req.numBytes
+			nc.queuedBytes -= req.numBytes
 
-			delete(requests, handle)
+			delete(nc.requests, handle)
 			if req.isSync() {
 				nc.handleSyncResponse(handle, resp, req)
 			} else {
@@ -271,16 +269,16 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 			}
 
 		case respBPCh := <-bpCh:
-			respBPCh <- bp
+			respBPCh <- nc.bp
 		case drainRespCh = <-drainCh:
 			draining = true
 		// check for timed out procedure invocations
 		case <-tcc:
-			for _, req := range requests {
+			for _, req := range nc.requests {
 				if time.Now().After(req.submitted.Add(req.timeout)) {
-					queuedBytes -= req.numBytes
+					nc.queuedBytes -= req.numBytes
 					nc.handleTimeout(req)
-					delete(requests, req.handle)
+					delete(nc.requests, req.handle)
 				}
 			}
 			tcc = time.NewTimer(time.Duration(tci) * time.Nanosecond).C
@@ -288,38 +286,42 @@ func (nc *nodeConn) loop(writer io.Writer, piCh <-chan *procedureInvocation, res
 	}
 }
 
-func (nc *nodeConn) handleProcedureInvocation(writer io.Writer, pi *procedureInvocation, requests *map[int64]*networkRequest, queuedBytes *int) {
+func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, error) {
 	var nr *networkRequest
 	if pi.isAsync() {
 		nr = newAsyncRequest(pi.handle, pi.responseCh, pi.isQuery, pi.arc, pi.getLen(), pi.timeout, time.Now())
 	} else {
 		nr = newSyncRequest(pi.handle, pi.responseCh, pi.isQuery, pi.getLen(), pi.timeout, time.Now())
 	}
-	(*requests)[pi.handle] = nr
-	*queuedBytes += pi.slen
-	nc.encoder.Reset()
-	EncodePI(nc.encoder, pi)
-	writer.Write(nc.encoder.Bytes())
-	nc.encoder.Reset()
+	nc.requests[pi.handle] = nr
+	nc.queuedBytes += pi.slen
+	encoder := wire.NewEncoder()
+	EncodePI(encoder, pi)
+	n, err := nc.tcpConn.Write(encoder.Bytes())
+	if err != nil {
+		return n, fmt.Errorf("%s: %v", nc.connInfo, err)
+	}
+	pi.conn = nc
+	return 0, nil
 }
 
 func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRequest) {
 	respCh := req.getChan()
-	nc.decoder.SetReader(r)
-	defer nc.decoder.Reset()
-	rsp, err := decodeResponse(nc.decoder, handle)
+	decoder := wire.NewDecoder(r)
+	rsp, err := decodeResponse(decoder, handle)
 	if err != nil {
-		respCh <- err.(voltResponse)
+		e := err.(VoltError)
+		e.error = fmt.Errorf("%s: %v", nc.connInfo, e.error)
+		respCh <- e
 	} else if req.isQuery() {
 
-		if rows, err := decodeRows(nc.decoder, rsp); err != nil {
+		if rows, err := decodeRows(decoder, rsp); err != nil {
 			respCh <- err.(voltResponse)
 		} else {
 			respCh <- rows
 		}
 	} else {
-
-		if result, err := decodeResult(nc.decoder, rsp); err != nil {
+		if result, err := decodeResult(decoder, rsp); err != nil {
 			respCh <- err.(voltResponse)
 		} else {
 			respCh <- result
@@ -359,12 +361,20 @@ func (nc *nodeConn) handleTimeout(req *networkRequest) {
 	}
 }
 
-func (nc *nodeConn) sendPing(writer io.Writer) {
+func (nc *nodeConn) markAsClosed() {
+	nc.closed.Store(true)
+	nc.tcpConn.Close()
+}
+
+func (nc *nodeConn) sendPing() error {
 	pi := newProcedureInvocationByHandle(PingHandle, true, "@Ping", []driver.Value{})
-	nc.encoder.Reset()
-	EncodePI(nc.encoder, pi)
-	writer.Write(nc.encoder.Bytes())
-	nc.encoder.Reset()
+	encoder := wire.NewEncoder()
+	err := EncodePI(encoder, pi)
+	if err != nil {
+		return err
+	}
+	_, err = nc.tcpConn.Write(encoder.Bytes())
+	return err
 }
 
 // AsyncResponseConsumer is a type that consumes responses from asynchronous

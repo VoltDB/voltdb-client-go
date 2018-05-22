@@ -34,6 +34,9 @@ type procedureInvocation struct {
 	arc        AsyncResponseConsumer
 	async      bool
 	slen       int // length of pi once serialized
+
+	// This is the connection that is handling the procedure
+	conn *nodeConn
 }
 
 func newSyncProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, responseCh chan voltResponse, timeout time.Duration) *procedureInvocation {

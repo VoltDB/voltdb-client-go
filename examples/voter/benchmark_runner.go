@@ -299,7 +299,7 @@ func handleSQLRows(rows *sql.Rows, err error) (success int) {
 }
 
 func handleVoteError(err error) (success int) {
-	log.Panic(err)
+	log.Println(err)
 	atomic.AddUint64(&(fullStats.failedVotes), 1)
 	return 0
 }

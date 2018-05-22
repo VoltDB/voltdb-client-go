@@ -19,6 +19,7 @@ package voltdbclient
 
 import (
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -32,6 +33,8 @@ const (
 	DefaultQueryTimeout time.Duration = 2 * time.Minute
 )
 
+var errNoActiveConn = errors.New("no active connection found")
+
 var handle int64
 var sHandle int64 = -1
 
@@ -42,24 +45,36 @@ var ProtocolVersion = 1
 
 // Conn holds the set of currently active connections.
 type Conn struct {
-	inPiCh                                   chan *procedureInvocation
-	allNcsPiCh                               chan *procedureInvocation
+	// inPiCh chan *procedureInvocation
+	// allNcsPiCh                               chan *procedureInvocation
 	closeCh                                  chan chan bool
 	open                                     atomic.Value
 	rl                                       rateLimiter
 	drainCh                                  chan chan bool
 	useClientAffinity                        bool
 	sendReadsToReplicasBytDefaultIfCAEnabled bool
+	subscribedConnection                     *nodeConn
+	connected                                []*nodeConn
+	hasTopoStats                             bool
+	subTopoCh                                <-chan voltResponse
+	topoStatsCh                              <-chan voltResponse
+	prInfoCh                                 <-chan voltResponse
+	fetchedCatalog                           bool
+	hnator                                   hashinator
+	partitionReplicas                        *map[int][]*nodeConn
+	procedureInfos                           *map[string]procedure
+	partitionMasters                         map[int]*nodeConn
 }
 
 func newConn(cis []string) (*Conn, error) {
 	var c = &Conn{
-		inPiCh:            make(chan *procedureInvocation, 1000),
-		allNcsPiCh:        make(chan *procedureInvocation, 1000),
+		// inPiCh: make(chan *procedureInvocation, 1000),
+		// allNcsPiCh:        make(chan *procedureInvocation, 1000),
 		closeCh:           make(chan chan bool),
 		rl:                newTxnLimiter(),
 		drainCh:           make(chan chan bool),
 		useClientAffinity: true,
+		partitionMasters:  make(map[int]*nodeConn),
 	}
 	c.open.Store(true)
 
@@ -127,44 +142,69 @@ func OpenConnWithMaxOutstandingTxns(ci string, maxOutTxns int) (*Conn, error) {
 func (c *Conn) start(cis []string) error {
 	var (
 		err                error
-		connected          []*nodeConn
 		disconnected       []*nodeConn
 		hostIDToConnection = make(map[int]*nodeConn)
 	)
 
 	for _, ci := range cis {
-		ncPiCh := make(chan *procedureInvocation, 1000)
-		nc := newNodeConn(ci, ncPiCh)
-
-		if err = nc.connect(ProtocolVersion, c.allNcsPiCh); err != nil {
+		nc := newNodeConn(ci)
+		if err = nc.connect(ProtocolVersion); err != nil {
 			disconnected = append(disconnected, nc)
 			continue
 		}
-		connected = append(connected, nc)
+		c.connected = append(c.connected, nc)
 		if c.useClientAffinity {
 			hostIDToConnection[int(nc.connData.HostID)] = nc
 		}
 	}
 
-	if len(connected) == 0 {
+	if len(c.connected) == 0 {
 		return fmt.Errorf("No valid connections %v", err)
 	}
 
-	go c.loop(connected, disconnected, &hostIDToConnection)
+	go c.loop(disconnected, &hostIDToConnection)
 	return nil
 }
 
-func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIDToConnection *map[int]*nodeConn) {
+func (c *Conn) getAvailableConn() (*nodeConn, error) {
+	size := len(c.connected)
+	idx := rand.Intn(size)
+	nc := c.connected[idx]
+	return nc, nil
+}
+
+func (c *Conn) availableConn() (*nodeConn, error) {
+	if c.useClientAffinity && c.subscribedConnection == nil && len(c.connected) > 0 {
+		nc, err := c.getAvailableConn()
+		if err != nil {
+			return nil, err
+		}
+		c.subTopoCh = c.subscribeTopo(nc)
+		c.subscribedConnection = nc
+	}
+	if c.useClientAffinity && !c.hasTopoStats && len(c.connected) > 0 {
+		nc, err := c.getAvailableConn()
+		if err != nil {
+			return nil, err
+		}
+		c.topoStatsCh = c.getTopoStatistics(nc)
+		c.hasTopoStats = true
+	}
+	if c.useClientAffinity && !c.fetchedCatalog && len(c.connected) > 0 {
+		nc, err := c.getAvailableConn()
+		if err != nil {
+			return nil, err
+		}
+		c.prInfoCh = c.getProcedureInfo(nc)
+		c.fetchedCatalog = true
+	}
+	return c.subscribedConnection, nil
+}
+
+func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeConn) {
 
 	// TODO: resubsribe when we lose the subscribed connection
 	var (
-		subscribedConnection *nodeConn
-		subTopoCh            <-chan voltResponse
-		topoStatsCh          <-chan voltResponse
-		hasTopoStats         bool
-		prInfoCh             <-chan voltResponse
-		fetchedCatalog       bool
-
 		closeRespCh           chan bool
 		closingNcsCh          chan bool
 		outstandingCloseCount int
@@ -173,53 +213,26 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIDToCon
 		drainRespCh           chan bool
 		drainingNcsCh         chan bool
 		outstandingDrainCount int
-
-		hnator            hashinator
-		partitionReplicas *map[int][]*nodeConn
-		partitionMasters  = make(map[int]*nodeConn)
-
-		procedureInfos *map[string]procedure
 	)
 
 	for {
 		if draining {
-			if len(c.inPiCh) == 0 && outstandingDrainCount == 0 {
+			if outstandingDrainCount == 0 {
 				drainRespCh <- true
 				drainingNcsCh = nil
 				draining = false
 			}
 		}
-
-		if c.useClientAffinity && subscribedConnection == nil && len(connected) > 0 {
-			nc := connected[rand.Intn(len(connected))]
-			subTopoCh = c.subscribeTopo(nc)
-			subscribedConnection = nc
-		}
-
-		if c.useClientAffinity && !hasTopoStats && len(connected) > 0 {
-			nc := connected[rand.Intn(len(connected))]
-			topoStatsCh = c.getTopoStatistics(nc)
-			hasTopoStats = true
-		}
-		if c.useClientAffinity && !fetchedCatalog && len(connected) > 0 {
-			nc := connected[rand.Intn(len(connected))]
-			prInfoCh = c.getProcedureInfo(nc)
-			fetchedCatalog = true
-
-		}
-
 		select {
 		case closeRespCh = <-c.closeCh:
-			c.inPiCh = nil
-			c.allNcsPiCh = nil
 			c.drainCh = nil
 			c.closeCh = nil
-			if len(connected) == 0 {
+			if len(c.connected) == 0 {
 				closeRespCh <- true
 			} else {
-				outstandingCloseCount = len(connected)
-				closingNcsCh = make(chan bool, len(connected))
-				for _, connectedNc := range connected {
+				outstandingCloseCount = len(c.connected)
+				closingNcsCh = make(chan bool, len(c.connected))
+				for _, connectedNc := range c.connected {
 					responseCh := connectedNc.close()
 					go func() { closingNcsCh <- <-responseCh }()
 				}
@@ -230,7 +243,7 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIDToCon
 				closeRespCh <- true
 				return
 			}
-		case topoResp := <-subTopoCh:
+		case topoResp := <-c.subTopoCh:
 			switch topoResp.(type) {
 			// handle an error, otherwise the subscribe succeeded.
 			case VoltError:
@@ -239,60 +252,48 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIDToCon
 					// TODO: try to reconnect to the host in a separate go routine.
 					// TODO: subscribe to topo a second time
 				}
-				subscribedConnection = nil
+				c.subscribedConnection = nil
 			default:
-				subTopoCh = nil
+				c.subTopoCh = nil
 			}
-		case topoStatsResp := <-topoStatsCh:
+		case topoStatsResp := <-c.topoStatsCh:
 			switch topoStatsResp.(type) {
 			case VoltRows:
 				tmpHnator, tmpPartitionReplicas, err := c.updateAffinityTopology(topoStatsResp.(VoltRows))
 				if err == nil {
-					hnator = tmpHnator
-					partitionReplicas = tmpPartitionReplicas
-					topoStatsCh = nil
+					c.hnator = tmpHnator
+					c.partitionReplicas = tmpPartitionReplicas
+					c.topoStatsCh = nil
 				} else {
 					if err.Error() != errLegacyHashinator.Error() {
-						hasTopoStats = false
+						c.hasTopoStats = false
 					}
 				}
 			default:
-				hasTopoStats = false
+				c.hasTopoStats = false
 			}
-		case prInfoResp := <-prInfoCh:
+		case prInfoResp := <-c.prInfoCh:
 			switch prInfoResp.(type) {
 			case VoltRows:
 				tmpProcedureInfos, err := c.updateProcedurePartitioning(prInfoResp.(VoltRows))
 				if err == nil {
-					procedureInfos = tmpProcedureInfos
-					prInfoCh = nil
+					c.procedureInfos = tmpProcedureInfos
+					c.prInfoCh = nil
 				} else {
-					fetchedCatalog = false
+					c.fetchedCatalog = false
 				}
 			default:
-				fetchedCatalog = false
-			}
-		case pi := <-c.inPiCh:
-			var nc *nodeConn
-			var backpressure = true
-			var err error
-			if c.useClientAffinity && hnator != nil && partitionReplicas != nil && procedureInfos != nil {
-				nc, backpressure, err = c.getConnByCA(connected, hnator, &partitionMasters, partitionReplicas, procedureInfos, pi)
-			}
-			if err != nil && !backpressure && nc != nil {
-				nc.submit(pi)
-			} else {
-				c.allNcsPiCh <- pi
+				c.fetchedCatalog = false
 			}
 		case drainRespCh = <-c.drainCh:
 			if !draining {
-				if len(connected) == 0 {
+				if len(c.connected) == 0 {
 					drainRespCh <- true
 				} else {
 					draining = true
-					outstandingDrainCount = len(connected)
-					drainingNcsCh = make(chan bool, len(connected))
-					for _, connectedNc := range connected {
+					outstandingDrainCount = len(c.connected)
+					drainingNcsCh = make(chan bool, len(c.connected))
+					for _, connectedNc := range c.connected {
 						responseCh := make(chan bool, 1)
 						connectedNc.drain(responseCh)
 						go func() { drainingNcsCh <- <-responseCh }()
@@ -311,6 +312,31 @@ func (c *Conn) loop(connected []*nodeConn, disconnected []*nodeConn, hostIDToCon
 	// look for new pis, assign to some nc
 	// for reconnectings nc's, see if reconnected.
 	// check error channel to see if any lost connections.
+}
+
+func (c *Conn) submit(pi *procedureInvocation) (int, error) {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println(err)
+		}
+	}()
+	nc, err := c.availableConn()
+	if err != nil {
+		return 0, err
+	}
+	// var nc *nodeConn
+	// var backpressure = true
+	// var err error
+	// if c.useClientAffinity && c.hnator != nil && c.partitionReplicas != nil && c.procedureInfos != nil {
+	// 	nc, backpressure, err =
+	// 		c.getConnByCA(c.connected, c.hnator, &c.partitionMasters, c.partitionReplicas, c.procedureInfos, pi)
+	// }
+	// if err != nil && !backpressure && nc != nil {
+	// 	// nc.submit(pi)
+	// } else {
+	// 	// c.allNcsPiCh <- pi
+	// }
+	return nc.submit(pi)
 }
 
 // Begin starts a transaction.
