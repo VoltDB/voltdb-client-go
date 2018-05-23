@@ -118,7 +118,7 @@ func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Dura
 	tm := time.NewTimer(pi.timeout)
 	defer tm.Stop()
 	sec := time.NewTicker(time.Second)
-	defer tm.Stop()
+	defer sec.Stop()
 	for {
 		if pi.conn.isClosed() {
 			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
