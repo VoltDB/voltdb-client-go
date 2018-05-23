@@ -176,6 +176,9 @@ func (nc *nodeConn) listen() {
 	d := wire.NewDecoder(nc.tcpConn)
 	s := &wire.Decoder{}
 	for {
+		if nc.isClosed() {
+			return
+		}
 		b, err := d.Message()
 		if err != nil {
 			if nc.responseCh == nil {
@@ -211,6 +214,9 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 	pingSentTime := time.Now()
 	var pingOutstanding bool
 	for {
+		if nc.isClosed() {
+			return
+		}
 		// setup select cases
 		if draining {
 			if nc.queuedBytes == 0 {
