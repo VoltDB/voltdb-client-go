@@ -27,6 +27,7 @@ import (
 	"reflect"
 	"runtime"
 	"runtime/pprof"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -396,7 +397,13 @@ func printResults(timeElapsed time.Duration) {
 	// 2. Voting results
 	rows, err := bm.conn.Query("Results", []driver.Value{})
 	if err != nil {
-		log.Fatal(err)
+		if strings.Contains(err.Error(), "write: broken pipe") {
+			rows, err = bm.conn.Query("Results", []driver.Value{})
+			if err != nil {
+				bm.conn.DumpConn()
+				log.Fatal(err, rows == nil)
+			}
+		}
 	}
 
 	fmt.Println("Contestant Name\t\tVotes Received")
