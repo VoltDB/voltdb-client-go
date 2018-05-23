@@ -173,8 +173,9 @@ func (c *Conn) getConn() *nodeConn {
 	if nc.isClosed() {
 		for {
 			n := rand.Intn(size)
-			if n != idx {
-				return c.connected[n]
+			nc = c.connected[n]
+			if !nc.isClosed() {
+				return nc
 			}
 		}
 	}
