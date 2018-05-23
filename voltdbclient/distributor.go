@@ -42,8 +42,6 @@ var ProtocolVersion = 1
 
 // Conn holds the set of currently active connections.
 type Conn struct {
-	// inPiCh chan *procedureInvocation
-	// allNcsPiCh                               chan *procedureInvocation
 	closeCh                                  chan chan bool
 	open                                     atomic.Value
 	rl                                       rateLimiter
@@ -65,8 +63,6 @@ type Conn struct {
 
 func newConn(cis []string) (*Conn, error) {
 	var c = &Conn{
-		// inPiCh: make(chan *procedureInvocation, 1000),
-		// allNcsPiCh:        make(chan *procedureInvocation, 1000),
 		closeCh:           make(chan chan bool),
 		rl:                newTxnLimiter(),
 		drainCh:           make(chan chan bool),
@@ -163,6 +159,7 @@ func (c *Conn) start(cis []string) error {
 	return nil
 }
 
+//Returns a node connection that is not closed.
 func (c *Conn) getConn() *nodeConn {
 	size := len(c.connected)
 	idx := rand.Intn(size)
@@ -180,12 +177,6 @@ func (c *Conn) getConn() *nodeConn {
 
 func (c *Conn) availableConn() *nodeConn {
 	nc := c.getConn()
-	if nc.isClosed() {
-		for _, v := range c.connected {
-			fmt.Println(v.connInfo)
-		}
-		log.Fatal("Closed")
-	}
 	c.subscribedConnection = nc
 	if c.useClientAffinity && c.subscribedConnection == nil && len(c.connected) > 0 {
 		c.subTopoCh = c.subscribeTopo(nc)
@@ -316,9 +307,6 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 
 func (c *Conn) submit(pi *procedureInvocation) (int, error) {
 	nc := c.availableConn()
-	if nc.isClosed() {
-		nc = c.availableConn()
-	}
 	// var nc *nodeConn
 	// var backpressure = true
 	// var err error
