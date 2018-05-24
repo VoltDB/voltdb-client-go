@@ -26,6 +26,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -48,7 +49,7 @@ type nodeConn struct {
 	bpCh         chan chan bool
 	closeCh      chan chan bool
 	responseCh   chan *bytes.Buffer
-	requests     map[int64]*networkRequest
+	requests     *sync.Map
 	queuedBytes  int
 	bp           bool
 	disconnected bool
@@ -62,7 +63,7 @@ func newNodeConn(ci string) *nodeConn {
 		closeCh:    make(chan chan bool),
 		drainCh:    make(chan chan bool),
 		responseCh: make(chan *bytes.Buffer, maxResponseBuffer),
-		requests:   make(map[int64]*networkRequest),
+		requests:   &sync.Map{},
 	}
 }
 
@@ -256,15 +257,15 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 				pingOutstanding = false
 				continue
 			}
-			req := nc.requests[handle]
-			if req == nil {
+			r, ok := nc.requests.Load(handle)
+			if !ok || r == nil {
 				// there's a race here with timeout.  A request can be timed out and
 				// then a response received.  In this case drop the response.
 				continue
 			}
+			req := r.(*networkRequest)
 			nc.queuedBytes -= req.numBytes
-
-			delete(nc.requests, handle)
+			nc.requests.Delete(handle)
 			if req.isSync() {
 				nc.handleSyncResponse(handle, resp, req)
 			} else {
@@ -277,13 +278,15 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 			draining = true
 		// check for timed out procedure invocations
 		case <-tcc:
-			for _, req := range nc.requests {
+			nc.requests.Range(func(_, v interface{}) bool {
+				req := v.(*networkRequest)
 				if time.Now().After(req.submitted.Add(req.timeout)) {
 					nc.queuedBytes -= req.numBytes
 					nc.handleTimeout(req)
-					delete(nc.requests, req.handle)
+					nc.requests.Delete(req.handle)
 				}
-			}
+				return true
+			})
 			tcc = time.NewTimer(time.Duration(tci) * time.Nanosecond).C
 		}
 	}
@@ -296,7 +299,7 @@ func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, err
 	} else {
 		nr = newSyncRequest(pi.handle, pi.responseCh, pi.isQuery, pi.getLen(), pi.timeout, time.Now())
 	}
-	nc.requests[pi.handle] = nr
+	nc.requests.Store(pi.handle, nr)
 	nc.queuedBytes += pi.slen
 	encoder := wire.NewEncoder()
 	EncodePI(encoder, pi)
