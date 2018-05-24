@@ -397,12 +397,14 @@ func printResults(timeElapsed time.Duration) {
 	// 2. Voting results
 	rows, err := bm.conn.Query("Results", []driver.Value{})
 	if err != nil {
-		if strings.Contains(err.Error(), "write: broken pipe") {
+		if strings.Contains(err.Error(), "is down") {
 			rows, err = bm.conn.Query("Results", []driver.Value{})
 			if err != nil {
 				bm.conn.DumpConn()
 				log.Fatal(err, rows == nil)
 			}
+		} else {
+			log.Fatal(err)
 		}
 	}
 

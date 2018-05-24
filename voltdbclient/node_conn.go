@@ -25,6 +25,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -301,6 +302,9 @@ func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, err
 	EncodePI(encoder, pi)
 	n, err := nc.tcpConn.Write(encoder.Bytes())
 	if err != nil {
+		if strings.Contains(err.Error(), "write: broken pipe") {
+			return n, fmt.Errorf("node %s: is down", nc.connInfo)
+		}
 		return n, fmt.Errorf("%s: %v", nc.connInfo, err)
 	}
 	pi.conn = nc
@@ -372,6 +376,11 @@ func (nc *nodeConn) sendPing(writer io.Writer) error {
 	encoder := wire.NewEncoder()
 	EncodePI(encoder, pi)
 	_, err := writer.Write(encoder.Bytes())
+	if err != nil {
+		if strings.Contains(err.Error(), "write: broken pipe") {
+			return fmt.Errorf("node %s: is down", nc.connInfo)
+		}
+	}
 	return err
 }
 
