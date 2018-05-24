@@ -235,7 +235,7 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 				// TODO: should disconnect
 			}
 		} else if pingSinceSent > pingTimeout/3 {
-			nc.sendPing(nc.tcpConn)
+			nc.sendPing()
 			pingOutstanding = true
 			pingSentTime = time.Now()
 		}
@@ -371,14 +371,14 @@ func (nc *nodeConn) handleTimeout(req *networkRequest) {
 }
 
 func (nc *nodeConn) Ping() error {
-	return nc.sendPing(nc.tcpConn)
+	return nc.sendPing()
 }
 
-func (nc *nodeConn) sendPing(writer io.Writer) error {
+func (nc *nodeConn) sendPing() error {
 	pi := newProcedureInvocationByHandle(PingHandle, true, "@Ping", []driver.Value{})
 	encoder := wire.NewEncoder()
 	EncodePI(encoder, pi)
-	_, err := writer.Write(encoder.Bytes())
+	_, err := nc.tcpConn.Write(encoder.Bytes())
 	if err != nil {
 		if strings.Contains(err.Error(), "write: broken pipe") {
 			return fmt.Errorf("node %s: is down", nc.connInfo)
