@@ -167,6 +167,9 @@ func (c *Conn) DumpConn() {
 
 //Returns a node connection that is not closed.
 func (c *Conn) getConn() *nodeConn {
+	if len(c.connected) == 1 {
+		return c.connected[0]
+	}
 	size := len(c.connected)
 	idx := rand.Intn(size)
 	nc := c.connected[idx]
