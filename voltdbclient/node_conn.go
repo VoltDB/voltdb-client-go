@@ -25,6 +25,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -40,6 +41,8 @@ func init() {
 // start back pressure when this many bytes are queued for write
 const maxQueuedBytes = 262144
 const maxResponseBuffer = 10000
+const defaultMaxRetries = 10
+const defaultRetryInterval = time.Second
 
 type nodeConn struct {
 	connInfo     string
@@ -54,6 +57,17 @@ type nodeConn struct {
 	bp           bool
 	disconnected bool
 	closed       atomic.Value
+
+	// This is the duration to wait before the next retry to connect to a node that
+	// lost connection attempt
+	retryInterval time.Duration
+
+	// If true, this will try to reconnect the moment the connection is closed.
+	retry bool
+
+	// The maximum number of retries to reconnect to a disconeected node before
+	// giving up.
+	maxRetries int
 }
 
 func newNodeConn(ci string) *nodeConn {
@@ -114,18 +128,40 @@ func (nc *nodeConn) connect(protocolVersion int) error {
 // the 'processAsyncs' goroutine and channel stay in place over
 // a reconnect, they're not affected.
 func (nc *nodeConn) reconnect(protocolVersion int) {
-	for {
-		tcpConn, connData, err := nc.networkConnect(protocolVersion)
-		if err != nil {
-			log.Println(fmt.Printf("Failed to reconnect to server with %s, retrying\n", err))
-			time.Sleep(5 * time.Second)
-			continue
+	if nc.retry {
+		if !nc.isClosed() {
+			return
 		}
-		nc.tcpConn = tcpConn
-		nc.connData = connData
-		go nc.listen()
-		go nc.loop(nc.bpCh, nc.drainCh)
-		break
+		maxRetries := nc.maxRetries
+		if maxRetries == 0 {
+			maxRetries = defaultMaxRetries
+		}
+		interval := nc.retryInterval
+		if interval == 0 {
+			interval = defaultRetryInterval
+		}
+		count := 0
+		ticker := time.NewTicker(interval)
+		for {
+			select {
+			case <-ticker.C:
+				if count > maxRetries {
+					return
+				}
+				tcpConn, connData, err := nc.networkConnect(protocolVersion)
+				if err != nil {
+					log.Println(fmt.Printf("Failed to reconnect to server %s with %s, retrying ...%d\n", nc.connInfo, err, count))
+					count++
+					continue
+				}
+				nc.tcpConn = tcpConn
+				nc.connData = connData
+				go nc.listen()
+				go nc.loop(nc.bpCh, nc.drainCh)
+				nc.closed.Store(false)
+				return
+			}
+		}
 	}
 }
 
@@ -158,6 +194,32 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.Con
 	if err != nil {
 		tcpConn.Close()
 		return nil, nil, fmt.Errorf("failed to login to server %v", nc.connInfo)
+	}
+	query := u.Query()
+	retry := query.Get("retry")
+	if retry != "" {
+		r, err := strconv.ParseBool(retry)
+		if err != nil {
+			return nil, nil, fmt.Errorf("voltdbclient: failed to parse retry value %v", err)
+		}
+		nc.retry = r
+
+		interval := query.Get("retry_interval")
+		if interval != "" {
+			i, err := time.ParseDuration(interval)
+			if err != nil {
+				return nil, nil, fmt.Errorf("voltdbclient: failed to parse retry_interval value %v", err)
+			}
+			nc.retryInterval = i
+		}
+		maxRetries := query.Get("max_retries")
+		if maxRetries != "" {
+			max, err := strconv.Atoi(maxRetries)
+			if err != nil {
+				return nil, nil, fmt.Errorf("voltdbclient: failed to parse max_retries value %v", err)
+			}
+			nc.maxRetries = max
+		}
 	}
 	return tcpConn, i, nil
 }

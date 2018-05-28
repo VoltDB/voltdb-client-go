@@ -103,6 +103,19 @@ func newConn(cis []string) (*Conn, error) {
 //
 // You can omit the port,and the default port of 21212 will be automatically
 // added for you.
+//
+// Additionally you can fine tune behavior of connections when in cluster mode
+// using query parameters.
+//
+// Example localhost:21212?max_retries=10&retry=true&retry_interval=1s
+//
+// retry - if true will try to reconnect with the node when the connection is
+// lost.
+//
+// max_retries - in the number of times you want to retry to connect to a node.
+// This has no effect when retry is false.
+//
+// retry_interval is the duration of time to wait until the next retry.
 func OpenConn(ci string) (*Conn, error) {
 	ci = strings.TrimSpace(ci)
 	if ci == "" {
