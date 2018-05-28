@@ -114,7 +114,7 @@ func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Dura
 	// of querying voltdb in this client.
 	//
 	// What happens here is, we invoke the procedure invocation and wait until we
-	// receive a response on the procedureInvocation channel.
+	// receive a response on the responseCh channel.
 	// The call to c.submit ensures that the procedure invocation request did hit a
 	// voltdb host.
 	//
