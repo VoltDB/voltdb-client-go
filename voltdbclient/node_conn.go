@@ -142,6 +142,7 @@ func (nc *nodeConn) reconnect(protocolVersion int) {
 		}
 		count := 0
 		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
