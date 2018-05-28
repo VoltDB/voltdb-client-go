@@ -37,6 +37,7 @@ func (c *Conn) Exec(query string, args []driver.Value) (driver.Result, error) {
 // UPDATE. ExecTimeout is available on both VoltConn and on VoltStatement.
 // Specifies a duration for timeout.
 func (c *Conn) ExecTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Result, error) {
+	// Works similar to QueryTimeout but send exec queries instead.
 	responseCh := make(chan voltResponse, 1)
 	pi := newSyncProcedureInvocation(c.getNextHandle(), false, query, args, responseCh, timeout)
 	_, err := c.submit(pi)
@@ -109,6 +110,18 @@ func (c *Conn) Query(query string, args []driver.Value) (driver.Rows, error) {
 // are for any placeholder parameters in the query.
 // Specifies a duration for timeout.
 func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Rows, error) {
+	// This is sync sql query to voltdb. In reality there is no sync implementation
+	// of querying voltdb in this client.
+	//
+	// What happens here is, we invoke the procedure invocation and wait until we
+	// receive a response on the procedureInvocation channel.
+	// The call to c.submit ensures that the procedure invocation request did hit a
+	// voltdb host.
+	//
+	// To account for the case the current connection that is serving the procedure
+	// invocation is lost. We send ping request every 1 second.If we detect the
+	// connection is down, we mark the connection as closed so that it will no
+	// longer be used(NOTE: This is useful in cluster mode).
 	responseCh := make(chan voltResponse, 1)
 	pi := newSyncProcedureInvocation(c.getNextHandle(), true, query, args, responseCh, timeout)
 	_, err := c.submit(pi)
