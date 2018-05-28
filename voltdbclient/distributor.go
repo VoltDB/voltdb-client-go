@@ -116,6 +116,10 @@ func OpenConn(ci string) (*Conn, error) {
 // This connection will try to meet the specified latency target, potentially by
 // throttling the rate at which asynchronous transactions are submitted.
 func OpenConnWithLatencyTarget(ci string, latencyTarget int32) (*Conn, error) {
+	ci = strings.TrimSpace(ci)
+	if ci == "" {
+		return nil, ErrMissingServerArgument
+	}
 	cis := strings.Split(ci, ",")
 	c, err := newConn(cis)
 	if err != nil {
@@ -130,6 +134,10 @@ func OpenConnWithLatencyTarget(ci string, latencyTarget int32) (*Conn, error) {
 // indicated. An outstanding transaction is a transaction that has been sent to
 // the server but for which no response has been received.
 func OpenConnWithMaxOutstandingTxns(ci string, maxOutTxns int) (*Conn, error) {
+	ci = strings.TrimSpace(ci)
+	if ci == "" {
+		return nil, ErrMissingServerArgument
+	}
 	cis := strings.Split(ci, ",")
 	c, err := newConn(cis)
 	if err != nil {
