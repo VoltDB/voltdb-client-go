@@ -19,6 +19,7 @@ package voltdbclient
 
 import (
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -34,6 +35,8 @@ const (
 
 var handle int64
 var sHandle int64 = -1
+
+var ErrMissingServerArgument = errors.New("voltdbclient: missing voltdb connection string")
 
 // ProtocolVersion lists the version of the voltdb wire protocol to use.
 // For VoltDB releases of version 5.2 and later use version 1. For releases
@@ -101,6 +104,10 @@ func newConn(cis []string) (*Conn, error) {
 // You can omit the port,and the default port of 21212 will be automatically
 // added for you.
 func OpenConn(ci string) (*Conn, error) {
+	ci = strings.TrimSpace(ci)
+	if ci == "" {
+		return nil, ErrMissingServerArgument
+	}
 	cis := strings.Split(ci, ",")
 	return newConn(cis)
 }
