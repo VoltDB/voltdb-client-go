@@ -7,9 +7,8 @@ import (
 
 func TestNodeConn_Close(t *testing.T) {
 	conn := "localhost:21212"
-	c := newNodeConn(conn, nil)
-	i := make(chan *procedureInvocation)
-	err := c.connect(1, i)
+	c := newNodeConn(conn)
+	err := c.connect(1)
 	if err != nil {
 		t.Fatal(err)
 	}
