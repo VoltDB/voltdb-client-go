@@ -12,7 +12,7 @@ read responses.
 
 # Requirements
     Recommend version:
-    go version >= 1.8
+    go version >= 1.9
 
 # Usage
 
