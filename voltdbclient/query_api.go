@@ -20,8 +20,11 @@ package voltdbclient
 import (
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"time"
 )
+
+var errTimeoutExecutingQuery = errors.New("voltdbclient: Timed out executing query")
 
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 // Exec is available on both VoltConn and on VoltStatement.
@@ -34,23 +37,42 @@ func (c *Conn) Exec(query string, args []driver.Value) (driver.Result, error) {
 // UPDATE. ExecTimeout is available on both VoltConn and on VoltStatement.
 // Specifies a duration for timeout.
 func (c *Conn) ExecTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Result, error) {
+	// Works similar to QueryTimeout but send exec queries instead.
 	responseCh := make(chan voltResponse, 1)
 	pi := newSyncProcedureInvocation(c.getNextHandle(), false, query, args, responseCh, timeout)
-	c.inPiCh <- pi
+	_, err := c.submit(pi)
+	if err != nil {
+		return nil, err
+	}
 	tm := time.NewTimer(pi.timeout)
 	defer tm.Stop()
-	select {
-	case resp := <-pi.responseCh:
-		switch resp.(type) {
-		case VoltResult:
-			return resp.(VoltResult), nil
-		case VoltError:
-			return nil, resp.(VoltError)
-		default:
-			panic("unexpected response type")
+	sec := time.NewTicker(time.Second)
+	defer sec.Stop()
+	for {
+		if pi.conn.isClosed() {
+			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
+				error: fmt.Errorf("%s: writing on a closed node connection",
+					pi.conn.connInfo)}
 		}
-	case <-tm.C:
-		return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errors.New("timeout")}
+		select {
+		case <-sec.C:
+			if err := pi.conn.Ping(); err != nil {
+				pi.conn.markClosed()
+				return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout,
+					clusterRoundTripTime: -1}, error: err}
+			}
+		case resp := <-pi.responseCh:
+			switch resp.(type) {
+			case VoltResult:
+				return resp.(VoltResult), nil
+			case VoltError:
+				return nil, resp.(VoltError)
+			default:
+				panic("unexpected response type")
+			}
+		case <-tm.C:
+			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errors.New("timeout")}
+		}
 	}
 }
 
@@ -64,9 +86,10 @@ func (c *Conn) ExecAsync(resCons AsyncResponseConsumer, query string, args []dri
 // ExecAsyncTimeout is analogous to Exec but is run asynchronously.  That is, an
 // invocation of this method blocks only until a request is sent to the VoltDB
 // server.  Specifies a duration for timeout.
-func (c *Conn) ExecAsyncTimeout(resCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) {
+func (c *Conn) ExecAsyncTimeout(resCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
 	pi := newAsyncProcedureInvocation(c.getNextHandle(), false, query, args, timeout, resCons)
-	c.inPiCh <- pi
+	_, err := c.submit(pi)
+	return err
 }
 
 // Prepare creates a prepared statement for later queries or executions.
@@ -87,24 +110,55 @@ func (c *Conn) Query(query string, args []driver.Value) (driver.Rows, error) {
 // are for any placeholder parameters in the query.
 // Specifies a duration for timeout.
 func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Duration) (driver.Rows, error) {
+	// This is sync sql query to voltdb. In reality there is no sync implementation
+	// of querying voltdb in this client.
+	//
+	// What happens here is, we invoke the procedure invocation and wait until we
+	// receive a response on the responseCh channel.
+	// The call to c.submit ensures that the procedure invocation request did hit a
+	// voltdb host.
+	//
+	// To account for the case the current connection that is serving the procedure
+	// invocation is lost. We send ping request every 1 second.If we detect the
+	// connection is down, we mark the connection as closed so that it will no
+	// longer be used(NOTE: This is useful in cluster mode).
 	responseCh := make(chan voltResponse, 1)
 	pi := newSyncProcedureInvocation(c.getNextHandle(), true, query, args, responseCh, timeout)
-	c.inPiCh <- pi
+	_, err := c.submit(pi)
+	if err != nil {
+		return nil, err
+	}
 	tm := time.NewTimer(pi.timeout)
 	defer tm.Stop()
-	select {
-	case resp := <-pi.responseCh:
-		switch resp.(type) {
-		case VoltRows:
-			return resp.(VoltRows), nil
-		case VoltError:
-			return nil, resp.(VoltError)
-		default:
-			panic("unexpected response type")
+	sec := time.NewTicker(time.Second)
+	defer sec.Stop()
+	for {
+		if pi.conn.isClosed() {
+			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
+				error: fmt.Errorf("%s: writing on a closed node connection",
+					pi.conn.connInfo)}
 		}
-	case <-tm.C:
-		return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errors.New("timeout")}
+		select {
+		case <-sec.C:
+			if err := pi.conn.Ping(); err != nil {
+				pi.conn.markClosed()
+				return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
+					error: err}
+			}
+		case resp := <-pi.responseCh:
+			switch e := resp.(type) {
+			case VoltRows:
+				return e, nil
+			case VoltError:
+				return nil, e
+			default:
+				panic("unexpected response type")
+			}
+		case <-tm.C:
+			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errTimeoutExecutingQuery}
+		}
 	}
+
 }
 
 // QueryAsync executes a query asynchronously.  The invoking thread will block
@@ -119,7 +173,8 @@ func (c *Conn) QueryAsync(rowsCons AsyncResponseConsumer, query string, args []d
 // block until the query is sent over the network to the server.  The eventual
 // response will be handled by the given AsyncResponseConsumer, this processing
 // happens in the 'response' thread.  Specifies a duration for timeout.
-func (c *Conn) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) {
+func (c *Conn) QueryAsyncTimeout(rowsCons AsyncResponseConsumer, query string, args []driver.Value, timeout time.Duration) error {
 	pi := newAsyncProcedureInvocation(c.getNextHandle(), true, query, args, timeout, rowsCons)
-	c.inPiCh <- pi
+	_, err := c.submit(pi)
+	return err
 }

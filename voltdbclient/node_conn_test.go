@@ -1,15 +1,17 @@
 package voltdbclient
 
 import (
+	"fmt"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNodeConn_Close(t *testing.T) {
 	conn := "localhost:21212"
-	c := newNodeConn(conn, nil)
-	i := make(chan *procedureInvocation)
-	err := c.connect(1, i)
+	c := newNodeConn(conn)
+	err := c.connect(1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,5 +31,30 @@ func TestNodeConn_Close(t *testing.T) {
 		if !strings.Contains(err.Error(), e) {
 			t.Errorf("expected %s to be in %v", e, err)
 		}
+	}
+}
+func TestNodeRetries(t *testing.T) {
+	n := 10
+	query := make(url.Values)
+	query.Set("retry", "true")
+	query.Set("retry_interval", time.Second.String())
+	query.Set("max_retries", fmt.Sprint(n))
+	conn := "localhost:21212?" + query.Encode()
+	c := newNodeConn(conn)
+	err := c.connect(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		<-c.close()
+	}()
+	if !c.retry {
+		t.Error("expected retry to be true")
+	}
+	if c.retryInterval != time.Second {
+		t.Errorf("expected %v got %v", time.Second, c.retryInterval)
+	}
+	if c.maxRetries != n {
+		t.Errorf("expected %d got %d", n, c.maxRetries)
 	}
 }

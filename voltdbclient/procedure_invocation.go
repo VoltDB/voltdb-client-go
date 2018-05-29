@@ -25,15 +25,26 @@ import (
 )
 
 type procedureInvocation struct {
-	handle     int64
-	isQuery    bool // as opposed to an exec.
-	query      string
-	params     []driver.Value
+
+	// This is a unique integer that is used to identify the procedure invocation.
+	handle  int64
+	isQuery bool // as opposed to an exec.
+
+	// The SQL query to be sent to voltdb
+	query  string
+	params []driver.Value
+
+	// The channel on which response from voltdb will be sent. The node connection
+	// thwt will write on this channel is stored in the conn field.
 	responseCh chan voltResponse
 	timeout    time.Duration
 	arc        AsyncResponseConsumer
 	async      bool
 	slen       int // length of pi once serialized
+
+	// This is the connection that received the invocation request. It is through
+	// this connection that the response to the procedure invocation will be sent.
+	conn *nodeConn
 }
 
 func newSyncProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, responseCh chan voltResponse, timeout time.Duration) *procedureInvocation {
