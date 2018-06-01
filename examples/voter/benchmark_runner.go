@@ -18,6 +18,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"flag"
@@ -161,38 +162,33 @@ func openAndPingDB(servers string) *sql.DB {
 	return db
 }
 
-func placeVotesSQL(join chan int, duration time.Duration) {
+func placeVotesSQL(ctx context.Context, done func()) {
 	volt := openAndPingDB(config.servers)
 	defer volt.Close()
 
-	timeout := time.After(duration)
 	// don't support prepare statement with store procedure
-
 	ops := 0
 	for {
 		select {
-		case <-timeout:
-			join <- ops
+		case <-ctx.Done():
+			done()
 			return
 		default:
 			contestantNumber, phoneNumber := bm.switchboard.receive()
 			rows, err := volt.Query("Vote", phoneNumber, contestantNumber, int64(config.maxvotes))
 			ops += handleSQLRows(rows, err)
 		}
-
 	}
 }
 
-func placeVotesSync(join chan int, duration time.Duration) {
+func placeVotesSync(ctx context.Context, done func()) {
 	volt := connect(config.servers)
 	defer volt.Close()
-	timeout := time.After(duration)
-
 	ops := 0
 	for {
 		select {
-		case <-timeout:
-			join <- ops
+		case <-ctx.Done():
+			done()
 			return
 		default:
 			contestantNumber, phoneNumber := bm.switchboard.receive()
@@ -208,46 +204,46 @@ func placeVotesSync(join chan int, duration time.Duration) {
 
 }
 
-func placeVotesAsync(join chan int, duration time.Duration) {
+func placeVotesAsync(ctx context.Context, done func()) {
 	volt := connect(config.servers)
 	defer volt.Close()
 	// volt := bm.conn
-
-	timeout := time.After(duration)
-
 	vcb := newVoteCallBack()
-	ops := 0
 	for {
 		select {
-		case <-timeout:
+		case <-ctx.Done():
 			volt.Drain()
-			join <- ops
+			done()
 			return
 		default:
 			contestantNumber, phoneNumber := bm.switchboard.receive()
 			volt.QueryAsync(vcb, "Vote", []driver.Value{phoneNumber, contestantNumber, int64(config.maxvotes)})
 		}
-
 	}
 }
 
 func vote(gorotines int, duration time.Duration,
-	fn func(join chan int, duration time.Duration)) {
-	var joiners = make([]chan int, 0)
+	fn func(ctx context.Context, complete func())) {
+	done := make(chan struct{})
+	doneFunc := func() {
+		done <- struct{}{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	defer cancel()
 	for i := 0; i < gorotines; i++ {
-		var joinchan = make(chan int)
-		joiners = append(joiners, joinchan)
-		go fn(joinchan, duration)
+		go fn(ctx, doneFunc)
 	}
-
-	// var totalCount = 0
-	for _, join := range joiners {
-		<-join
-		// ops := <-join
-		// totalCount += ops
-		//fmt.Printf("kver %v finished and acted %v ops.\n", v, ops)
+	total := gorotines
+	for {
+		select {
+		case <-done:
+			total--
+		default:
+			if total == 0 {
+				return
+			}
+		}
 	}
-	return
 }
 
 type voteCallBack struct {
