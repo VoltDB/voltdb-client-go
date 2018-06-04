@@ -92,6 +92,12 @@ func (nc *nodeConn) submit(pi *procedureInvocation) (int, error) {
 func (nc *nodeConn) markClosed() {
 	nc.closed.Store(true)
 	nc.tcpConn.Close()
+
+	// release all stored pending requests. This connection is closed so we can't
+	// satisfy the requests.
+	//
+	// TODO: handle the requests with connection closed error?
+	nc.requests = &sync.Map{}
 }
 
 func (nc *nodeConn) isClosed() bool {
