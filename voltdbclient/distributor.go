@@ -239,6 +239,10 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 			if len(c.connected) == 0 {
 				closeRespCh <- true
 			} else {
+
+				// We make sure all node connections managed by this Conn object are closed.
+				// This will block, it is okay though since we are closing the connection
+				// which means we don't want anything else to be happening.
 				for _, connectedNc := range c.connected {
 					<-connectedNc.close()
 				}
