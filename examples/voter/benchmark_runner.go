@@ -383,7 +383,6 @@ func printResults(timeElapsed time.Duration) {
 		if strings.Contains(err.Error(), "is down") {
 			rows, err = bm.conn.Query("Results", []driver.Value{})
 			if err != nil {
-				bm.conn.DumpConn()
 				log.Fatal(err, rows == nil)
 			}
 		} else {

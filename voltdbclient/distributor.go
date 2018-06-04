@@ -187,12 +187,6 @@ func (c *Conn) start(cis []string) error {
 	return nil
 }
 
-func (c *Conn) DumpConn() {
-	for _, v := range c.connected {
-		fmt.Println(v.connInfo, v.isClosed())
-	}
-}
-
 //Returns a node connection that is not closed.
 func (c *Conn) getConn() *nodeConn {
 	if len(c.connected) == 1 {
