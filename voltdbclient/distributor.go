@@ -231,44 +231,17 @@ func (c *Conn) availableConn() *nodeConn {
 }
 
 func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeConn) {
-
 	// TODO: resubsribe when we lose the subscribed connection
-	var (
-		closeRespCh           chan bool
-		closingNcsCh          chan bool
-		outstandingCloseCount int
-
-		draining              bool
-		drainRespCh           chan bool
-		drainingNcsCh         chan bool
-		outstandingDrainCount int
-	)
 
 	for {
-		if draining {
-			if outstandingDrainCount == 0 {
-				drainRespCh <- true
-				drainingNcsCh = nil
-				draining = false
-			}
-		}
 		select {
-		case closeRespCh = <-c.closeCh:
-			c.drainCh = nil
-			c.closeCh = nil
+		case closeRespCh := <-c.closeCh:
 			if len(c.connected) == 0 {
 				closeRespCh <- true
 			} else {
-				outstandingCloseCount = len(c.connected)
-				closingNcsCh = make(chan bool, len(c.connected))
 				for _, connectedNc := range c.connected {
-					responseCh := connectedNc.close()
-					go func() { closingNcsCh <- <-responseCh }()
+					<-connectedNc.close()
 				}
-			}
-		case <-closingNcsCh:
-			outstandingCloseCount--
-			if outstandingCloseCount == 0 {
 				closeRespCh <- true
 				return
 			}
@@ -314,23 +287,17 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 			default:
 				c.fetchedCatalog = false
 			}
-		case drainRespCh = <-c.drainCh:
-			if !draining {
-				if len(c.connected) == 0 {
-					drainRespCh <- true
-				} else {
-					draining = true
-					outstandingDrainCount = len(c.connected)
-					drainingNcsCh = make(chan bool, len(c.connected))
-					for _, connectedNc := range c.connected {
-						responseCh := make(chan bool, 1)
-						connectedNc.drain(responseCh)
-						go func() { drainingNcsCh <- <-responseCh }()
-					}
+		case drainRespCh := <-c.drainCh:
+			if len(c.connected) == 0 {
+				drainRespCh <- true
+			} else {
+				for _, connectedNc := range c.connected {
+					responseCh := make(chan bool, 1)
+					connectedNc.drain(responseCh)
+					<-responseCh
 				}
+				drainRespCh <- true
 			}
-		case <-drainingNcsCh:
-			outstandingDrainCount--
 		}
 	}
 
