@@ -29,6 +29,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -208,7 +209,7 @@ func placeVotesAsync(ctx context.Context, done func()) {
 	volt := connect(config.servers)
 	defer volt.Close()
 	// volt := bm.conn
-	vcb := newVoteCallBack()
+	vcb := voteCallBack{}
 	for {
 		select {
 		case <-ctx.Done():
@@ -224,34 +225,20 @@ func placeVotesAsync(ctx context.Context, done func()) {
 
 func vote(gorotines int, duration time.Duration,
 	fn func(ctx context.Context, complete func())) {
-	done := make(chan struct{})
+	wg := &sync.WaitGroup{}
 	doneFunc := func() {
-		done <- struct{}{}
+		wg.Done()
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 	for i := 0; i < gorotines; i++ {
+		wg.Add(1)
 		go fn(ctx, doneFunc)
 	}
-	total := gorotines
-	for {
-		select {
-		case <-done:
-			total--
-		default:
-			if total == 0 {
-				return
-			}
-		}
-	}
+	wg.Wait()
 }
 
 type voteCallBack struct {
-}
-
-func newVoteCallBack() voteCallBack {
-	vcb := new(voteCallBack)
-	return *vcb
 }
 
 func (vcb voteCallBack) ConsumeError(err error) {
