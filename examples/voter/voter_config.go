@@ -64,7 +64,7 @@ func newVoterConfig() (*voterConfig, error) {
 	flag.IntVar(&(voter.contestants), "contestants", 6, "Number of contestants in the voting contest (from 1 to 10).")
 	flag.IntVar(&(voter.maxvotes), "maxvotes", 2, "Maximum number of votes cast per voter.")
 	flag.StringVar(&(voter.statsfile), "statsfile", "", "Filename to write raw summary statistics to.")
-	flag.IntVar(&(voter.goroutines), "goroutines", 40, "Number of concurrent goroutines synchronously calling procedures.")
+	flag.IntVar(&(voter.goroutines), "goroutines", 10, "Number of concurrent goroutines synchronously calling procedures.")
 	flag.Var(&(voter.runtype), "runtype", "Type of the client calling procedures.")
 	flag.Parse()
 

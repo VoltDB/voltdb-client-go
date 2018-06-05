@@ -70,20 +70,18 @@ var (
 	periodicStats, fullStats *benchmarkStats
 	cpuprofile               = ""
 	memprofile               = ""
-	config                   *voterConfig
-	ticker                   *time.Ticker
-	timeStart                time.Time
-	bm                       *benchmark
 )
 
 type benchmark struct {
 	switchboard phoneCallGenerator
-	conn        *voltdbclient.Conn
+	config      *voterConfig
 }
 
-func newBenchmark() (*benchmark, error) {
-	bmTemp := new(benchmark)
-	bmTemp.switchboard = newPhoneCallGenerator(config.contestants)
+func newBenchmark(config *voterConfig) (*benchmark, error) {
+	bmTemp := &benchmark{
+		config:      config,
+		switchboard: newPhoneCallGenerator(config.contestants),
+	}
 	periodicStats = new(benchmarkStats)
 	fullStats = new(benchmarkStats)
 	fmt.Print(horizontalRule)
@@ -99,12 +97,12 @@ func (bm *benchmark) runBenchmark() {
 	fmt.Println(horizontalRule)
 
 	// connect to one or more servers, loop until success
-	bm.conn = connect(config.servers)
-	defer bm.conn.Close()
+	conn := connect(bm.config.servers)
+	defer conn.Close()
 
 	// initialize using synchronous call
 	fmt.Print("\nPopulating Static Tables\n")
-	bm.conn.Exec("Initialize", []driver.Value{int32(config.contestants), contestantNamesCSV})
+	conn.Exec("Initialize", []driver.Value{int32(bm.config.contestants), contestantNamesCSV})
 
 	fmt.Print(horizontalRule)
 	fmt.Println(" Starting Benchmark")
@@ -113,13 +111,15 @@ func (bm *benchmark) runBenchmark() {
 	// Run the benchmark loop for the requested warmup time
 	// The throughput may be throttled depending on client configuration
 	fmt.Println("Warming up...")
-	switch config.runtype {
+	wctx, cancel := context.WithTimeout(context.Background(), bm.config.warmup)
+	defer cancel()
+	switch bm.config.runtype {
 	case ASYNC:
-		vote(config.goroutines, config.warmup, placeVotesAsync)
+		vote(wctx, bm.config, bm.placeVotesAsync)
 	case SYNC:
-		vote(config.goroutines, config.warmup, placeVotesSync)
+		vote(wctx, bm.config, bm.placeVotesSync)
 	case SQL:
-		vote(config.goroutines, config.warmup, placeVotesSQL)
+		vote(wctx, bm.config, bm.placeVotesSQL)
 	}
 
 	//reset the stats after warmup
@@ -127,26 +127,26 @@ func (bm *benchmark) runBenchmark() {
 	clear(periodicStats)
 
 	// print periodic statistics to the console
-	ticker = time.NewTicker(config.displayinterval)
-	defer ticker.Stop()
-	go printStatistics()
-	timeStart = time.Now()
+	timeStart := time.Now()
 
 	// Run the benchmark loop for the requested duration
 	// The throughput may be throttled depending on client configuration
 	fmt.Print("\nRunning benchmark...\n")
-	switch config.runtype {
+	bctx, cancel := context.WithTimeout(context.Background(), bm.config.duration)
+	defer cancel()
+	go printStatistics(bctx, bm.config)
+	switch bm.config.runtype {
 	case ASYNC:
-		vote(config.goroutines, config.duration, placeVotesAsync)
+		vote(bctx, bm.config, bm.placeVotesAsync)
 	case SYNC:
-		vote(config.goroutines, config.duration, placeVotesSync)
+		vote(bctx, bm.config, bm.placeVotesSync)
 	case SQL:
-		vote(config.goroutines, config.duration, placeVotesSQL)
+		vote(bctx, bm.config, bm.placeVotesSQL)
 	}
-
 	timeElapsed := time.Now().Sub(timeStart)
+	<-bctx.Done()
 	// print the summary results
-	printResults(timeElapsed)
+	printResults(timeElapsed, conn)
 }
 
 func openAndPingDB(servers string) *sql.DB {
@@ -163,8 +163,8 @@ func openAndPingDB(servers string) *sql.DB {
 	return db
 }
 
-func placeVotesSQL(ctx context.Context, done func()) {
-	volt := openAndPingDB(config.servers)
+func (bm *benchmark) placeVotesSQL(ctx context.Context, done func()) {
+	volt := openAndPingDB(bm.config.servers)
 	defer volt.Close()
 
 	// don't support prepare statement with store procedure
@@ -176,14 +176,14 @@ func placeVotesSQL(ctx context.Context, done func()) {
 			return
 		default:
 			contestantNumber, phoneNumber := bm.switchboard.receive()
-			rows, err := volt.Query("Vote", phoneNumber, contestantNumber, int64(config.maxvotes))
+			rows, err := volt.Query("Vote", phoneNumber, contestantNumber, int64(bm.config.maxvotes))
 			ops += handleSQLRows(rows, err)
 		}
 	}
 }
 
-func placeVotesSync(ctx context.Context, done func()) {
-	volt := connect(config.servers)
+func (bm *benchmark) placeVotesSync(ctx context.Context, done func()) {
+	volt := connect(bm.config.servers)
 	defer volt.Close()
 	ops := 0
 	for {
@@ -193,7 +193,7 @@ func placeVotesSync(ctx context.Context, done func()) {
 			return
 		default:
 			contestantNumber, phoneNumber := bm.switchboard.receive()
-			rows, err := volt.Query("Vote", []driver.Value{phoneNumber, contestantNumber, int64(config.maxvotes)})
+			rows, err := volt.Query("Vote", []driver.Value{phoneNumber, contestantNumber, int64(bm.config.maxvotes)})
 			if err != nil {
 				ops += handleVoteError(err)
 			} else {
@@ -205,10 +205,9 @@ func placeVotesSync(ctx context.Context, done func()) {
 
 }
 
-func placeVotesAsync(ctx context.Context, done func()) {
-	volt := connect(config.servers)
+func (bm *benchmark) placeVotesAsync(ctx context.Context, done func()) {
+	volt := connect(bm.config.servers)
 	defer volt.Close()
-	// volt := bm.conn
 	vcb := voteCallBack{}
 	for {
 		select {
@@ -218,20 +217,17 @@ func placeVotesAsync(ctx context.Context, done func()) {
 			return
 		default:
 			contestantNumber, phoneNumber := bm.switchboard.receive()
-			volt.QueryAsync(vcb, "Vote", []driver.Value{phoneNumber, contestantNumber, int64(config.maxvotes)})
+			volt.QueryAsync(vcb, "Vote", []driver.Value{phoneNumber, contestantNumber, int64(bm.config.maxvotes)})
 		}
 	}
 }
 
-func vote(gorotines int, duration time.Duration,
-	fn func(ctx context.Context, complete func())) {
+func vote(ctx context.Context, config *voterConfig, fn func(ctx context.Context, complete func())) {
 	wg := &sync.WaitGroup{}
 	doneFunc := func() {
 		wg.Done()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), duration)
-	defer cancel()
-	for i := 0; i < gorotines; i++ {
+	for i := 0; i < config.goroutines; i++ {
 		wg.Add(1)
 		go fn(ctx, doneFunc)
 	}
@@ -347,18 +343,25 @@ func teardownProfiler() {
 	}
 }
 
-func printStatistics() {
+func printStatistics(ctx context.Context, config *voterConfig) {
+	ticker := time.NewTicker(config.displayinterval)
 	s := time.Now()
-	for t := range ticker.C {
-		fmt.Print(t.Sub(s))
-		fmt.Printf(" Throughput %v/s\n", float64(periodicStats.totalVotes)/config.displayinterval.Seconds())
-		// fmt.Printf("Aborts/Failure %v/%v\n", periodicStats.aborts, periodicStats.failures)
-		// fmt.Printf("Avg/95%% Latency %.2f/%.2fms\n")
-		clear(periodicStats)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case t := <-ticker.C:
+			fmt.Print(t.Sub(s))
+			fmt.Printf(" Throughput %v/s\n", float64(periodicStats.totalVotes)/config.displayinterval.Seconds())
+			// fmt.Printf("Aborts/Failure %v/%v\n", periodicStats.aborts, periodicStats.failures)
+			// fmt.Printf("Avg/95%% Latency %.2f/%.2fms\n")
+			clear(periodicStats)
+		}
 	}
 }
 
-func printResults(timeElapsed time.Duration) {
+func printResults(timeElapsed time.Duration, conn *voltdbclient.Conn) {
 	// 1. Voting Board statistics, Voting results and performance statistics
 	display := "\n" +
 		horizontalRule +
@@ -378,10 +381,10 @@ func printResults(timeElapsed time.Duration) {
 		fullStats.failedVotes)
 
 	// 2. Voting results
-	rows, err := bm.conn.Query("Results", []driver.Value{})
+	rows, err := conn.Query("Results", []driver.Value{})
 	if err != nil {
 		if strings.Contains(err.Error(), "is down") {
-			rows, err = bm.conn.Query("Results", []driver.Value{})
+			rows, err = conn.Query("Results", []driver.Value{})
 			if err != nil {
 				log.Fatal(err, rows == nil)
 			}
@@ -429,7 +432,7 @@ func main() {
 	flag.StringVar(&cpuprofile, "cpuprofile", "", "name of profile file to write")
 	flag.StringVar(&memprofile, "memprofile", "", "write memory profile to this file")
 	var err error
-	config, err = newVoterConfig()
+	config, err := newVoterConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -438,6 +441,6 @@ func main() {
 	defer teardownProfiler()
 	defer takeMemProfile()
 
-	bm, _ = newBenchmark()
+	bm, _ := newBenchmark(config)
 	bm.runBenchmark()
 }
