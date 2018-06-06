@@ -18,6 +18,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"flag"
@@ -27,6 +28,7 @@ import (
 	"os"
 	"reflect"
 	"runtime/pprof"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -55,8 +57,6 @@ var (
 	periodicStats, fullStats *benchmarkStats
 	cpuprofile               = ""
 	config                   *kvConfig
-	ticker                   *time.Ticker
-	timeStart                time.Time
 	bm                       *benchmark
 )
 
@@ -106,37 +106,36 @@ func (bm *benchmark) runBenchmark() {
 	// Run the benchmark loop for the requested warmup time
 	// The throughput may be throttled depending on client configuration
 	fmt.Println("Warming up...")
+	wctx, cancel := context.WithTimeout(context.Background(), config.warmup)
+	defer cancel()
 	switch config.runtype {
 	case ASYNC:
-		runGetPut(config.goroutines, config.getputratio, config.warmup, runGetPutAsync)
+		runGetPut(wctx, config, runGetPutAsync)
 	case SYNC:
-		runGetPut(config.goroutines, config.getputratio, config.warmup, runGetPutSync)
+		runGetPut(wctx, config, runGetPutSync)
 	case SQL:
-		runGetPut(config.goroutines, config.getputratio, config.warmup, runGetPutSQL)
+		runGetPut(wctx, config, runGetPutSQL)
 	}
 
 	//reset the stats after warmup
 	clear(fullStats)
 	clear(periodicStats)
 
-	// print periodic statistics to the console
-	ticker = time.NewTicker(config.displayinterval)
-	defer ticker.Stop()
-	go printStatistics()
-	timeStart = time.Now()
-
+	timeStart := time.Now()
 	// Run the benchmark loop for the requested duration
 	// The throughput may be throttled depending on client configuration
 	fmt.Print("\nRunning benchmark...\n")
+	bctx, cancel := context.WithTimeout(context.Background(), config.duration)
+	go printStatistics(bctx)
+	defer cancel()
 	switch config.runtype {
 	case ASYNC:
-		runGetPut(config.goroutines, config.getputratio, config.duration, runGetPutAsync)
+		runGetPut(bctx, config, runGetPutAsync)
 	case SYNC:
-		runGetPut(config.goroutines, config.getputratio, config.duration, runGetPutSync)
+		runGetPut(bctx, config, runGetPutSync)
 	case SQL:
-		runGetPut(config.goroutines, config.getputratio, config.duration, runGetPutSQL)
+		runGetPut(bctx, config, runGetPutSQL)
 	}
-
 	timeElapsed := time.Now().Sub(timeStart)
 	// print the summary results
 	printResults(timeElapsed)
@@ -156,11 +155,9 @@ func openAndPingDB(servers string) *sql.DB {
 	return db
 }
 
-func runGetPutSQL(join chan int, getputratio float64, duration time.Duration) {
+func runGetPutSQL(ctx context.Context, config *kvConfig, wg *sync.WaitGroup) {
 	volt := openAndPingDB(config.servers)
 	defer volt.Close()
-
-	timeout := time.After(duration)
 	// with prepared statement
 	getStmt, getErr := volt.Prepare("select value from store where key = ?;")
 	if getErr != nil {
@@ -173,25 +170,23 @@ func runGetPutSQL(join chan int, getputratio float64, duration time.Duration) {
 		log.Fatal(putErr)
 	}
 	defer putStmt.Close()
-
-	ops := 0
 	for {
 		select {
-		case <-timeout:
-			join <- ops
+		case <-ctx.Done():
+			wg.Done()
 			return
 		default:
-			if rand.Float64() < getputratio {
+			if rand.Float64() < config.getputratio {
 				rows, err := getStmt.Query(bm.proc.generateRandomKeyForRetrieval())
-				ops += handleSQLRows(rows, err)
+				handleSQLRows(rows, err)
 			} else {
 				key, rawValue, storeValue := bm.proc.generateForStore()
 				atomic.AddUint64(&(fullStats.networkPutData), uint64(len(storeValue)))
 				atomic.AddUint64(&(fullStats.rawPutData), uint64(len(rawValue)))
 				if res, err := putStmt.Exec(key, storeValue); err != nil {
-					ops += handleResultsError(err)
+					handleResultsError(err)
 				} else {
-					ops += handleResults(res)
+					handleResults(res)
 				}
 			}
 		}
@@ -199,33 +194,29 @@ func runGetPutSQL(join chan int, getputratio float64, duration time.Duration) {
 	}
 }
 
-func runGetPutSync(join chan int, getputratio float64, duration time.Duration) {
+func runGetPutSync(ctx context.Context, config *kvConfig, wg *sync.WaitGroup) {
 	volt := connect(config.servers)
 	defer volt.Close()
-
-	timeout := time.After(duration)
-
-	ops := 0
 	for {
 		select {
-		case <-timeout:
-			join <- ops
+		case <-ctx.Done():
+			wg.Done()
 			return
 		default:
-			if rand.Float64() < getputratio {
+			if rand.Float64() < config.getputratio {
 				if rows, err := volt.Query("STORE.select", []driver.Value{bm.proc.generateRandomKeyForRetrieval()}); err != nil {
-					ops += handleDriverRowsError(err)
+					handleDriverRowsError(err)
 				} else {
-					ops += handleDriverRows(bm.proc, rows)
+					handleDriverRows(bm.proc, rows)
 				}
 			} else {
 				key, rawValue, storeValue := bm.proc.generateForStore()
 				atomic.AddUint64(&(fullStats.networkPutData), uint64(len(storeValue)))
 				atomic.AddUint64(&(fullStats.rawPutData), uint64(len(rawValue)))
 				if res, err := volt.Exec("STORE.upsert", []driver.Value{key, storeValue}); err != nil {
-					ops += handleResultsError(err)
+					handleResultsError(err)
 				} else {
-					ops += handleResults(res)
+					handleResults(res)
 				}
 			}
 		}
@@ -234,23 +225,19 @@ func runGetPutSync(join chan int, getputratio float64, duration time.Duration) {
 
 }
 
-func runGetPutAsync(join chan int, getputratio float64, duration time.Duration) {
+func runGetPutAsync(ctx context.Context, config *kvConfig, wg *sync.WaitGroup) {
 	volt := connect(config.servers)
 	defer volt.Close()
-
-	timeout := time.After(duration)
-
 	gcb := newGetCallBack(bm.proc)
 	pcb := newPutCallBack(bm.proc)
-	ops := 0
 	for {
 		select {
-		case <-timeout:
+		case <-ctx.Done():
 			volt.Drain()
-			join <- ops
+			wg.Done()
 			return
 		default:
-			if rand.Float64() < getputratio {
+			if rand.Float64() < config.getputratio {
 				volt.QueryAsync(gcb, "STORE.select", []driver.Value{bm.proc.generateRandomKeyForRetrieval()})
 			} else {
 				key, rawValue, storeValue := bm.proc.generateForStore()
@@ -263,23 +250,13 @@ func runGetPutAsync(join chan int, getputratio float64, duration time.Duration) 
 	}
 }
 
-func runGetPut(gorotines int, getputratio float64, duration time.Duration,
-	fn func(join chan int, getputratio float64, duration time.Duration)) {
-	var joiners = make([]chan int, 0)
-	for i := 0; i < gorotines; i++ {
-		var joinchan = make(chan int)
-		joiners = append(joiners, joinchan)
-		go fn(joinchan, getputratio, duration)
+func runGetPut(ctx context.Context, config *kvConfig, fn func(context.Context, *kvConfig, *sync.WaitGroup)) {
+	wg := &sync.WaitGroup{}
+	for i := 0; i < config.goroutines; i++ {
+		wg.Add(1)
+		go fn(ctx, config, wg)
 	}
-
-	// var totalCount = 0
-	for _, join := range joiners {
-		<-join
-		// ops := <-join
-		// totalCount += ops
-		//fmt.Printf("kver %v finished and acted %v ops.\n", v, ops)
-	}
-	// fmt.Println(totalCount, fullStats.totalOps)
+	wg.Wait()
 	return
 }
 
@@ -419,12 +396,20 @@ func teardownProfiler() {
 	}
 }
 
-func printStatistics() {
+func printStatistics(ctx context.Context) {
+	// print periodic statistics to the console
+	ticker := time.NewTicker(config.displayinterval)
+	defer ticker.Stop()
 	s := time.Now()
-	for t := range ticker.C {
-		fmt.Print(t.Sub(s))
-		fmt.Printf(" Throughput %v/s\n", float64(periodicStats.totalOps)/config.displayinterval.Seconds())
-		clear(periodicStats)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case t := <-ticker.C:
+			fmt.Print(t.Sub(s))
+			fmt.Printf(" Throughput %v/s\n", float64(periodicStats.totalOps)/config.displayinterval.Seconds())
+			clear(periodicStats)
+		}
 	}
 }
 
