@@ -38,4 +38,12 @@ down:
 
 voter:
 	go install ./examples/voter
-	voter --runtype=sync --servers="localhost:21212,localhost:21222,localhost:21232"
+	voter --runtype=sync  --servers="localhost:21212,localhost:21222,localhost:21232" --memprofile="mem.out"
+
+voter-sql:
+	go install ./examples/voter
+	voter --runtype=sql --servers="localhost:21212,localhost:21222,localhost:21232" --memprofile="mem.out"
+
+voter-async:
+	go install ./examples/voter
+	voter --runtype=async  --servers="localhost:21212,localhost:21222,localhost:21232" --memprofile="mem.out"

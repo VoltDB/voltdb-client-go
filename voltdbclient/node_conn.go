@@ -92,6 +92,12 @@ func (nc *nodeConn) submit(pi *procedureInvocation) (int, error) {
 func (nc *nodeConn) markClosed() {
 	nc.closed.Store(true)
 	nc.tcpConn.Close()
+
+	// release all stored pending requests. This connection is closed so we can't
+	// satisfy the requests.
+	//
+	// TODO: handle the requests with connection closed error?
+	nc.requests = &sync.Map{}
 }
 
 func (nc *nodeConn) isClosed() bool {
@@ -120,7 +126,7 @@ func (nc *nodeConn) connect(protocolVersion int) error {
 
 	nc.drainCh = make(chan chan bool, 1)
 
-	go nc.loop(nc.bpCh, nc.drainCh)
+	go nc.loop(nc.bpCh)
 	return nil
 }
 
@@ -158,7 +164,7 @@ func (nc *nodeConn) reconnect(protocolVersion int) {
 				nc.tcpConn = tcpConn
 				nc.connData = connData
 				go nc.listen()
-				go nc.loop(nc.bpCh, nc.drainCh)
+				go nc.loop(nc.bpCh)
 				nc.closed.Store(false)
 				return
 			}
@@ -267,7 +273,7 @@ func (nc *nodeConn) listen() {
 	}
 }
 
-func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
+func (nc *nodeConn) loop(bpCh <-chan chan bool) {
 	var draining bool
 	var drainRespCh chan bool
 
@@ -284,7 +290,7 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 		}
 		// setup select cases
 		if draining {
-			if nc.queuedBytes == 0 {
+			if nc.queuedBytes <= 0 {
 				drainRespCh <- true
 				drainRespCh = nil
 				draining = false
@@ -337,7 +343,7 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool, drainCh chan chan bool) {
 
 		case respBPCh := <-bpCh:
 			respBPCh <- nc.bp
-		case drainRespCh = <-drainCh:
+		case drainRespCh = <-nc.drainCh:
 			draining = true
 		// check for timed out procedure invocations
 		case <-tcc:
