@@ -67,7 +67,11 @@ func newVoterConfig() (*voterConfig, error) {
 	flag.IntVar(&(voter.goroutines), "goroutines", 10, "Number of concurrent goroutines synchronously calling procedures.")
 	flag.Var(&(voter.runtype), "runtype", "Type of the client calling procedures.")
 	flag.Parse()
-
+	if voter.runtype == "async" {
+		if voter.goroutines == 10 {
+			voter.goroutines = 3
+		}
+	}
 	// validate
 	switch {
 	case (voter.displayinterval <= 0):
