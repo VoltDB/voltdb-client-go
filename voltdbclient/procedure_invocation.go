@@ -45,9 +45,8 @@ type procedureInvocation struct {
 
 	// This is the connection that received the invocation request. It is through
 	// this connection that the response to the procedure invocation will be sent.
-	conn      *nodeConn
-	submitted time.Time
-	cancel    func()
+	conn   *nodeConn
+	cancel func()
 }
 
 func newSyncProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, responseCh chan voltResponse, timeout time.Duration) *procedureInvocation {
@@ -155,18 +154,22 @@ func (pi procedureInvocation) isAsync() bool {
 	return pi.async
 }
 
-func (pi *procedureInvocation) handleTimeouts() {
-	ctx, cancel := context.WithTimeout(context.Background(), pi.timeout)
-	defer cancel()
-	pi.cancel = cancel
+func (pi *procedureInvocation) handleTimeoutsAndCancel(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			if ctx.Err() == context.DeadlineExceeded {
 				pi.conn.handleTimeout(pi)
+			} else {
+				// err := errors.New("cancelled execution context")
+				// verr := VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
+				// if !pi.async {
+				// 	pi.responseCh <- verr
+				// } else {
+				// 	pi.arc.ConsumeError(verr)
+				// }
 			}
 			return
 		}
 	}
-
 }

@@ -18,6 +18,7 @@
 package voltdbclient
 
 import (
+	"context"
 	"database/sql/driver"
 	"errors"
 	"fmt"
@@ -62,22 +63,25 @@ type Conn struct {
 	partitionReplicas                        *map[int][]*nodeConn
 	procedureInfos                           *map[string]procedure
 	partitionMasters                         map[int]*nodeConn
+	ctx                                      context.Context
+	cancel                                   func()
 }
 
 func newConn(cis []string) (*Conn, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	var c = &Conn{
 		closeCh:           make(chan chan bool),
 		rl:                newTxnLimiter(),
 		drainCh:           make(chan chan bool),
 		useClientAffinity: true,
 		partitionMasters:  make(map[int]*nodeConn),
+		ctx:               ctx,
+		cancel:            cancel,
 	}
 	c.open.Store(true)
-
 	if err := c.start(cis); err != nil {
 		return nil, err
 	}
-
 	return c, nil
 }
 
@@ -169,7 +173,7 @@ func (c *Conn) start(cis []string) error {
 
 	for _, ci := range cis {
 		nc := newNodeConn(ci)
-		if err = nc.connect(ProtocolVersion); err != nil {
+		if err = nc.connect(c.ctx, ProtocolVersion); err != nil {
 			disconnected = append(disconnected, nc)
 			continue
 		}
@@ -211,14 +215,14 @@ func (c *Conn) availableConn() *nodeConn {
 	nc := c.getConn()
 	c.subscribedConnection = nc
 	if c.useClientAffinity && c.subscribedConnection == nil && len(c.connected) > 0 {
-		c.subTopoCh = c.subscribeTopo(nc)
+		c.subTopoCh = c.subscribeTopo(c.ctx, nc)
 	}
 	if c.useClientAffinity && !c.hasTopoStats && len(c.connected) > 0 {
-		c.topoStatsCh = c.getTopoStatistics(nc)
+		c.topoStatsCh = c.getTopoStatistics(c.ctx, nc)
 		c.hasTopoStats = true
 	}
 	if c.useClientAffinity && !c.fetchedCatalog && len(c.connected) > 0 {
-		c.prInfoCh = c.getProcedureInfo(nc)
+		c.prInfoCh = c.getProcedureInfo(c.ctx, nc)
 		c.fetchedCatalog = true
 	}
 	return c.subscribedConnection
@@ -226,19 +230,20 @@ func (c *Conn) availableConn() *nodeConn {
 
 func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeConn) {
 	// TODO: resubsribe when we lose the subscribed connection
-
 	for {
 		select {
+		case <-c.ctx.Done():
+			return
 		case closeRespCh := <-c.closeCh:
+			c.open.Store(false)
 			if len(c.connected) == 0 {
 				closeRespCh <- true
 			} else {
-
 				// We make sure all node connections managed by this Conn object are closed.
 				// This will block, it is okay though since we are closing the connection
 				// which means we don't want anything else to be happening.
 				for _, connectedNc := range c.connected {
-					<-connectedNc.close()
+					connectedNc.Close()
 				}
 				closeRespCh <- true
 				return
@@ -308,7 +313,7 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 	// check error channel to see if any lost connections.
 }
 
-func (c *Conn) submit(pi *procedureInvocation) (int, error) {
+func (c *Conn) submit(ctx context.Context, pi *procedureInvocation) (int, error) {
 	nc := c.availableConn()
 	// var nc *nodeConn
 	// var backpressure = true
@@ -322,7 +327,7 @@ func (c *Conn) submit(pi *procedureInvocation) (int, error) {
 	// } else {
 	// 	// c.allNcsPiCh <- pi
 	// }
-	return nc.submit(pi)
+	return nc.submit(ctx, pi)
 }
 
 // Begin starts a transaction.
@@ -335,6 +340,7 @@ func (c *Conn) Begin() (driver.Tx, error) {
 // and reopen connections.  Close would typically be called using a defer.
 // Operations using a closed connection cause a panic.
 func (c *Conn) Close() error {
+	c.cancel()
 	respCh := make(chan bool)
 	c.closeCh <- respCh
 	<-respCh

@@ -19,6 +19,7 @@ package voltdbclient
 
 import (
 	"bytes"
+	"context"
 	"database/sql/driver"
 	"errors"
 	"fmt"
@@ -68,6 +69,7 @@ type nodeConn struct {
 	// The maximum number of retries to reconnect to a disconeected node before
 	// giving up.
 	maxRetries int
+	cancel     func()
 }
 
 func newNodeConn(ci string) *nodeConn {
@@ -81,23 +83,22 @@ func newNodeConn(ci string) *nodeConn {
 	}
 }
 
-func (nc *nodeConn) submit(pi *procedureInvocation) (int, error) {
+func (nc *nodeConn) submit(ctx context.Context, pi *procedureInvocation) (int, error) {
 	if nc.isClosed() {
 		return 0, fmt.Errorf("%s:%d writing on a closed node connection",
 			nc.connInfo, pi.handle)
 	}
-	return nc.handleProcedureInvocation(pi)
+	return nc.handleProcedureInvocation(ctx, pi)
 }
 
-func (nc *nodeConn) markClosed() {
+func (nc *nodeConn) markClosed() error {
 	nc.closed.Store(true)
-	nc.tcpConn.Close()
-
-	// release all stored pending requests. This connection is closed so we can't
-	// satisfy the requests.
-	//
-	// TODO: handle the requests with connection closed error?
-	nc.requests = &sync.Map{}
+	nc.cancel()
+	nc.requests.Range(func(k, _ interface{}) bool {
+		nc.requests.Delete(k)
+		return true
+	})
+	return nc.tcpConn.Close()
 }
 
 func (nc *nodeConn) isClosed() bool {
@@ -114,26 +115,32 @@ func (nc *nodeConn) close() chan bool {
 	return respCh
 }
 
-func (nc *nodeConn) connect(protocolVersion int) error {
+func (nc *nodeConn) Close() error {
+	if nc.isClosed() {
+		return nil
+	}
+	return nc.markClosed()
+}
+
+func (nc *nodeConn) connect(ctx context.Context, protocolVersion int) error {
 	tcpConn, connData, err := nc.networkConnect(protocolVersion)
 	if err != nil {
 		return err
 	}
 	nc.connData = connData
 	nc.tcpConn = tcpConn
-
-	go nc.listen()
-
+	nctx, cancel := context.WithCancel(ctx)
+	nc.cancel = cancel
+	go nc.listen(nctx)
 	nc.drainCh = make(chan chan bool, 1)
-
-	go nc.loop(nc.bpCh)
+	go nc.loop(nctx, nc.bpCh)
 	return nil
 }
 
 // called when the network listener loses connection.
 // the 'processAsyncs' goroutine and channel stay in place over
 // a reconnect, they're not affected.
-func (nc *nodeConn) reconnect(protocolVersion int) {
+func (nc *nodeConn) reconnect(ctx context.Context, protocolVersion int) {
 	if nc.retry {
 		if !nc.isClosed() {
 			return
@@ -163,8 +170,8 @@ func (nc *nodeConn) reconnect(protocolVersion int) {
 				}
 				nc.tcpConn = tcpConn
 				nc.connData = connData
-				go nc.listen()
-				go nc.loop(nc.bpCh)
+				go nc.listen(ctx)
+				go nc.loop(ctx, nc.bpCh)
 				nc.closed.Store(false)
 				return
 			}
@@ -243,43 +250,45 @@ func (nc *nodeConn) hasBP() bool {
 
 // listen listens for messages from the server and calls back a registered listener.
 // listen blocks on input from the server and should be run as a go routine.
-func (nc *nodeConn) listen() {
+func (nc *nodeConn) listen(ctx context.Context) {
 	d := wire.NewDecoder(nc.tcpConn)
 	s := &wire.Decoder{}
 	for {
 		if nc.isClosed() {
 			return
 		}
-		b, err := d.Message()
-		if err != nil {
-			if nc.responseCh == nil {
-				// exiting
+		select {
+		case <-ctx.Done():
+			nc.markClosed()
+			return
+		default:
+			b, err := d.Message()
+			if err != nil {
+				if nc.responseCh == nil {
+					// exiting
+					return
+				}
+				// TODO: put the error on the channel
+				// the owner needs to reconnect
 				return
 			}
-			// TODO: put the error on the channel
-			// the owner needs to reconnect
-			return
-		}
-		buf := bytes.NewBuffer(b)
-		s.SetReader(buf)
-		_, err = s.Byte()
-		if err != nil {
-			if nc.responseCh == nil {
+			buf := bytes.NewBuffer(b)
+			s.SetReader(buf)
+			_, err = s.Byte()
+			if err != nil {
+				if nc.responseCh == nil {
+					return
+				}
 				return
 			}
-			return
+			nc.responseCh <- buf
 		}
-		nc.responseCh <- buf
 	}
 }
 
-func (nc *nodeConn) loop(bpCh <-chan chan bool) {
+func (nc *nodeConn) loop(ctx context.Context, bpCh <-chan chan bool) {
 	var draining bool
 	var drainRespCh chan bool
-
-	var tci = int64(DefaultQueryTimeout / 10)                    // timeout check interval
-	tcc := time.NewTimer(time.Duration(tci) * time.Nanosecond).C // timeout check timer channel
-
 	// for ping
 	var pingTimeout = 2 * time.Minute
 	pingSentTime := time.Now()
@@ -308,8 +317,12 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool) {
 			pingOutstanding = true
 			pingSentTime = time.Now()
 		}
-
 		select {
+		case <-ctx.Done():
+			if !nc.isClosed() {
+				nc.markClosed()
+			}
+			return
 		case respCh := <-nc.closeCh:
 			nc.tcpConn.Close()
 			respCh <- true
@@ -340,28 +353,15 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool) {
 			} else {
 				nc.handleAsyncResponse(handle, resp, req)
 			}
-
 		case respBPCh := <-bpCh:
 			respBPCh <- nc.bp
 		case drainRespCh = <-nc.drainCh:
 			draining = true
-		// check for timed out procedure invocations
-		case <-tcc:
-			nc.requests.Range(func(_, v interface{}) bool {
-				req := v.(*procedureInvocation)
-				if time.Now().After(req.submitted.Add(req.timeout)) {
-					nc.queuedBytes -= req.slen
-					nc.handleTimeout(req)
-					nc.requests.Delete(req.handle)
-				}
-				return true
-			})
-			tcc = time.NewTimer(time.Duration(tci) * time.Nanosecond).C
 		}
 	}
 }
 
-func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, error) {
+func (nc *nodeConn) handleProcedureInvocation(ctx context.Context, pi *procedureInvocation) (int, error) {
 	encoder := wire.NewEncoder()
 	EncodePI(encoder, pi)
 	n, err := nc.tcpConn.Write(encoder.Bytes())
@@ -374,7 +374,7 @@ func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, err
 	nc.requests.Store(pi.handle, pi)
 	nc.queuedBytes += pi.slen
 	pi.conn = nc
-	pi.submitted = time.Now()
+	go pi.handleTimeoutsAndCancel(ctx)
 	return 0, nil
 }
 
@@ -399,7 +399,9 @@ func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *procedure
 			req.responseCh <- result
 		}
 	}
-
+	if req.cancel != nil {
+		req.cancel()
+	}
 }
 
 func (nc *nodeConn) handleAsyncResponse(handle int64, r io.Reader, req *procedureInvocation) {
@@ -419,6 +421,9 @@ func (nc *nodeConn) handleAsyncResponse(handle int64, r io.Reader, req *procedur
 		} else {
 			req.arc.ConsumeResult(result)
 		}
+	}
+	if req.cancel != nil {
+		req.cancel()
 	}
 }
 
