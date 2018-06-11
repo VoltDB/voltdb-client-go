@@ -332,10 +332,10 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool) {
 				// then a response received.  In this case drop the response.
 				continue
 			}
-			req := r.(*networkRequest)
-			nc.queuedBytes -= req.numBytes
+			req := r.(*procedureInvocation)
+			nc.queuedBytes -= req.slen
 			nc.requests.Delete(handle)
-			if req.isSync() {
+			if !req.async {
 				nc.handleSyncResponse(handle, resp, req)
 			} else {
 				nc.handleAsyncResponse(handle, resp, req)
@@ -348,9 +348,9 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool) {
 		// check for timed out procedure invocations
 		case <-tcc:
 			nc.requests.Range(func(_, v interface{}) bool {
-				req := v.(*networkRequest)
+				req := v.(*procedureInvocation)
 				if time.Now().After(req.submitted.Add(req.timeout)) {
-					nc.queuedBytes -= req.numBytes
+					nc.queuedBytes -= req.slen
 					nc.handleTimeout(req)
 					nc.requests.Delete(req.handle)
 				}
@@ -362,14 +362,6 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool) {
 }
 
 func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, error) {
-	var nr *networkRequest
-	if pi.isAsync() {
-		nr = newAsyncRequest(pi.handle, pi.responseCh, pi.isQuery, pi.arc, pi.getLen(), pi.timeout, time.Now())
-	} else {
-		nr = newSyncRequest(pi.handle, pi.responseCh, pi.isQuery, pi.getLen(), pi.timeout, time.Now())
-	}
-	nc.requests.Store(pi.handle, nr)
-	nc.queuedBytes += pi.slen
 	encoder := wire.NewEncoder()
 	EncodePI(encoder, pi)
 	n, err := nc.tcpConn.Write(encoder.Bytes())
@@ -379,41 +371,43 @@ func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, err
 		}
 		return n, fmt.Errorf("%s: %v", nc.connInfo, err)
 	}
+	nc.requests.Store(pi.handle, pi)
+	nc.queuedBytes += pi.slen
 	pi.conn = nc
+	pi.submitted = time.Now()
 	return 0, nil
 }
 
-func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRequest) {
-	respCh := req.getChan()
+func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *procedureInvocation) {
 	decoder := wire.NewDecoder(r)
 	rsp, err := decodeResponse(decoder, handle)
 	if err != nil {
 		e := err.(VoltError)
 		e.error = fmt.Errorf("%s: %v", nc.connInfo, e.error)
-		respCh <- e
-	} else if req.isQuery() {
+		req.responseCh <- e
+	} else if req.isQuery {
 
 		if rows, err := decodeRows(decoder, rsp); err != nil {
-			respCh <- err.(voltResponse)
+			req.responseCh <- err.(voltResponse)
 		} else {
-			respCh <- rows
+			req.responseCh <- rows
 		}
 	} else {
 		if result, err := decodeResult(decoder, rsp); err != nil {
-			respCh <- err.(voltResponse)
+			req.responseCh <- err.(voltResponse)
 		} else {
-			respCh <- result
+			req.responseCh <- result
 		}
 	}
 
 }
 
-func (nc *nodeConn) handleAsyncResponse(handle int64, r io.Reader, req *networkRequest) {
+func (nc *nodeConn) handleAsyncResponse(handle int64, r io.Reader, req *procedureInvocation) {
 	d := wire.NewDecoder(r)
 	rsp, err := decodeResponse(d, handle)
 	if err != nil {
 		req.arc.ConsumeError(err)
-	} else if req.isQuery() {
+	} else if req.isQuery {
 		if rows, err := decodeRows(d, rsp); err != nil {
 			req.arc.ConsumeError(err)
 		} else {
@@ -428,12 +422,11 @@ func (nc *nodeConn) handleAsyncResponse(handle int64, r io.Reader, req *networkR
 	}
 }
 
-func (nc *nodeConn) handleTimeout(req *networkRequest) {
+func (nc *nodeConn) handleTimeout(req *procedureInvocation) {
 	err := errors.New("timeout")
 	verr := VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
-	if req.isSync() {
-		respCh := req.getChan()
-		respCh <- verr
+	if !req.async {
+		req.responseCh <- verr
 	} else {
 		req.arc.ConsumeError(verr)
 	}

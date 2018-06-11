@@ -44,7 +44,8 @@ type procedureInvocation struct {
 
 	// This is the connection that received the invocation request. It is through
 	// this connection that the response to the procedure invocation will be sent.
-	conn *nodeConn
+	conn      *nodeConn
+	submitted time.Time
 }
 
 func newSyncProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, responseCh chan voltResponse, timeout time.Duration) *procedureInvocation {
