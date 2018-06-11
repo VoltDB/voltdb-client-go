@@ -72,10 +72,12 @@ func newKVConfig() (*kvConfig, error) {
 	flag.IntVar(&(kv.maxvaluesize), "maxvaluesize", 1024, "Maximum value size in bytes.")
 	flag.IntVar(&(kv.entropy), "entropy", 127, "Number of values considered for each value byte.")
 	flag.BoolVar(&(kv.usecompression), "usecompression", false, "Compress values on the client side.")
-	flag.IntVar(&(kv.goroutines), "goroutines", 40, "Number of concurrent goroutines synchronously calling procedures.")
+	flag.IntVar(&(kv.goroutines), "goroutines", 20, "Number of concurrent goroutines synchronously calling procedures.")
 	flag.Var(&(kv.runtype), "runtype", "Type of the client calling procedures.")
 	flag.Parse()
-
+	if kv.runtype == "async" && kv.goroutines == 20 {
+		kv.goroutines = 2
+	}
 	// validate
 	switch {
 	case (kv.displayinterval <= 0):
