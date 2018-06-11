@@ -18,6 +18,7 @@
 package voltdbclient
 
 import (
+	"context"
 	"database/sql/driver"
 	"fmt"
 	"reflect"
@@ -46,6 +47,7 @@ type procedureInvocation struct {
 	// this connection that the response to the procedure invocation will be sent.
 	conn      *nodeConn
 	submitted time.Time
+	cancel    func()
 }
 
 func newSyncProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, responseCh chan voltResponse, timeout time.Duration) *procedureInvocation {
@@ -151,4 +153,20 @@ func (pi procedureInvocation) getPartitionParamValue(index int) driver.Value {
 
 func (pi procedureInvocation) isAsync() bool {
 	return pi.async
+}
+
+func (pi *procedureInvocation) handleTimeouts() {
+	ctx, cancel := context.WithTimeout(context.Background(), pi.timeout)
+	defer cancel()
+	pi.cancel = cancel
+	for {
+		select {
+		case <-ctx.Done():
+			if ctx.Err() == context.DeadlineExceeded {
+				pi.conn.handleTimeout(pi)
+			}
+			return
+		}
+	}
+
 }
