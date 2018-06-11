@@ -160,14 +160,6 @@ func (pi *procedureInvocation) handleTimeoutsAndCancel(ctx context.Context) {
 		case <-ctx.Done():
 			if ctx.Err() == context.DeadlineExceeded {
 				pi.conn.handleTimeout(pi)
-			} else {
-				// err := errors.New("cancelled execution context")
-				// verr := VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
-				// if !pi.async {
-				// 	pi.responseCh <- verr
-				// } else {
-				// 	pi.arc.ConsumeError(verr)
-				// }
 			}
 			return
 		}
