@@ -133,35 +133,24 @@ func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Dura
 	if err != nil {
 		return nil, err
 	}
-	sec := time.NewTicker(time.Second)
-	defer sec.Stop()
-	for {
-		if pi.conn.isClosed() {
-			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
-				error: fmt.Errorf("%s: writing on a closed node connection",
-					pi.conn.connInfo)}
-		}
-		select {
-		case <-sec.C:
-			if err := pi.conn.Ping(); err != nil {
-				pi.conn.markClosed()
-				return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
-					error: err}
-			}
-		case resp := <-pi.responseCh:
-			switch e := resp.(type) {
-			case VoltRows:
-				return e, nil
-			case VoltError:
-				return nil, e
-			default:
-				panic("unexpected response type")
-			}
-		case <-ctx.Done():
-			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errTimeoutExecutingQuery}
-		}
+	if pi.conn.isClosed() {
+		return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
+			error: fmt.Errorf("%s: writing on a closed node connection",
+				pi.conn.connInfo)}
 	}
-
+	select {
+	case resp := <-pi.responseCh:
+		switch e := resp.(type) {
+		case VoltRows:
+			return e, nil
+		case VoltError:
+			return nil, e
+		default:
+			panic("unexpected response type")
+		}
+	case <-ctx.Done():
+		return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errors.New("context was canceled")}
+	}
 }
 
 // QueryAsync executes a query asynchronously.  The invoking thread will block

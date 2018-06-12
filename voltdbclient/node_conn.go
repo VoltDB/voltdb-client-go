@@ -21,7 +21,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql/driver"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -93,11 +92,16 @@ func (nc *nodeConn) submit(ctx context.Context, pi *procedureInvocation) (int, e
 
 func (nc *nodeConn) markClosed() error {
 	nc.closed.Store(true)
-	nc.cancel()
-	nc.requests.Range(func(k, _ interface{}) bool {
+	nc.requests.Range(func(k, v interface{}) bool {
 		nc.requests.Delete(k)
+		r := v.(*procedureInvocation)
+		nc.handleMarkClosed(r)
+		if r.cancel != nil {
+			r.cancel()
+		}
 		return true
 	})
+	nc.cancel()
 	return nc.tcpConn.Close()
 }
 
@@ -248,6 +252,10 @@ func (nc *nodeConn) hasBP() bool {
 	return <-respCh
 }
 
+func checkConnReset(err error) bool {
+	return strings.Contains(err.Error(), "read: connection reset by peer")
+}
+
 // listen listens for messages from the server and calls back a registered listener.
 // listen blocks on input from the server and should be run as a go routine.
 func (nc *nodeConn) listen(ctx context.Context) {
@@ -264,12 +272,11 @@ func (nc *nodeConn) listen(ctx context.Context) {
 		default:
 			b, err := d.Message()
 			if err != nil {
-				if nc.responseCh == nil {
-					// exiting
-					return
+				if checkConnReset(err) {
+					if !nc.isClosed() {
+						nc.markClosed()
+					}
 				}
-				// TODO: put the error on the channel
-				// the owner needs to reconnect
 				return
 			}
 			buf := bytes.NewBuffer(b)
@@ -428,7 +435,20 @@ func (nc *nodeConn) handleAsyncResponse(handle int64, r io.Reader, req *procedur
 }
 
 func (nc *nodeConn) handleTimeout(req *procedureInvocation) {
-	err := errors.New("timeout")
+	err := fmt.Errorf("timeout %s %d", nc.connInfo, req.handle)
+	verr := VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
+	if !req.async {
+		req.responseCh <- verr
+	} else {
+		req.arc.ConsumeError(verr)
+	}
+	if req.cancel != nil {
+		req.cancel()
+	}
+}
+
+func (nc *nodeConn) handleMarkClosed(req *procedureInvocation) {
+	err := fmt.Errorf("node %s is down closing this procedure invocation ", nc.connInfo)
 	verr := VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 	if !req.async {
 		req.responseCh <- verr
