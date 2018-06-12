@@ -49,7 +49,6 @@ type Conn struct {
 	closeCh                                  chan chan bool
 	open                                     atomic.Value
 	rl                                       rateLimiter
-	drainCh                                  chan chan bool
 	useClientAffinity                        bool
 	sendReadsToReplicasBytDefaultIfCAEnabled bool
 	subscribedConnection                     *nodeConn
@@ -72,7 +71,6 @@ func newConn(cis []string) (*Conn, error) {
 	var c = &Conn{
 		closeCh:           make(chan chan bool),
 		rl:                newTxnLimiter(),
-		drainCh:           make(chan chan bool),
 		useClientAffinity: true,
 		partitionMasters:  make(map[int]*nodeConn),
 		ctx:               ctx,
@@ -235,7 +233,10 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 		case <-c.ctx.Done():
 			return
 		case closeRespCh := <-c.closeCh:
-			c.open.Store(false)
+			if c.isClosed() {
+				closeRespCh <- true
+				return
+			}
 			if len(c.connected) == 0 {
 				closeRespCh <- true
 			} else {
@@ -246,8 +247,8 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 					connectedNc.Close()
 				}
 				closeRespCh <- true
-				return
 			}
+			return
 		case topoResp := <-c.subTopoCh:
 			switch topoResp.(type) {
 			// handle an error, otherwise the subscribe succeeded.
@@ -289,17 +290,6 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 				}
 			default:
 				c.fetchedCatalog = false
-			}
-		case drainRespCh := <-c.drainCh:
-			if len(c.connected) == 0 {
-				drainRespCh <- true
-			} else {
-				for _, connectedNc := range c.connected {
-					responseCh := make(chan bool, 1)
-					connectedNc.drain(responseCh)
-					<-responseCh
-				}
-				drainRespCh <- true
 			}
 		}
 	}
@@ -353,9 +343,13 @@ func (c *Conn) Close() error {
 // the current thread until that background thread has finished with all
 // asynchronous requests.
 func (c *Conn) Drain() {
-	drainRespCh := make(chan bool, 1)
-	c.drainCh <- drainRespCh
-	<-drainRespCh
+	if !c.isClosed() && len(c.connected) == 0 {
+		for _, nc := range c.connected {
+			responseCh := make(chan bool, 1)
+			nc.drain(responseCh)
+			<-responseCh
+		}
+	}
 }
 
 func (c *Conn) assertOpen() {
