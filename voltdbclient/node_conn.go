@@ -50,7 +50,6 @@ type nodeConn struct {
 	tcpConn      *net.TCPConn
 	drainCh      chan chan bool
 	bpCh         chan chan bool
-	closeCh      chan chan bool
 	responseCh   chan *bytes.Buffer
 	requests     *sync.Map
 	queuedBytes  int
@@ -75,7 +74,6 @@ func newNodeConn(ci string) *nodeConn {
 	return &nodeConn{
 		connInfo:   ci,
 		bpCh:       make(chan chan bool),
-		closeCh:    make(chan chan bool),
 		drainCh:    make(chan chan bool),
 		responseCh: make(chan *bytes.Buffer, maxResponseBuffer),
 		requests:   &sync.Map{},
@@ -110,13 +108,6 @@ func (nc *nodeConn) isClosed() bool {
 		return v.(bool)
 	}
 	return false
-}
-
-// when the node conn is closed by its owning distributer
-func (nc *nodeConn) close() chan bool {
-	respCh := make(chan bool, 1)
-	nc.closeCh <- respCh
-	return respCh
 }
 
 func (nc *nodeConn) Close() error {
@@ -330,10 +321,6 @@ func (nc *nodeConn) loop(ctx context.Context, bpCh <-chan chan bool) {
 				nc.markClosed()
 			}
 			return
-		case respCh := <-nc.closeCh:
-			nc.tcpConn.Close()
-			respCh <- true
-			return
 		case resp := <-nc.responseCh:
 			decoder := wire.NewDecoder(resp)
 			handle, err := decoder.Int64()
@@ -363,6 +350,11 @@ func (nc *nodeConn) loop(ctx context.Context, bpCh <-chan chan bool) {
 		case respBPCh := <-bpCh:
 			respBPCh <- nc.bp
 		case drainRespCh = <-nc.drainCh:
+			if nc.isClosed() {
+				log.Println("draining on a closed connection")
+				drainRespCh <- true
+				return
+			}
 			draining = true
 		}
 	}
@@ -442,6 +434,7 @@ func (nc *nodeConn) handleTimeout(req *procedureInvocation) {
 	} else {
 		req.arc.ConsumeError(verr)
 	}
+	nc.requests.Delete(req.handle)
 	if req.cancel != nil {
 		req.cancel()
 	}
