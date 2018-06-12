@@ -340,10 +340,11 @@ func (c *Conn) Begin() (driver.Tx, error) {
 // and reopen connections.  Close would typically be called using a defer.
 // Operations using a closed connection cause a panic.
 func (c *Conn) Close() error {
-	c.cancel()
 	respCh := make(chan bool)
 	c.closeCh <- respCh
 	<-respCh
+	c.cancel()
+	c.setClosed()
 	return nil
 }
 
