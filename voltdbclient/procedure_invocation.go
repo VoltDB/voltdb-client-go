@@ -154,14 +154,13 @@ func (pi procedureInvocation) isAsync() bool {
 	return pi.async
 }
 
+// This will wait until the context ctx is cancelled/timeout. If it timeout then
+// we handle this procedure invocation as timedout.
+//
+// This is blocking, so call it in a separate goroutine.
 func (pi *procedureInvocation) handleTimeoutsAndCancel(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			if ctx.Err() == context.DeadlineExceeded {
-				pi.conn.handleTimeout(pi)
-			}
-			return
-		}
+	<-ctx.Done()
+	if ctx.Err() == context.DeadlineExceeded {
+		pi.conn.handleTimeout(pi)
 	}
 }
