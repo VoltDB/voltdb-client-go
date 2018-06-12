@@ -165,14 +165,13 @@ func openAndPingDB(servers string) *sql.DB {
 
 func (bm *benchmark) placeVotesSQL(ctx context.Context, done func()) {
 	volt := openAndPingDB(bm.config.servers)
-	defer volt.Close()
-
+	defer done()
 	// don't support prepare statement with store procedure
 	ops := 0
 	for {
 		select {
 		case <-ctx.Done():
-			done()
+			volt.Close()
 			return
 		default:
 			contestantNumber, phoneNumber := bm.switchboard.receive()
@@ -184,12 +183,12 @@ func (bm *benchmark) placeVotesSQL(ctx context.Context, done func()) {
 
 func (bm *benchmark) placeVotesSync(ctx context.Context, done func()) {
 	volt := connect(bm.config.servers)
-	defer volt.Close()
+	defer done()
 	ops := 0
 	for {
 		select {
 		case <-ctx.Done():
-			done()
+			volt.Close()
 			return
 		default:
 			contestantNumber, phoneNumber := bm.switchboard.receive()
@@ -207,13 +206,13 @@ func (bm *benchmark) placeVotesSync(ctx context.Context, done func()) {
 
 func (bm *benchmark) placeVotesAsync(ctx context.Context, done func()) {
 	volt := connect(bm.config.servers)
-	defer volt.Close()
 	vcb := voteCallBack{}
+	defer done()
 	for {
 		select {
 		case <-ctx.Done():
 			volt.Drain()
-			done()
+			volt.Close()
 			return
 		default:
 			contestantNumber, phoneNumber := bm.switchboard.receive()
