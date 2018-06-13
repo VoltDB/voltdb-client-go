@@ -351,7 +351,6 @@ func (nc *nodeConn) loop(ctx context.Context, bpCh <-chan chan bool) {
 			respBPCh <- nc.bp
 		case drainRespCh = <-nc.drainCh:
 			if nc.isClosed() {
-				log.Println("draining on a closed connection")
 				drainRespCh <- true
 				return
 			}
