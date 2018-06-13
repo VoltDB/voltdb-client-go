@@ -47,33 +47,23 @@ func (c *Conn) ExecTimeout(query string, args []driver.Value, timeout time.Durat
 	if err != nil {
 		return nil, err
 	}
-	sec := time.NewTicker(time.Second)
-	defer sec.Stop()
-	for {
-		if pi.conn.isClosed() {
+	select {
+	case resp := <-pi.responseCh:
+		switch resp.(type) {
+		case VoltResult:
+			return resp.(VoltResult), nil
+		case VoltError:
+			return nil, resp.(VoltError)
+		default:
+			panic("unexpected response type")
+		}
+	case <-ctx.Done():
+		if ctx.Err() == context.DeadlineExceeded {
 			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
-				error: fmt.Errorf("%s: writing on a closed node connection",
-					pi.conn.connInfo)}
+				error: fmt.Errorf(" %s context timedout", pi.conn.connInfo)}
 		}
-		select {
-		case <-sec.C:
-			if err := pi.conn.Ping(); err != nil {
-				pi.conn.markClosed()
-				return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout,
-					clusterRoundTripTime: -1}, error: err}
-			}
-		case resp := <-pi.responseCh:
-			switch resp.(type) {
-			case VoltResult:
-				return resp.(VoltResult), nil
-			case VoltError:
-				return nil, resp.(VoltError)
-			default:
-				panic("unexpected response type")
-			}
-		case <-ctx.Done():
-			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errors.New("timeout")}
-		}
+		return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
+			error: fmt.Errorf("%s timeout", pi.conn.connInfo)}
 	}
 }
 
@@ -133,11 +123,6 @@ func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Dura
 	if err != nil {
 		return nil, err
 	}
-	if pi.conn.isClosed() {
-		return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
-			error: fmt.Errorf("%s: writing on a closed node connection",
-				pi.conn.connInfo)}
-	}
 	select {
 	case resp := <-pi.responseCh:
 		switch e := resp.(type) {
@@ -149,6 +134,9 @@ func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Dura
 			panic("unexpected response type")
 		}
 	case <-ctx.Done():
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errors.New("context timedout")}
+		}
 		return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errors.New("context was canceled")}
 	}
 }
