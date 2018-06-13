@@ -97,6 +97,7 @@ func (nc *nodeConn) markClosed() error {
 		if r.cancel != nil {
 			r.cancel()
 		}
+		nc.requests.Delete(k)
 		return true
 	})
 	nc.cancel()
@@ -258,7 +259,9 @@ func (nc *nodeConn) listen(ctx context.Context) {
 		}
 		select {
 		case <-ctx.Done():
-			nc.markClosed()
+			if !nc.isClosed() {
+				nc.markClosed()
+			}
 			return
 		default:
 			b, err := d.Message()
@@ -440,7 +443,7 @@ func (nc *nodeConn) handleTimeout(req *procedureInvocation) {
 }
 
 func (nc *nodeConn) handleMarkClosed(req *procedureInvocation) {
-	err := fmt.Errorf("node %s is down closing this procedure invocation ", nc.connInfo)
+	err := fmt.Errorf("node %s was marked as closed clearing up this request ", nc.connInfo)
 	verr := VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 	if !req.async {
 		req.responseCh <- verr
