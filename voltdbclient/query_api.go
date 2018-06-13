@@ -135,7 +135,8 @@ func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Dura
 		}
 	case <-ctx.Done():
 		if ctx.Err() == context.DeadlineExceeded {
-			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errors.New("context timedout")}
+			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
+				error: fmt.Errorf("%s context timedout", pi.conn.connInfo)}
 		}
 		return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errors.New("context was canceled")}
 	}
