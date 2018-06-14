@@ -60,7 +60,7 @@ func (c *Conn) ExecTimeout(query string, args []driver.Value, timeout time.Durat
 	case <-ctx.Done():
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
-				error: fmt.Errorf(" %s context timedout", pi.conn.connInfo)}
+				error: fmt.Errorf(" %s context timedout while waiting for response", pi.conn.connInfo)}
 		}
 		return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
 			error: fmt.Errorf("%s timeout", pi.conn.connInfo)}
@@ -136,7 +136,7 @@ func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Dura
 	case <-ctx.Done():
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
-				error: fmt.Errorf("%s context timedout", pi.conn.connInfo)}
+				error: fmt.Errorf(" %s context timedout while waiting for response :%d", pi.conn.connInfo, pi.handle)}
 		}
 		return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1}, error: errors.New("context was canceled")}
 	}
