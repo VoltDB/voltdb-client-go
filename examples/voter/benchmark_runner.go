@@ -265,12 +265,12 @@ func handleSQLRows(rows *sql.Rows, err error) (success int) {
 					atomic.AddUint64(&(fullStats.acceptedVotes), 1)
 				}
 			} else {
-				log.Panic(err)
+				log.Println(err)
 				// shouldn't be here
 			}
 			return 1
 		}
-		log.Panic(err)
+		log.Println(err)
 		atomic.AddUint64(&(fullStats.failedVotes), 1)
 		return 0
 	}
