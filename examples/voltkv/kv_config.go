@@ -76,7 +76,7 @@ func newKVConfig() (*kvConfig, error) {
 	flag.Var(&(kv.runtype), "runtype", "Type of the client calling procedures.")
 	flag.Parse()
 	if kv.runtype == "async" && kv.goroutines == 20 {
-		kv.goroutines = 2
+		kv.goroutines = 1
 	}
 	// validate
 	switch {
