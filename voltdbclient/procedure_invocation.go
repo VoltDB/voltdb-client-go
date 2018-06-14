@@ -41,7 +41,6 @@ type procedureInvocation struct {
 	timeout    time.Duration
 	arc        AsyncResponseConsumer
 	async      bool
-	slen       int // length of pi once serialized
 
 	// This is the connection that received the invocation request. It is through
 	// this connection that the response to the procedure invocation will be sent.
@@ -58,7 +57,6 @@ func newSyncProcedureInvocation(handle int64, isQuery bool, query string, params
 		responseCh: responseCh,
 		timeout:    timeout,
 		async:      false,
-		slen:       -1,
 	}
 }
 
@@ -71,7 +69,6 @@ func newAsyncProcedureInvocation(handle int64, isQuery bool, query string, param
 		timeout: timeout,
 		arc:     arc,
 		async:   true,
-		slen:    -1,
 	}
 }
 
@@ -83,15 +80,11 @@ func newProcedureInvocationByHandle(handle int64, isQuery bool, query string, pa
 		query:   query,
 		params:  params,
 		async:   true,
-		slen:    -1,
 	}
 }
 
 func (pi *procedureInvocation) getLen() int {
-	if pi.slen == -1 {
-		pi.slen = pi.calcLen()
-	}
-	return pi.slen
+	return pi.calcLen()
 }
 
 func (pi *procedureInvocation) calcLen() int {

@@ -97,7 +97,7 @@ func (nc *nodeConn) markClosed() error {
 		if r.cancel != nil {
 			r.cancel()
 		}
-		nc.requests.Delete(k)
+		nc.queuedBytes--
 		return true
 	})
 	nc.cancel()
@@ -324,7 +324,7 @@ func (nc *nodeConn) loop(ctx context.Context, bpCh <-chan chan bool) {
 				continue
 			}
 			req := r.(*procedureInvocation)
-			nc.queuedBytes -= req.slen
+			nc.queuedBytes--
 			nc.requests.Delete(handle)
 			if !req.async {
 				nc.handleSyncResponse(handle, resp, req)
@@ -354,7 +354,7 @@ func (nc *nodeConn) handleProcedureInvocation(ctx context.Context, pi *procedure
 		return n, fmt.Errorf("%s: %v", nc.connInfo, err)
 	}
 	nc.requests.Store(pi.handle, pi)
-	nc.queuedBytes += pi.slen
+	nc.queuedBytes++
 	pi.conn = nc
 	go pi.handleTimeoutsAndCancel(ctx)
 	return 0, nil
@@ -417,6 +417,7 @@ func (nc *nodeConn) handleTimeout(req *procedureInvocation) {
 	} else {
 		req.arc.ConsumeError(verr)
 	}
+	nc.queuedBytes--
 	nc.requests.Delete(req.handle)
 	if req.cancel != nil {
 		req.cancel()
