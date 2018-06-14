@@ -69,7 +69,7 @@ func newVoterConfig() (*voterConfig, error) {
 	flag.Parse()
 	if voter.runtype == "async" {
 		if voter.goroutines == 10 {
-			voter.goroutines = 3
+			voter.goroutines = 1
 		}
 	}
 	// validate
