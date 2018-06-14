@@ -343,7 +343,7 @@ func (c *Conn) Close() error {
 // the current thread until that background thread has finished with all
 // asynchronous requests.
 func (c *Conn) Drain() {
-	if !c.isClosed() && len(c.connected) == 0 {
+	if !c.isClosed() {
 		for _, nc := range c.connected {
 			responseCh := make(chan bool, 1)
 			nc.drain(responseCh)
