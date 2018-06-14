@@ -235,6 +235,9 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.Con
 }
 
 func (nc *nodeConn) Drain(ctx context.Context) error {
+	if nc.isClosed() {
+		return nil
+	}
 	nc.draining.Store(true)
 	for {
 		select {
