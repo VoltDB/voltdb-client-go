@@ -291,9 +291,6 @@ func (nc *nodeConn) loop(ctx context.Context, bpCh <-chan chan bool) {
 	var draining bool
 	var drainRespCh chan bool
 	// for ping
-	var pingTimeout = 2 * time.Minute
-	pingSentTime := time.Now()
-	var pingOutstanding bool
 	for {
 		if nc.isClosed() {
 			return
@@ -305,18 +302,6 @@ func (nc *nodeConn) loop(ctx context.Context, bpCh <-chan chan bool) {
 				drainRespCh = nil
 				draining = false
 			}
-		}
-
-		// ping
-		pingSinceSent := time.Now().Sub(pingSentTime)
-		if pingOutstanding {
-			if pingSinceSent > pingTimeout {
-				// TODO: should disconnect
-			}
-		} else if pingSinceSent > pingTimeout/3 {
-			nc.sendPing()
-			pingOutstanding = true
-			pingSentTime = time.Now()
 		}
 		select {
 		case <-ctx.Done():
@@ -330,10 +315,6 @@ func (nc *nodeConn) loop(ctx context.Context, bpCh <-chan chan bool) {
 			// can't do anything without a handle.  If reading the handle fails,
 			// then log and drop the message.
 			if err != nil {
-				continue
-			}
-			if handle == PingHandle {
-				pingOutstanding = false
 				continue
 			}
 			r, ok := nc.requests.Load(handle)
