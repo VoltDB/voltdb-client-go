@@ -321,62 +321,6 @@ func (nc *nodeConn) listen(ctx context.Context) {
 	}
 }
 
-func (nc *nodeConn) loop(ctx context.Context, bpCh <-chan chan bool) {
-	// var draining bool
-	// var drainRespCh chan bool
-	// // for ping
-	// for {
-	// 	if nc.isClosed() {
-	// 		return
-	// 	}
-	// setup select cases
-	// if draining {
-	// 	if nc.queuedBytes <= 0 {
-	// 		drainRespCh <- true
-	// 		drainRespCh = nil
-	// 		draining = false
-	// 	}
-	// }
-	// select {
-	// case <-ctx.Done():
-	// 	if !nc.isClosed() {
-	// 		nc.markClosed()
-	// 	}
-	// 	return
-	// case resp := <-nc.responseCh:
-	// decoder := wire.NewDecoder(resp)
-	// handle, err := decoder.Int64()
-	// // can't do anything without a handle.  If reading the handle fails,
-	// // then log and drop the message.
-	// if err != nil {
-	// 	continue
-	// }
-	// r, ok := nc.requests.Load(handle)
-	// if !ok || r == nil {
-	// 	// there's a race here with timeout.  A request can be timed out and
-	// 	// then a response received.  In this case drop the response.
-	// 	continue
-	// }
-	// req := r.(*procedureInvocation)
-	// nc.queuedBytes--
-	// nc.requests.Delete(handle)
-	// if !req.async {
-	// 	nc.handleSyncResponse(handle, resp, req)
-	// } else {
-	// 	nc.handleAsyncResponse(handle, resp, req)
-	// }
-	// 	case respBPCh := <-bpCh:
-	// 		respBPCh <- nc.bp
-	// 	case drainRespCh = <-nc.drainCh:
-	// 		if nc.isClosed() {
-	// 			drainRespCh <- true
-	// 			return
-	// 		}
-	// 		draining = true
-	// 	}
-	// }
-}
-
 func (nc *nodeConn) handleProcedureInvocation(ctx context.Context, pi *procedureInvocation) (int, error) {
 	encoder := wire.NewEncoder()
 	EncodePI(encoder, pi)
