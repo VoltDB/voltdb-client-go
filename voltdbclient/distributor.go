@@ -342,14 +342,16 @@ func (c *Conn) Close() error {
 // Asynchronous requests are processed in a background thread; this call blocks
 // the current thread until that background thread has finished with all
 // asynchronous requests.
-func (c *Conn) Drain() {
+func (c *Conn) Drain() error {
 	if !c.isClosed() {
 		for _, nc := range c.connected {
-			responseCh := make(chan bool, 1)
-			nc.drain(responseCh)
-			<-responseCh
+			err := nc.Drain(c.ctx)
+			if err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 func (c *Conn) assertOpen() {

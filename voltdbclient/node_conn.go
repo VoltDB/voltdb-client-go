@@ -45,17 +45,15 @@ const defaultMaxRetries = 10
 const defaultRetryInterval = time.Second
 
 type nodeConn struct {
-	connInfo     string
-	connData     *wire.ConnInfo
-	tcpConn      *net.TCPConn
-	drainCh      chan chan bool
-	bpCh         chan chan bool
-	responseCh   chan *bytes.Buffer
-	requests     *sync.Map
-	queuedBytes  int
-	bp           bool
-	disconnected bool
-	closed       atomic.Value
+	connInfo       string
+	connData       *wire.ConnInfo
+	tcpConn        *net.TCPConn
+	bpCh           chan chan bool
+	requests       *sync.Map
+	queuedRequests int64
+	bp             bool
+	disconnected   bool
+	closed         atomic.Value
 
 	// This is the duration to wait before the next retry to connect to a node that
 	// lost connection attempt
@@ -68,15 +66,21 @@ type nodeConn struct {
 	// giving up.
 	maxRetries int
 	cancel     func()
+	draining   atomic.Value
+}
+
+func (nc *nodeConn) isDraining() bool {
+	if v := nc.draining.Load(); v != nil {
+		return v.(bool)
+	}
+	return false
 }
 
 func newNodeConn(ci string) *nodeConn {
 	return &nodeConn{
-		connInfo:   ci,
-		bpCh:       make(chan chan bool),
-		drainCh:    make(chan chan bool),
-		responseCh: make(chan *bytes.Buffer, maxResponseBuffer),
-		requests:   &sync.Map{},
+		connInfo: ci,
+		bpCh:     make(chan chan bool),
+		requests: &sync.Map{},
 	}
 }
 
@@ -97,7 +101,7 @@ func (nc *nodeConn) markClosed() error {
 		if r.cancel != nil {
 			r.cancel()
 		}
-		nc.queuedBytes--
+		atomic.AddInt64(&nc.queuedRequests, -1)
 		return true
 	})
 	nc.cancel()
@@ -128,8 +132,6 @@ func (nc *nodeConn) connect(ctx context.Context, protocolVersion int) error {
 	nctx, cancel := context.WithCancel(ctx)
 	nc.cancel = cancel
 	go nc.listen(nctx)
-	nc.drainCh = make(chan chan bool, 1)
-	go nc.loop(nctx, nc.bpCh)
 	return nil
 }
 
@@ -167,7 +169,6 @@ func (nc *nodeConn) reconnect(ctx context.Context, protocolVersion int) {
 				nc.tcpConn = tcpConn
 				nc.connData = connData
 				go nc.listen(ctx)
-				go nc.loop(ctx, nc.bpCh)
 				nc.closed.Store(false)
 				return
 			}
@@ -213,7 +214,6 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.Con
 			return nil, nil, fmt.Errorf("voltdbclient: failed to parse retry value %v", err)
 		}
 		nc.retry = r
-
 		interval := query.Get("retry_interval")
 		if interval != "" {
 			i, err := time.ParseDuration(interval)
@@ -234,8 +234,22 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.Con
 	return tcpConn, i, nil
 }
 
-func (nc *nodeConn) drain(respCh chan bool) {
-	nc.drainCh <- respCh
+func (nc *nodeConn) Drain(ctx context.Context) error {
+	nc.draining.Store(true)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			if !nc.isDraining() {
+				return nil
+			}
+			if nc.queuedRequests == 0 {
+				nc.draining.Store(false)
+				return nil
+			}
+		}
+	}
 }
 
 func (nc *nodeConn) hasBP() bool {
@@ -251,8 +265,7 @@ func checkConnReset(err error) bool {
 // listen listens for messages from the server and calls back a registered listener.
 // listen blocks on input from the server and should be run as a go routine.
 func (nc *nodeConn) listen(ctx context.Context) {
-	d := wire.NewDecoder(nc.tcpConn)
-	s := &wire.Decoder{}
+	d := &wire.Decoder{}
 	for {
 		if nc.isClosed() {
 			return
@@ -264,6 +277,7 @@ func (nc *nodeConn) listen(ctx context.Context) {
 			}
 			return
 		default:
+			d.SetReader(nc.tcpConn)
 			b, err := d.Message()
 			if err != nil {
 				if checkConnReset(err) {
@@ -274,44 +288,12 @@ func (nc *nodeConn) listen(ctx context.Context) {
 				return
 			}
 			buf := bytes.NewBuffer(b)
-			s.SetReader(buf)
-			_, err = s.Byte()
+			d.SetReader(buf)
+			_, err = d.Byte()
 			if err != nil {
-				if nc.responseCh == nil {
-					return
-				}
 				return
 			}
-			nc.responseCh <- buf
-		}
-	}
-}
-
-func (nc *nodeConn) loop(ctx context.Context, bpCh <-chan chan bool) {
-	var draining bool
-	var drainRespCh chan bool
-	// for ping
-	for {
-		if nc.isClosed() {
-			return
-		}
-		// setup select cases
-		if draining {
-			if nc.queuedBytes <= 0 {
-				drainRespCh <- true
-				drainRespCh = nil
-				draining = false
-			}
-		}
-		select {
-		case <-ctx.Done():
-			if !nc.isClosed() {
-				nc.markClosed()
-			}
-			return
-		case resp := <-nc.responseCh:
-			decoder := wire.NewDecoder(resp)
-			handle, err := decoder.Int64()
+			handle, err := d.Int64()
 			// can't do anything without a handle.  If reading the handle fails,
 			// then log and drop the message.
 			if err != nil {
@@ -319,28 +301,77 @@ func (nc *nodeConn) loop(ctx context.Context, bpCh <-chan chan bool) {
 			}
 			r, ok := nc.requests.Load(handle)
 			if !ok || r == nil {
-				// there's a race here with timeout.  A request can be timed out and
-				// then a response received.  In this case drop the response.
 				continue
 			}
 			req := r.(*procedureInvocation)
-			nc.queuedBytes--
+			atomic.AddInt64(&nc.queuedRequests, -1)
 			nc.requests.Delete(handle)
 			if !req.async {
-				nc.handleSyncResponse(handle, resp, req)
+				nc.handleSyncResponse(handle, buf, req)
 			} else {
-				nc.handleAsyncResponse(handle, resp, req)
+				nc.handleAsyncResponse(handle, buf, req)
 			}
-		case respBPCh := <-bpCh:
-			respBPCh <- nc.bp
-		case drainRespCh = <-nc.drainCh:
-			if nc.isClosed() {
-				drainRespCh <- true
-				return
+			if nc.queuedRequests == 0 {
+				nc.draining.Store(false)
 			}
-			draining = true
 		}
 	}
+}
+
+func (nc *nodeConn) loop(ctx context.Context, bpCh <-chan chan bool) {
+	// var draining bool
+	// var drainRespCh chan bool
+	// // for ping
+	// for {
+	// 	if nc.isClosed() {
+	// 		return
+	// 	}
+	// setup select cases
+	// if draining {
+	// 	if nc.queuedBytes <= 0 {
+	// 		drainRespCh <- true
+	// 		drainRespCh = nil
+	// 		draining = false
+	// 	}
+	// }
+	// select {
+	// case <-ctx.Done():
+	// 	if !nc.isClosed() {
+	// 		nc.markClosed()
+	// 	}
+	// 	return
+	// case resp := <-nc.responseCh:
+	// decoder := wire.NewDecoder(resp)
+	// handle, err := decoder.Int64()
+	// // can't do anything without a handle.  If reading the handle fails,
+	// // then log and drop the message.
+	// if err != nil {
+	// 	continue
+	// }
+	// r, ok := nc.requests.Load(handle)
+	// if !ok || r == nil {
+	// 	// there's a race here with timeout.  A request can be timed out and
+	// 	// then a response received.  In this case drop the response.
+	// 	continue
+	// }
+	// req := r.(*procedureInvocation)
+	// nc.queuedBytes--
+	// nc.requests.Delete(handle)
+	// if !req.async {
+	// 	nc.handleSyncResponse(handle, resp, req)
+	// } else {
+	// 	nc.handleAsyncResponse(handle, resp, req)
+	// }
+	// 	case respBPCh := <-bpCh:
+	// 		respBPCh <- nc.bp
+	// 	case drainRespCh = <-nc.drainCh:
+	// 		if nc.isClosed() {
+	// 			drainRespCh <- true
+	// 			return
+	// 		}
+	// 		draining = true
+	// 	}
+	// }
 }
 
 func (nc *nodeConn) handleProcedureInvocation(ctx context.Context, pi *procedureInvocation) (int, error) {
@@ -354,7 +385,7 @@ func (nc *nodeConn) handleProcedureInvocation(ctx context.Context, pi *procedure
 		return n, fmt.Errorf("%s: %v", nc.connInfo, err)
 	}
 	nc.requests.Store(pi.handle, pi)
-	nc.queuedBytes++
+	atomic.AddInt64(&nc.queuedRequests, 1)
 	pi.conn = nc
 	go pi.handleTimeoutsAndCancel(ctx)
 	return 0, nil
@@ -368,7 +399,6 @@ func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *procedure
 		e.error = fmt.Errorf("%s: %v", nc.connInfo, e.error)
 		req.responseCh <- e
 	} else if req.isQuery {
-
 		if rows, err := decodeRows(decoder, rsp); err != nil {
 			req.responseCh <- err.(voltResponse)
 		} else {
@@ -417,7 +447,7 @@ func (nc *nodeConn) handleTimeout(req *procedureInvocation) {
 	} else {
 		req.arc.ConsumeError(verr)
 	}
-	nc.queuedBytes--
+	atomic.AddInt64(&nc.queuedRequests, -1)
 	nc.requests.Delete(req.handle)
 	if req.cancel != nil {
 		req.cancel()
