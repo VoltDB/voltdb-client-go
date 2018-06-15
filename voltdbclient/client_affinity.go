@@ -39,14 +39,18 @@ func (c *Conn) getTopoStatistics(ctx context.Context, nc *nodeConn) <-chan voltR
 	// system call procedure should bypass timeout and backpressure
 	responseCh := make(chan voltResponse, 1)
 	topoStatisticsPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Statistics", []driver.Value{"TOPO", int32(JSONFormat)}, responseCh, DefaultQueryTimeout)
-	nc.submit(ctx, topoStatisticsPi)
+	nctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
+	topoStatisticsPi.cancel = cancel
+	nc.submit(nctx, topoStatisticsPi)
 	return responseCh
 }
 
 func (c *Conn) getProcedureInfo(ctx context.Context, nc *nodeConn) <-chan voltResponse {
 	responseCh := make(chan voltResponse, 1)
 	procedureInfoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@SystemCatalog", []driver.Value{"PROCEDURES"}, responseCh, DefaultQueryTimeout)
-	nc.submit(ctx, procedureInfoPi)
+	nctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
+	procedureInfoPi.cancel = cancel
+	nc.submit(nctx, procedureInfoPi)
 	return responseCh
 }
 

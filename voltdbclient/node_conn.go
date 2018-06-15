@@ -98,9 +98,6 @@ func (nc *nodeConn) markClosed() error {
 		nc.requests.Delete(k)
 		r := v.(*procedureInvocation)
 		nc.handleMarkClosed(r)
-		if r.cancel != nil {
-			r.cancel()
-		}
 		atomic.AddInt64(&nc.queuedRequests, -1)
 		return true
 	})
@@ -334,11 +331,20 @@ func (nc *nodeConn) handleProcedureInvocation(ctx context.Context, pi *procedure
 	nc.requests.Store(pi.handle, pi)
 	atomic.AddInt64(&nc.queuedRequests, 1)
 	pi.conn = nc
-	go pi.handleTimeoutsAndCancel(ctx)
+
+	// pctx is the context to manage procedure invocation resources. This way we
+	// can call sto() only to signal the procedure to clear its resources without
+	// canceling the parent context(which can be used to signal completion of
+	// execution), check *Conn.QueryTimeout or *Conn.Exec timeout to see how this
+	// is used to achieve blocking request/response scenario.
+	pctx, stop := context.WithCancel(ctx)
+	pi.stop = stop
+	go pi.handleTimeoutsAndCancel(pctx)
 	return 0, nil
 }
 
 func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *procedureInvocation) {
+	defer req.Close()
 	decoder := wire.NewDecoder(r)
 	rsp, err := decodeResponse(decoder, handle)
 	if err != nil {
@@ -358,12 +364,10 @@ func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *procedure
 			req.responseCh <- result
 		}
 	}
-	if req.cancel != nil {
-		req.cancel()
-	}
 }
 
 func (nc *nodeConn) handleAsyncResponse(handle int64, r io.Reader, req *procedureInvocation) {
+	defer req.Close()
 	d := wire.NewDecoder(r)
 	rsp, err := decodeResponse(d, handle)
 	if err != nil {
@@ -381,13 +385,10 @@ func (nc *nodeConn) handleAsyncResponse(handle int64, r io.Reader, req *procedur
 			req.arc.ConsumeResult(result)
 		}
 	}
-	if req.cancel != nil {
-		req.cancel()
-	}
 }
 
 func (nc *nodeConn) handleTimeout(req *procedureInvocation) {
-	err := fmt.Errorf("timeout %s %d", nc.connInfo, req.handle)
+	err := fmt.Errorf("timeout %s %d:%s", nc.connInfo, req.handle, req.query)
 	verr := VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 	if !req.async {
 		req.responseCh <- verr
@@ -396,12 +397,10 @@ func (nc *nodeConn) handleTimeout(req *procedureInvocation) {
 	}
 	atomic.AddInt64(&nc.queuedRequests, -1)
 	nc.requests.Delete(req.handle)
-	if req.cancel != nil {
-		req.cancel()
-	}
 }
 
 func (nc *nodeConn) handleMarkClosed(req *procedureInvocation) {
+	defer req.Close()
 	err := fmt.Errorf("node %s was marked as closed clearing up this request ", nc.connInfo)
 	verr := VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 	if !req.async {

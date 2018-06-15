@@ -46,6 +46,7 @@ type procedureInvocation struct {
 	// this connection that the response to the procedure invocation will be sent.
 	conn   *nodeConn
 	cancel func()
+	stop   func()
 }
 
 func newSyncProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, responseCh chan voltResponse, timeout time.Duration) *procedureInvocation {
@@ -152,8 +153,23 @@ func (pi procedureInvocation) isAsync() bool {
 //
 // This is blocking, so call it in a separate goroutine.
 func (pi *procedureInvocation) handleTimeoutsAndCancel(ctx context.Context) {
-	<-ctx.Done()
-	if ctx.Err() == context.DeadlineExceeded {
-		pi.conn.handleTimeout(pi)
+	if pi.cancel != nil {
+		<-ctx.Done()
+
+		// If the parent context was cancelled nothing will happen. We just make sure
+		// that the timeout is handled.
+		//
+		// We call cancel to clear any resources associated with this procedure
+		// invocation.
+		if ctx.Err() == context.DeadlineExceeded {
+			pi.conn.handleTimeout(pi)
+		}
+		pi.cancel()
+	}
+}
+
+func (pi *procedureInvocation) Close() {
+	if pi.stop != nil {
+		pi.stop()
 	}
 }
