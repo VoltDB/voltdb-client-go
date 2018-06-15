@@ -42,6 +42,7 @@ func (c *Conn) ExecTimeout(query string, args []driver.Value, timeout time.Durat
 	responseCh := make(chan voltResponse, 1)
 	pi := newSyncProcedureInvocation(c.getNextHandle(), false, query, args, responseCh, timeout)
 	ctx, cancel := context.WithTimeout(c.ctx, timeout)
+	defer cancel()
 	pi.cancel = cancel
 	_, err := c.submit(ctx, pi)
 	if err != nil {
@@ -118,6 +119,7 @@ func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Dura
 	responseCh := make(chan voltResponse, 1)
 	pi := newSyncProcedureInvocation(c.getNextHandle(), true, query, args, responseCh, timeout)
 	ctx, cancel := context.WithTimeout(c.ctx, timeout)
+	defer cancel()
 	pi.cancel = cancel
 	_, err := c.submit(ctx, pi)
 	if err != nil {

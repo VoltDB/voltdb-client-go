@@ -146,7 +146,7 @@ func (bm *benchmark) runBenchmark() {
 	timeElapsed := time.Now().Sub(timeStart)
 	<-bctx.Done()
 	// print the summary results
-	printResults(timeElapsed, conn)
+	printResults(timeElapsed, bm.config)
 }
 
 func openAndPingDB(servers string) *sql.DB {
@@ -360,7 +360,9 @@ func printStatistics(ctx context.Context, config *voterConfig) {
 	}
 }
 
-func printResults(timeElapsed time.Duration, conn *voltdbclient.Conn) {
+func printResults(timeElapsed time.Duration, config *voterConfig) {
+	conn := connect(config.servers)
+	defer conn.Close()
 	// 1. Voting Board statistics, Voting results and performance statistics
 	display := "\n" +
 		horizontalRule +
