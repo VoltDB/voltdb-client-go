@@ -28,7 +28,6 @@ import (
 	"os"
 	"reflect"
 	"runtime/pprof"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -110,11 +109,11 @@ func (bm *benchmark) runBenchmark() {
 	defer cancel()
 	switch config.runtype {
 	case ASYNC:
-		runGetPut(wctx, config, runGetPutAsync)
+		runGetPutAsync(wctx, config)
 	case SYNC:
-		runGetPut(wctx, config, runGetPutSync)
+		runGetPutSync(wctx, config)
 	case SQL:
-		runGetPut(wctx, config, runGetPutSQL)
+		runGetPutSQL(wctx, config)
 	}
 
 	//reset the stats after warmup
@@ -130,11 +129,11 @@ func (bm *benchmark) runBenchmark() {
 	defer cancel()
 	switch config.runtype {
 	case ASYNC:
-		runGetPut(bctx, config, runGetPutAsync)
+		runGetPutAsync(bctx, config)
 	case SYNC:
-		runGetPut(bctx, config, runGetPutSync)
+		runGetPutSync(bctx, config)
 	case SQL:
-		runGetPut(bctx, config, runGetPutSQL)
+		runGetPutSQL(bctx, config)
 	}
 	timeElapsed := time.Now().Sub(timeStart)
 	// print the summary results
@@ -155,7 +154,7 @@ func openAndPingDB(servers string) *sql.DB {
 	return db
 }
 
-func runGetPutSQL(ctx context.Context, config *kvConfig, wg *sync.WaitGroup) {
+func runGetPutSQL(ctx context.Context, config *kvConfig) {
 	volt := openAndPingDB(config.servers)
 	defer volt.Close()
 	// with prepared statement
@@ -173,7 +172,6 @@ func runGetPutSQL(ctx context.Context, config *kvConfig, wg *sync.WaitGroup) {
 	for {
 		select {
 		case <-ctx.Done():
-			wg.Done()
 			return
 		default:
 			if rand.Float64() < config.getputratio {
@@ -194,13 +192,12 @@ func runGetPutSQL(ctx context.Context, config *kvConfig, wg *sync.WaitGroup) {
 	}
 }
 
-func runGetPutSync(ctx context.Context, config *kvConfig, wg *sync.WaitGroup) {
+func runGetPutSync(ctx context.Context, config *kvConfig) {
 	volt := connect(config.servers)
 	defer volt.Close()
 	for {
 		select {
 		case <-ctx.Done():
-			wg.Done()
 			return
 		default:
 			if rand.Float64() < config.getputratio {
@@ -225,7 +222,7 @@ func runGetPutSync(ctx context.Context, config *kvConfig, wg *sync.WaitGroup) {
 
 }
 
-func runGetPutAsync(ctx context.Context, config *kvConfig, wg *sync.WaitGroup) {
+func runGetPutAsync(ctx context.Context, config *kvConfig) {
 	volt := connect(config.servers)
 	defer volt.Close()
 	gcb := newGetCallBack(bm.proc)
@@ -234,7 +231,6 @@ func runGetPutAsync(ctx context.Context, config *kvConfig, wg *sync.WaitGroup) {
 		select {
 		case <-ctx.Done():
 			volt.Drain()
-			wg.Done()
 			return
 		default:
 			if rand.Float64() < config.getputratio {
@@ -248,16 +244,6 @@ func runGetPutAsync(ctx context.Context, config *kvConfig, wg *sync.WaitGroup) {
 		}
 
 	}
-}
-
-func runGetPut(ctx context.Context, config *kvConfig, fn func(context.Context, *kvConfig, *sync.WaitGroup)) {
-	wg := &sync.WaitGroup{}
-	for i := 0; i < config.goroutines; i++ {
-		wg.Add(1)
-		go fn(ctx, config, wg)
-	}
-	wg.Wait()
-	return
 }
 
 // define Get Method Callback

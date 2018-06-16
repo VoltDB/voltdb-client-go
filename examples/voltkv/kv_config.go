@@ -54,7 +54,6 @@ type kvConfig struct {
 	maxvaluesize    int
 	entropy         int
 	usecompression  bool
-	goroutines      int
 	runtype         runType
 }
 
@@ -72,12 +71,9 @@ func newKVConfig() (*kvConfig, error) {
 	flag.IntVar(&(kv.maxvaluesize), "maxvaluesize", 1024, "Maximum value size in bytes.")
 	flag.IntVar(&(kv.entropy), "entropy", 127, "Number of values considered for each value byte.")
 	flag.BoolVar(&(kv.usecompression), "usecompression", false, "Compress values on the client side.")
-	flag.IntVar(&(kv.goroutines), "goroutines", 20, "Number of concurrent goroutines synchronously calling procedures.")
 	flag.Var(&(kv.runtype), "runtype", "Type of the client calling procedures.")
 	flag.Parse()
-	if kv.runtype == "async" && kv.goroutines == 20 {
-		kv.goroutines = 1
-	}
+
 	// validate
 	switch {
 	case (kv.displayinterval <= 0):
@@ -96,8 +92,6 @@ func newKVConfig() (*kvConfig, error) {
 		return nil, errors.New("maxvaluesize must be > 0")
 	case (kv.entropy <= 0) || (kv.entropy > 127):
 		return nil, errors.New("entropy must be > 0 and <= 127")
-	case (kv.goroutines <= 0):
-		return nil, errors.New("goroutines must be > 0")
 	case (kv.runtype != ASYNC) && (kv.runtype != SYNC) && (kv.runtype != SQL):
 		return nil, errors.New("runtype should be async,sync or sql")
 

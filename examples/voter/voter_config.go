@@ -51,8 +51,7 @@ type voterConfig struct {
 	maxvotes    int
 	statsfile   string
 
-	goroutines int
-	runtype    runType
+	runtype runType
 }
 
 func newVoterConfig() (*voterConfig, error) {
@@ -64,14 +63,9 @@ func newVoterConfig() (*voterConfig, error) {
 	flag.IntVar(&(voter.contestants), "contestants", 6, "Number of contestants in the voting contest (from 1 to 10).")
 	flag.IntVar(&(voter.maxvotes), "maxvotes", 2, "Maximum number of votes cast per voter.")
 	flag.StringVar(&(voter.statsfile), "statsfile", "", "Filename to write raw summary statistics to.")
-	flag.IntVar(&(voter.goroutines), "goroutines", 10, "Number of concurrent goroutines synchronously calling procedures.")
 	flag.Var(&(voter.runtype), "runtype", "Type of the client calling procedures.")
 	flag.Parse()
-	if voter.runtype == "async" {
-		if voter.goroutines == 10 {
-			voter.goroutines = 1
-		}
-	}
+
 	// validate
 	switch {
 	case (voter.displayinterval <= 0):
@@ -82,11 +76,8 @@ func newVoterConfig() (*voterConfig, error) {
 		return nil, errors.New("contestants must be > 0")
 	case (voter.maxvotes <= 0):
 		return nil, errors.New("maxvotes must be > 0")
-	case (voter.goroutines <= 0):
-		return nil, errors.New("goroutines must be > 0")
 	case (voter.runtype != ASYNC) && (voter.runtype != SYNC) && (voter.runtype != SQL):
 		return nil, errors.New("runtype should be async,sync or sql")
-
 	default:
 		return voter, nil
 	}

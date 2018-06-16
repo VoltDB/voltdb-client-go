@@ -29,7 +29,6 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -115,11 +114,11 @@ func (bm *benchmark) runBenchmark() {
 	defer cancel()
 	switch bm.config.runtype {
 	case ASYNC:
-		vote(wctx, bm.config, bm.placeVotesAsync)
+		bm.placeVotesAsync(wctx)
 	case SYNC:
-		vote(wctx, bm.config, bm.placeVotesSync)
+		bm.placeVotesSync(wctx)
 	case SQL:
-		vote(wctx, bm.config, bm.placeVotesSQL)
+		bm.placeVotesSQL(wctx)
 	}
 
 	//reset the stats after warmup
@@ -137,11 +136,11 @@ func (bm *benchmark) runBenchmark() {
 	go printStatistics(bctx, bm.config)
 	switch bm.config.runtype {
 	case ASYNC:
-		vote(bctx, bm.config, bm.placeVotesAsync)
+		bm.placeVotesAsync(bctx)
 	case SYNC:
-		vote(bctx, bm.config, bm.placeVotesSync)
+		bm.placeVotesSync(bctx)
 	case SQL:
-		vote(bctx, bm.config, bm.placeVotesSQL)
+		bm.placeVotesSQL(bctx)
 	}
 	timeElapsed := time.Now().Sub(timeStart)
 	<-bctx.Done()
@@ -163,9 +162,8 @@ func openAndPingDB(servers string) *sql.DB {
 	return db
 }
 
-func (bm *benchmark) placeVotesSQL(ctx context.Context, done func()) {
+func (bm *benchmark) placeVotesSQL(ctx context.Context) {
 	volt := openAndPingDB(bm.config.servers)
-	defer done()
 	// don't support prepare statement with store procedure
 	ops := 0
 	for {
@@ -181,9 +179,8 @@ func (bm *benchmark) placeVotesSQL(ctx context.Context, done func()) {
 	}
 }
 
-func (bm *benchmark) placeVotesSync(ctx context.Context, done func()) {
+func (bm *benchmark) placeVotesSync(ctx context.Context) {
 	volt := connect(bm.config.servers)
-	defer done()
 	ops := 0
 	for {
 		select {
@@ -204,10 +201,9 @@ func (bm *benchmark) placeVotesSync(ctx context.Context, done func()) {
 
 }
 
-func (bm *benchmark) placeVotesAsync(ctx context.Context, done func()) {
+func (bm *benchmark) placeVotesAsync(ctx context.Context) {
 	volt := connect(bm.config.servers)
 	vcb := voteCallBack{}
-	defer done()
 	for {
 		select {
 		case <-ctx.Done():
@@ -219,18 +215,6 @@ func (bm *benchmark) placeVotesAsync(ctx context.Context, done func()) {
 			volt.QueryAsync(vcb, "Vote", []driver.Value{phoneNumber, contestantNumber, int64(bm.config.maxvotes)})
 		}
 	}
-}
-
-func vote(ctx context.Context, config *voterConfig, fn func(ctx context.Context, complete func())) {
-	wg := &sync.WaitGroup{}
-	doneFunc := func() {
-		wg.Done()
-	}
-	for i := 0; i < config.goroutines; i++ {
-		wg.Add(1)
-		go fn(ctx, doneFunc)
-	}
-	wg.Wait()
 }
 
 type voteCallBack struct {
