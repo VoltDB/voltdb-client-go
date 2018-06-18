@@ -258,10 +258,6 @@ func (nc *nodeConn) hasBP() bool {
 	return <-respCh
 }
 
-func checkConnReset(err error) bool {
-	return strings.Contains(err.Error(), "read: connection reset by peer")
-}
-
 // listen listens for messages from the server and calls back a registered listener.
 // listen blocks on input from the server and should be run as a go routine.
 func (nc *nodeConn) listen(ctx context.Context) {
@@ -280,10 +276,8 @@ func (nc *nodeConn) listen(ctx context.Context) {
 			d.SetReader(nc.tcpConn)
 			b, err := d.Message()
 			if err != nil {
-				if checkConnReset(err) {
-					if !nc.isClosed() {
-						nc.markClosed()
-					}
+				if !nc.isClosed() {
+					nc.markClosed()
 				}
 				return
 			}
@@ -321,6 +315,10 @@ func (nc *nodeConn) listen(ctx context.Context) {
 func (nc *nodeConn) handleProcedureInvocation(ctx context.Context, pi *procedureInvocation) (int, error) {
 	encoder := wire.NewEncoder()
 	EncodePI(encoder, pi)
+	err := nc.tcpConn.SetWriteDeadline(time.Now().Add(time.Second))
+	if err != nil {
+		return 0, err
+	}
 	n, err := nc.tcpConn.Write(encoder.Bytes())
 	if err != nil {
 		if strings.Contains(err.Error(), "write: broken pipe") {
