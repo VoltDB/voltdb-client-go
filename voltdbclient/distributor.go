@@ -345,10 +345,12 @@ func (c *Conn) Close() error {
 func (c *Conn) Drain() error {
 	if !c.isClosed() {
 		for _, nc := range c.connected {
+			log.Println("start draining ", nc.connInfo)
 			err := nc.Drain(c.ctx)
 			if err != nil {
 				return err
 			}
+			log.Println("done draining ", nc.connInfo)
 		}
 	}
 	return nil
