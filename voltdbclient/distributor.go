@@ -339,8 +339,8 @@ func (c *Conn) Close() error {
 }
 
 // Drain blocks until all outstanding asynchronous requests have been satisfied.
-// Asynchronous requests are processed in a background thread; this call blocks
-// the current thread until that background thread has finished with all
+// Asynchronous requests are processed in a background goroutine; this call blocks
+// the current thread until that background goroutine has finished with all
 // asynchronous requests.
 func (c *Conn) Drain() error {
 	if !c.isClosed() {
