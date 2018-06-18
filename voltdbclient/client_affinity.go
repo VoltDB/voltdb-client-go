@@ -29,8 +29,10 @@ var errLegacyHashinator = errors.New("Not support Legacy hashinator.")
 
 func (c *Conn) subscribeTopo(ctx context.Context, nc *nodeConn) <-chan voltResponse {
 	responseCh := make(chan voltResponse, 1)
-	SubscribeTopoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Subscribe", []driver.Value{"TOPOLOGY"}, responseCh, DefaultQueryTimeout)
-	nc.submit(ctx, SubscribeTopoPi)
+	subscribeTopoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Subscribe", []driver.Value{"TOPOLOGY"}, responseCh, DefaultQueryTimeout)
+	nctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
+	subscribeTopoPi.cancel = cancel
+	nc.submit(nctx, subscribeTopoPi)
 	return responseCh
 }
 
