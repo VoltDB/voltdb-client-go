@@ -72,7 +72,7 @@ func (c *Conn) MustGetTopoStatistics(ctx context.Context, nc *nodeConn) (*Partit
 	}
 	details := &PartitionDetails{
 		HN:       tmpHnator,
-		Replicas: *tmpPartitionReplicas,
+		Replicas: tmpPartitionReplicas,
 	}
 	return details, nil
 }
@@ -87,15 +87,10 @@ func (c *Conn) MustGetPTInfo(ctx context.Context, nc *nodeConn) (map[string]proc
 	if err, ok := v.(VoltError); ok {
 		return nil, err
 	}
-	i, err := c.updateProcedurePartitioning(v.(VoltRows))
-	if err != nil {
-		return nil, err
-	}
-	return *i, nil
-
+	return c.updateProcedurePartitioning(v.(VoltRows))
 }
 
-func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, *map[int][]*nodeConn, error) {
+func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, map[int][]*nodeConn, error) {
 	if !rows.isValidTable() {
 		return nil, nil, errors.New("Not a validated topo statistic.")
 	}
@@ -155,18 +150,18 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, *map[int][]*no
 		partitionReplicas[int(partition.(int32))] = connections
 
 		// leaderHost, leaderHostErr := rows.GetStringByName("Leader")
-		//leaderHost, leaderHostErr := rows.GetString(2)
-		//panicIfnotNil("Error get leaderHost", leaderHostErr)
-		//leaderHostId, leaderHostIdErr := strconv.Atoi(strings.Split(leaderHost.(string), ":")[0])
-		//panicIfnotNil("Error get leaderHostId", leaderHostIdErr)
-		//if _, ok := c.hostIdToConnection[leaderHostId]; ok {
-		//	c.partitionMasters[int(partition.(int32))] = c.hostIdToConnection[leaderHostId]
-		//}
+		// // leaderHost, leaderHostErr := rows.GetString(2)
+		// panicIfnotNil("Error get leaderHost", leaderHostErr)
+		// leaderHostId, leaderHostIdErr := strconv.Atoi(strings.Split(leaderHost.(string), ":")[0])
+		// panicIfnotNil("Error get leaderHostId", leaderHostIdErr)
+		// if _, ok := c.hostIdToConnection[leaderHostId]; ok {
+		// 	c.partitionMasters[int(partition.(int32))] = c.hostIdToConnection[leaderHostId]
+		// }
 	}
-	return hnator, &partitionReplicas, nil
+	return hnator, partitionReplicas, nil
 }
 
-func (c *Conn) updateProcedurePartitioning(rows VoltRows) (*map[string]procedure, error) {
+func (c *Conn) updateProcedurePartitioning(rows VoltRows) (map[string]procedure, error) {
 	procedureInfos := make(map[string]procedure)
 	for rows.AdvanceRow() {
 		// proc information embedded in JSON object in remarks column
@@ -181,33 +176,31 @@ func (c *Conn) updateProcedurePartitioning(rows VoltRows) (*map[string]procedure
 		proc.setDefaults()
 		procedureInfos[procedureName.(string)] = proc
 	}
-	return &procedureInfos, nil
+	return procedureInfos, nil
 }
 
 // Try to find optimal connection using client affinity
 // return picked connection if found else nil
 // also return backpressure
 // this method is not thread safe
-func (c *Conn) getConnByCA(nodeConns []*nodeConn, hnator hashinator, partitionMasters *map[int]*nodeConn, partitionReplicas *map[int][]*nodeConn, procedureInfos *map[string]procedure, pi *procedureInvocation) (cxn *nodeConn, backpressure bool, err error) {
+func (c *Conn) getConnByCA(details *PartitionDetails, query string, params []driver.Value) (cxn *nodeConn, backpressure bool, err error) {
 	backpressure = true
-
 	// Check if the master for the partition is known.
 	var hashedPartition = -1
-
-	if procedureInfo, ok := (*procedureInfos)[pi.query]; ok {
+	if info, ok := details.Procedures[query]; ok {
 		hashedPartition = MPInitPID
 		// User may have passed too few parameters to allow dispatching.
-		if procedureInfo.SinglePartition && procedureInfo.PartitionParameter < pi.getPassedParamCount() {
-			if hashedPartition, err = hnator.getHashedPartitionForParameter(procedureInfo.PartitionParameterType,
-				pi.getPartitionParamValue(procedureInfo.PartitionParameter)); err != nil {
+		if info.SinglePartition && info.PartitionParameter < len(params) {
+			if hashedPartition, err = details.HN.getHashedPartitionForParameter(info.PartitionParameterType,
+				params[info.PartitionParameter]); err != nil {
 				return
 			}
 		}
 
 		// If the procedure is read only and single part, load balance across replicas
 		// This is probably slower for SAFE consistency.
-		if procedureInfo.SinglePartition && procedureInfo.ReadOnly && c.sendReadsToReplicasBytDefaultIfCAEnabled {
-			partitionReplica := (*partitionReplicas)[hashedPartition]
+		if info.SinglePartition && info.ReadOnly && c.sendReadsToReplicasBytDefaultIfCAEnabled {
+			partitionReplica := details.Replicas[hashedPartition]
 			if len(partitionReplica) > 0 {
 				cxn = partitionReplica[rand.Intn(len(partitionReplica))]
 				if cxn.hasBP() {
@@ -224,14 +217,16 @@ func (c *Conn) getConnByCA(nodeConns []*nodeConn, hnator hashinator, partitionMa
 				}
 			}
 		} else {
-			// Writes and Safe Reads have to go to the master
-			cxn = (*partitionMasters)[hashedPartition]
-			if cxn != nil && !cxn.hasBP() {
-				backpressure = false
+			if details.Masters != nil {
+				// Writes and Safe Reads have to go to the master
+				cxn = details.Masters[hashedPartition]
+				if cxn != nil && !cxn.hasBP() {
+					backpressure = false
+				}
 			}
+
 		}
 	}
-
 	// TODO Update clientAffinityStats
 	return
 }

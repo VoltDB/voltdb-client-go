@@ -48,5 +48,19 @@ func TestClientAffinity(t *testing.T) {
 		if conn.PartitionDetails == nil {
 			t.Error("expected partition details to be set")
 		}
+		query := "Vote"
+		args := []driver.Value{
+			int64(9136958696),
+			int32(4),
+			int64(2),
+		}
+		nc, _, err := conn.getConnByCA(conn.PartitionDetails, query, args)
+		if err != nil {
+			ts.Fatal(err)
+		}
+		if nc != nil {
+			t.Error(nc.connInfo)
+		}
+		// t.Error(pretty.Sprint(conn.PartitionDetails.Procedures))
 	})
 }
