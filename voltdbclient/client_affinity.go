@@ -36,14 +36,14 @@ func (c *Conn) subscribeTopo(ctx context.Context, nc *nodeConn) <-chan voltRespo
 	return responseCh
 }
 
-type PertitionDetails struct {
+type PartitionDetails struct {
 	HN         hashinator
 	Replicas   map[int][]*nodeConn
 	Procedures map[string]procedure
 	Masters    map[int]*nodeConn
 }
 
-func (c *Conn) GetPartitionDetails(nc *nodeConn) (*PertitionDetails, error) {
+func (c *Conn) GetPartitionDetails(nc *nodeConn) (*PartitionDetails, error) {
 	details, err := c.MustGetTopoStatistics(c.ctx, nc)
 	if err != nil {
 		return nil, err
@@ -56,7 +56,7 @@ func (c *Conn) GetPartitionDetails(nc *nodeConn) (*PertitionDetails, error) {
 	return details, nil
 }
 
-func (c *Conn) MustGetTopoStatistics(ctx context.Context, nc *nodeConn) (*PertitionDetails, error) {
+func (c *Conn) MustGetTopoStatistics(ctx context.Context, nc *nodeConn) (*PartitionDetails, error) {
 	responseCh := make(chan voltResponse, 1)
 	pi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Statistics", []driver.Value{"TOPO", int32(JSONFormat)}, responseCh, DefaultQueryTimeout)
 	nctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
@@ -70,7 +70,7 @@ func (c *Conn) MustGetTopoStatistics(ctx context.Context, nc *nodeConn) (*Pertit
 	if err != nil {
 		return nil, err
 	}
-	details := &PertitionDetails{
+	details := &PartitionDetails{
 		HN:       tmpHnator,
 		Replicas: *tmpPartitionReplicas,
 	}

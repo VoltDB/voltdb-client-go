@@ -54,7 +54,7 @@ type Conn struct {
 	connected                                []*nodeConn
 	ctx                                      context.Context
 	cancel                                   func()
-	PartitionDetails                         *PertitionDetails
+	PartitionDetails                         *PartitionDetails
 }
 
 func newConn(cis []string) (*Conn, error) {
