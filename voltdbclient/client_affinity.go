@@ -40,6 +40,7 @@ type PertitionDetails struct {
 	HN         hashinator
 	Replicas   map[int][]*nodeConn
 	Procedures map[string]procedure
+	Masters    map[int]*nodeConn
 }
 
 func (c *Conn) GetPartitionDetails(nc *nodeConn) (*PertitionDetails, error) {

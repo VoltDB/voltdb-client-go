@@ -52,19 +52,9 @@ type Conn struct {
 	useClientAffinity                        bool
 	sendReadsToReplicasBytDefaultIfCAEnabled bool
 	connected                                []*nodeConn
-	hasTopoStats                             bool
-	subTopoCh                                <-chan voltResponse
-	topoStatsCh                              <-chan voltResponse
-	prInfoCh                                 <-chan voltResponse
-	fetchedCatalog                           bool
-	hnator                                   hashinator
-	partitionReplicas                        *map[int][]*nodeConn
-	procedureInfos                           *map[string]procedure
-	partitionMasters                         map[int]*nodeConn
 	ctx                                      context.Context
 	cancel                                   func()
-
-	PartitionDetails *PertitionDetails
+	PartitionDetails                         *PertitionDetails
 }
 
 func newConn(cis []string) (*Conn, error) {
@@ -73,7 +63,6 @@ func newConn(cis []string) (*Conn, error) {
 		closeCh:           make(chan chan bool),
 		rl:                newTxnLimiter(),
 		useClientAffinity: true,
-		partitionMasters:  make(map[int]*nodeConn),
 		ctx:               ctx,
 		cancel:            cancel,
 	}
