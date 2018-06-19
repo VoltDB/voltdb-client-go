@@ -51,7 +51,6 @@ type Conn struct {
 	rl                                       rateLimiter
 	useClientAffinity                        bool
 	sendReadsToReplicasBytDefaultIfCAEnabled bool
-	subscribedConnection                     *nodeConn
 	connected                                []*nodeConn
 	hasTopoStats                             bool
 	subTopoCh                                <-chan voltResponse
@@ -187,7 +186,6 @@ func (c *Conn) start(cis []string) error {
 		return fmt.Errorf("No valid connections %v", err)
 	}
 
-	go c.loop(disconnected, &hostIDToConnection)
 	return nil
 }
 
@@ -212,97 +210,7 @@ func (c *Conn) getConn() *nodeConn {
 }
 
 func (c *Conn) availableConn() *nodeConn {
-	nc := c.getConn()
-	c.subscribedConnection = nc
-	if c.useClientAffinity && c.subscribedConnection == nil && len(c.connected) > 0 {
-		c.subTopoCh = c.subscribeTopo(c.ctx, nc)
-	}
-	if c.useClientAffinity && !c.hasTopoStats && len(c.connected) > 0 {
-		c.topoStatsCh = c.getTopoStatistics(c.ctx, nc)
-		c.hasTopoStats = true
-	}
-	if c.useClientAffinity && !c.fetchedCatalog && len(c.connected) > 0 {
-		c.prInfoCh = c.getProcedureInfo(c.ctx, nc)
-		c.fetchedCatalog = true
-	}
-	return c.subscribedConnection
-}
-
-func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeConn) {
-	// TODO: resubsribe when we lose the subscribed connection
-	for {
-		select {
-		case <-c.ctx.Done():
-			return
-		case closeRespCh := <-c.closeCh:
-			if c.isClosed() {
-				closeRespCh <- true
-				return
-			}
-			if len(c.connected) == 0 {
-				closeRespCh <- true
-			} else {
-				// We make sure all node connections managed by this Conn object are closed.
-				// This will block, it is okay though since we are closing the connection
-				// which means we don't want anything else to be happening.
-				for _, connectedNc := range c.connected {
-					connectedNc.Close()
-				}
-				closeRespCh <- true
-			}
-			return
-		case topoResp := <-c.subTopoCh:
-			switch topoResp.(type) {
-			// handle an error, otherwise the subscribe succeeded.
-			case VoltError:
-				if ResponseStatus(topoResp.getStatus()) == ConnectionLost {
-					// TODO: handle this.  Move the connection out of connected, try again.
-					// TODO: try to reconnect to the host in a separate go routine.
-					// TODO: subscribe to topo a second time
-				}
-				c.subscribedConnection = nil
-			default:
-				c.subTopoCh = nil
-			}
-		case topoStatsResp := <-c.topoStatsCh:
-			switch topoStatsResp.(type) {
-			case VoltRows:
-				tmpHnator, tmpPartitionReplicas, err := c.updateAffinityTopology(topoStatsResp.(VoltRows))
-				if err == nil {
-					c.hnator = tmpHnator
-					c.partitionReplicas = tmpPartitionReplicas
-					c.topoStatsCh = nil
-				} else {
-					if err.Error() != errLegacyHashinator.Error() {
-						c.hasTopoStats = false
-					}
-				}
-			default:
-				c.hasTopoStats = false
-			}
-		case prInfoResp := <-c.prInfoCh:
-			switch prInfoResp.(type) {
-			case VoltRows:
-				tmpProcedureInfos, err := c.updateProcedurePartitioning(prInfoResp.(VoltRows))
-				if err == nil {
-					c.procedureInfos = tmpProcedureInfos
-					c.prInfoCh = nil
-				} else {
-					c.fetchedCatalog = false
-				}
-			default:
-				c.fetchedCatalog = false
-			}
-		}
-	}
-
-	// have the set of ncs.
-	// I have some data structures that go with client affinity.
-
-	// each time through the loop.
-	// look for new pis, assign to some nc
-	// for reconnectings nc's, see if reconnected.
-	// check error channel to see if any lost connections.
+	return c.getConn()
 }
 
 func (c *Conn) submit(ctx context.Context, pi *procedureInvocation) (int, error) {
@@ -341,9 +249,15 @@ func (c *Conn) Begin() (driver.Tx, error) {
 // and reopen connections.  Close would typically be called using a defer.
 // Operations using a closed connection cause a panic.
 func (c *Conn) Close() error {
-	respCh := make(chan bool)
-	c.closeCh <- respCh
-	<-respCh
+	if c.isClosed() {
+		return nil
+	}
+	for _, nc := range c.connected {
+		err := nc.Close()
+		if err != nil {
+			return err
+		}
+	}
 	c.cancel()
 	c.setClosed()
 	return nil
