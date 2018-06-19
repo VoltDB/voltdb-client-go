@@ -47,6 +47,43 @@ func (c *Conn) getTopoStatistics(ctx context.Context, nc *nodeConn) <-chan voltR
 	return responseCh
 }
 
+type PertitionDetails struct {
+	HN         hashinator
+	Replicas   map[int][]*nodeConn
+	Procedures map[string]procedure
+}
+
+func (c *Conn) GetPartitionDetails(nc *nodeConn) (*PertitionDetails, error) {
+	details, err := c.MustGetTopoStatistics(c.ctx, nc)
+	if err != nil {
+		return nil, err
+	}
+	i, err := c.MustGetPTInfo(c.ctx, nc)
+	if err != nil {
+		return nil, err
+	}
+	details.Procedures = i
+	return details, nil
+}
+
+func (c *Conn) MustGetTopoStatistics(ctx context.Context, nc *nodeConn) (*PertitionDetails, error) {
+	responseCh := make(chan voltResponse, 1)
+	pi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Statistics", []driver.Value{"TOPO", int32(JSONFormat)}, responseCh, DefaultQueryTimeout)
+	nctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
+	pi.cancel = cancel
+	nc.submit(nctx, pi)
+	v := <-responseCh
+	tmpHnator, tmpPartitionReplicas, err := c.updateAffinityTopology(v.(VoltRows))
+	if err != nil {
+		return nil, err
+	}
+	details := &PertitionDetails{
+		HN:       tmpHnator,
+		Replicas: *tmpPartitionReplicas,
+	}
+	return details, nil
+}
+
 func (c *Conn) getProcedureInfo(ctx context.Context, nc *nodeConn) <-chan voltResponse {
 	responseCh := make(chan voltResponse, 1)
 	procedureInfoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@SystemCatalog", []driver.Value{"PROCEDURES"}, responseCh, DefaultQueryTimeout)
@@ -54,6 +91,21 @@ func (c *Conn) getProcedureInfo(ctx context.Context, nc *nodeConn) <-chan voltRe
 	procedureInfoPi.cancel = cancel
 	nc.submit(nctx, procedureInfoPi)
 	return responseCh
+}
+
+func (c *Conn) MustGetPTInfo(ctx context.Context, nc *nodeConn) (map[string]procedure, error) {
+	responseCh := make(chan voltResponse, 1)
+	procedureInfoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@SystemCatalog", []driver.Value{"PROCEDURES"}, responseCh, DefaultQueryTimeout)
+	nctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
+	procedureInfoPi.cancel = cancel
+	nc.submit(nctx, procedureInfoPi)
+	v := <-responseCh
+	i, err := c.updateProcedurePartitioning(v.(VoltRows))
+	if err != nil {
+		return nil, err
+	}
+	return *i, nil
+
 }
 
 func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, *map[int][]*nodeConn, error) {

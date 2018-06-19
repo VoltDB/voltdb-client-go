@@ -64,6 +64,8 @@ type Conn struct {
 	partitionMasters                         map[int]*nodeConn
 	ctx                                      context.Context
 	cancel                                   func()
+
+	PartitionDetails *PertitionDetails
 }
 
 func newConn(cis []string) (*Conn, error) {
@@ -305,6 +307,15 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 
 func (c *Conn) submit(ctx context.Context, pi *procedureInvocation) (int, error) {
 	nc := c.availableConn()
+	if c.useClientAffinity {
+		if c.PartitionDetails == nil {
+			details, err := c.GetPartitionDetails(nc)
+			if err != nil {
+				return 0, err
+			}
+			c.PartitionDetails = details
+		}
+	}
 	// var nc *nodeConn
 	// var backpressure = true
 	// var err error

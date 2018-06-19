@@ -36,7 +36,7 @@ const (
 
 // Hash Type
 const (
-	Elastic = "Elastic"
+	Elastic = "ELASTIC"
 )
 
 // Hash Config Format
