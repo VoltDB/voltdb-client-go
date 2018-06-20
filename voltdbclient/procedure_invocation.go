@@ -22,6 +22,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
+	"sync/atomic"
 	"time"
 )
 
@@ -46,7 +47,7 @@ type procedureInvocation struct {
 	// this connection that the response to the procedure invocation will be sent.
 	conn   *nodeConn
 	cancel func()
-	stop   func()
+	stop   atomic.Value
 }
 
 func newSyncProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, responseCh chan voltResponse, timeout time.Duration) *procedureInvocation {
@@ -169,7 +170,8 @@ func (pi *procedureInvocation) handleTimeoutsAndCancel(ctx context.Context) {
 }
 
 func (pi *procedureInvocation) Close() {
-	if pi.stop != nil {
-		pi.stop()
+	c := pi.stop.Load()
+	if c != nil {
+		c.(context.CancelFunc)()
 	}
 }

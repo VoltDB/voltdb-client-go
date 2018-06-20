@@ -337,7 +337,7 @@ func (nc *nodeConn) handleProcedureInvocation(ctx context.Context, pi *procedure
 	// execution), check *Conn.QueryTimeout or *Conn.Exec timeout to see how this
 	// is used to achieve blocking request/response scenario.
 	pctx, stop := context.WithCancel(ctx)
-	pi.stop = stop
+	pi.stop.Store(stop)
 	go pi.handleTimeoutsAndCancel(pctx)
 	return 0, nil
 }
