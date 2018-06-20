@@ -23,6 +23,8 @@ import (
 	"encoding/json"
 	"errors"
 	"math/rand"
+	"strconv"
+	"strings"
 )
 
 var errLegacyHashinator = errors.New("Not support Legacy hashinator.")
@@ -66,15 +68,7 @@ func (c *Conn) MustGetTopoStatistics(ctx context.Context, nc *nodeConn) (*Partit
 	if err, ok := v.(VoltError); ok {
 		return nil, err
 	}
-	tmpHnator, tmpPartitionReplicas, err := c.updateAffinityTopology(v.(VoltRows))
-	if err != nil {
-		return nil, err
-	}
-	details := &PartitionDetails{
-		HN:       tmpHnator,
-		Replicas: tmpPartitionReplicas,
-	}
-	return details, nil
+	return c.updateAffinityTopology(v.(VoltRows))
 }
 
 func (c *Conn) MustGetPTInfo(ctx context.Context, nc *nodeConn) (map[string]procedure, error) {
@@ -90,18 +84,22 @@ func (c *Conn) MustGetPTInfo(ctx context.Context, nc *nodeConn) (map[string]proc
 	return c.updateProcedurePartitioning(v.(VoltRows))
 }
 
-func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, map[int][]*nodeConn, error) {
+func (c *Conn) updateAffinityTopology(rows VoltRows) (*PartitionDetails, error) {
 	if !rows.isValidTable() {
-		return nil, nil, errors.New("Not a validated topo statistic.")
+		return nil, errors.New("Not a validated topo statistic.")
 	}
 
 	if !rows.AdvanceTable() {
 		// Just in case the new client connects to the old version of Volt that only
 		// returns 1 topology table
-		return nil, nil, errLegacyHashinator
+		return nil, errLegacyHashinator
 	} else if !rows.AdvanceRow() { //Second table contains the hash function
-		return nil, nil, errors.New("Topology description received from Volt was incomplete " +
+		return nil, errors.New("Topology description received from Volt was incomplete " +
 			"performance will be lower because transactions can't be routed at this client")
+	}
+	details := &PartitionDetails{
+		Replicas: make(map[int][]*nodeConn),
+		Masters:  make(map[int]*nodeConn),
 	}
 	hashType, hashTypeErr := rows.GetString(0)
 	panicIfnotNil("Error get hashtype ", hashTypeErr)
@@ -114,12 +112,11 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, map[int][]*nod
 		configFormat := JSONFormat
 		cooked := true // json format is by default cooked
 		if hnator, err = newHashinatorElastic(configFormat, cooked, hashConfig.([]byte)); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	default:
-		return nil, nil, errors.New("Not support Legacy hashinator.")
+		return nil, errors.New("Not support Legacy hashinator.")
 	}
-	partitionReplicas := make(map[int][]*nodeConn)
 
 	// First table contains the description of partition ids master/slave
 	// relationships
@@ -147,18 +144,21 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, map[int][]*nod
 		//	connections = append(connections, c.hostIdToConnection[hostId])
 		//}
 		//}
-		partitionReplicas[int(partition.(int32))] = connections
+		details.Replicas[int(partition.(int32))] = connections
 
 		// leaderHost, leaderHostErr := rows.GetStringByName("Leader")
-		// // leaderHost, leaderHostErr := rows.GetString(2)
-		// panicIfnotNil("Error get leaderHost", leaderHostErr)
-		// leaderHostId, leaderHostIdErr := strconv.Atoi(strings.Split(leaderHost.(string), ":")[0])
-		// panicIfnotNil("Error get leaderHostId", leaderHostIdErr)
-		// if _, ok := c.hostIdToConnection[leaderHostId]; ok {
-		// 	c.partitionMasters[int(partition.(int32))] = c.hostIdToConnection[leaderHostId]
-		// }
+		leaderHost, leaderHostErr := rows.GetString(2)
+		panicIfnotNil("Error get leaderHost", leaderHostErr)
+		leaderHostId, leaderHostIdErr := strconv.Atoi(strings.Split(leaderHost.(string), ":")[0])
+		panicIfnotNil("Error get leaderHostId", leaderHostIdErr)
+		if c.hostIDToConnection != nil {
+			if nc, ok := c.hostIDToConnection[leaderHostId]; ok {
+				details.Masters[int(partition.(int32))] = nc
+			}
+		}
 	}
-	return hnator, partitionReplicas, nil
+	details.HN = hnator
+	return details, nil
 }
 
 func (c *Conn) updateProcedurePartitioning(rows VoltRows) (map[string]procedure, error) {

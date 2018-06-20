@@ -253,9 +253,10 @@ func (nc *nodeConn) Drain(ctx context.Context) error {
 }
 
 func (nc *nodeConn) hasBP() bool {
-	respCh := make(chan bool)
-	nc.bpCh <- respCh
-	return <-respCh
+	// respCh := make(chan bool)
+	// nc.bpCh <- respCh
+	// return <-respCh
+	return false
 }
 
 // listen listens for messages from the server and calls back a registered listener.

@@ -55,16 +55,18 @@ type Conn struct {
 	ctx                                      context.Context
 	cancel                                   func()
 	PartitionDetails                         *PartitionDetails
+	hostIDToConnection                       map[int]*nodeConn
 }
 
 func newConn(cis []string) (*Conn, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var c = &Conn{
-		closeCh:           make(chan chan bool),
-		rl:                newTxnLimiter(),
-		useClientAffinity: true,
-		ctx:               ctx,
-		cancel:            cancel,
+		closeCh:            make(chan chan bool),
+		rl:                 newTxnLimiter(),
+		useClientAffinity:  true,
+		ctx:                ctx,
+		cancel:             cancel,
+		hostIDToConnection: make(map[int]*nodeConn),
 	}
 	c.open.Store(true)
 	if err := c.start(cis); err != nil {
@@ -154,11 +156,9 @@ func OpenConnWithMaxOutstandingTxns(ci string, maxOutTxns int) (*Conn, error) {
 
 func (c *Conn) start(cis []string) error {
 	var (
-		err                error
-		disconnected       []*nodeConn
-		hostIDToConnection = make(map[int]*nodeConn)
+		err          error
+		disconnected []*nodeConn
 	)
-
 	for _, ci := range cis {
 		nc := newNodeConn(ci)
 		if err = nc.connect(c.ctx, ProtocolVersion); err != nil {
@@ -167,14 +167,12 @@ func (c *Conn) start(cis []string) error {
 		}
 		c.connected = append(c.connected, nc)
 		if c.useClientAffinity {
-			hostIDToConnection[int(nc.connData.HostID)] = nc
+			c.hostIDToConnection[int(nc.connData.HostID)] = nc
 		}
 	}
-
 	if len(c.connected) == 0 {
 		return fmt.Errorf("No valid connections %v", err)
 	}
-
 	return nil
 }
 
@@ -212,19 +210,12 @@ func (c *Conn) submit(ctx context.Context, pi *procedureInvocation) (int, error)
 			}
 			c.PartitionDetails = details
 		}
+		conn, _, err := c.getConnByCA(c.PartitionDetails, pi.query, pi.params)
+		if err != nil {
+			return 0, err
+		}
+		nc = conn
 	}
-	// var nc *nodeConn
-	// var backpressure = true
-	// var err error
-	// if c.useClientAffinity && c.hnator != nil && c.partitionReplicas != nil && c.procedureInfos != nil {
-	// 	nc, backpressure, err =
-	// 		c.getConnByCA(c.connected, c.hnator, &c.partitionMasters, c.partitionReplicas, c.procedureInfos, pi)
-	// }
-	// if err != nil && !backpressure && nc != nil {
-	// 	// nc.submit(pi)
-	// } else {
-	// 	// c.allNcsPiCh <- pi
-	// }
 	return nc.submit(ctx, pi)
 }
 
