@@ -220,15 +220,21 @@ func (c *Conn) submit(ctx context.Context, pi *procedureInvocation) (int, error)
 		if err != nil {
 			return 0, err
 		}
-		if conn.isClosed() {
-			if nc == nil {
-				nc = c.availableConn()
-
-			}
-		} else {
+		if conn != nil {
 			nc = conn
+			if conn.isClosed() {
+				if nc == nil {
+					// we only do this if we didn't get available connection yet.
+					nc = c.availableConn()
+
+				}
+			}
 		}
+
 	} else {
+		nc = c.availableConn()
+	}
+	if nc == nil {
 		nc = c.availableConn()
 	}
 	return nc.submit(ctx, pi)
