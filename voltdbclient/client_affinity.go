@@ -38,6 +38,8 @@ func (c *Conn) subscribeTopo(ctx context.Context, nc *nodeConn) <-chan voltRespo
 	return responseCh
 }
 
+// PartitionDetails contains information about the cluster. Used to implement
+// client affinity.
 type PartitionDetails struct {
 	HN         hashinator
 	Replicas   map[int][]*nodeConn
@@ -45,6 +47,8 @@ type PartitionDetails struct {
 	Masters    map[int]*nodeConn
 }
 
+// GetPartitionDetails communicates with voltdb cluster and returns partition
+// details.
 func (c *Conn) GetPartitionDetails(nc *nodeConn) (*PartitionDetails, error) {
 	details, err := c.MustGetTopoStatistics(c.ctx, nc)
 	if err != nil {
@@ -58,6 +62,10 @@ func (c *Conn) GetPartitionDetails(nc *nodeConn) (*PartitionDetails, error) {
 	return details, nil
 }
 
+// MustGetTopoStatistics returns *PartitionDetails with topology data about the
+// voltdb cluster.
+//
+//This retrieves Replicas, and Master nodes.
 func (c *Conn) MustGetTopoStatistics(ctx context.Context, nc *nodeConn) (*PartitionDetails, error) {
 	responseCh := make(chan voltResponse, 1)
 	pi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Statistics", []driver.Value{"TOPO", int32(JSONFormat)}, responseCh, DefaultQueryTimeout)

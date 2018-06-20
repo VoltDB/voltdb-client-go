@@ -200,10 +200,16 @@ func (c *Conn) availableConn() *nodeConn {
 	return c.getConn()
 }
 
+// Submit the pi to an available connection. If the client affinity was enabled
+// then we use client affinity to select the node connection.
+//
+// In the event of client affinity picks a dead node, we fallback to picking a
+// random available connection.
 func (c *Conn) submit(ctx context.Context, pi *procedureInvocation) (int, error) {
-	nc := c.availableConn()
-	if c.useClientAffinity {
+	var nc *nodeConn
+	if c.useClientAffinity && len(c.connected) > 1 {
 		if c.PartitionDetails == nil {
+			nc = c.availableConn()
 			details, err := c.GetPartitionDetails(nc)
 			if err != nil {
 				return 0, err
@@ -214,7 +220,16 @@ func (c *Conn) submit(ctx context.Context, pi *procedureInvocation) (int, error)
 		if err != nil {
 			return 0, err
 		}
-		nc = conn
+		if conn.isClosed() {
+			if nc == nil {
+				nc = c.availableConn()
+
+			}
+		} else {
+			nc = conn
+		}
+	} else {
+		nc = c.availableConn()
 	}
 	return nc.submit(ctx, pi)
 }
