@@ -211,8 +211,7 @@ func (c *Conn) updateProcedurePartitioning(rows VoltRows) (map[string]procedure,
 // return picked connection if found else nil
 // also return backpressure
 // this method is not thread safe
-func (c *Conn) getConnByCA(details *PartitionDetails, query string, params []driver.Value) (cxn *nodeConn, backpressure bool, err error) {
-	backpressure = true
+func (c *Conn) getConnByCA(details *PartitionDetails, query string, params []driver.Value) (cxn *nodeConn, err error) {
 	// Check if the master for the partition is known.
 	var hashedPartition = -1
 	if info, ok := details.Procedures[query]; ok {
@@ -239,19 +238,12 @@ func (c *Conn) getConnByCA(details *PartitionDetails, query string, params []dri
 						}
 					}
 				}
-				if !cxn.hasBP() {
-					backpressure = false
-				}
 			}
 		} else {
 			if details.Masters != nil {
 				// Writes and Safe Reads have to go to the master
 				cxn = details.Masters[hashedPartition]
-				if cxn != nil && !cxn.hasBP() {
-					backpressure = false
-				}
 			}
-
 		}
 	}
 	// TODO Update clientAffinityStats

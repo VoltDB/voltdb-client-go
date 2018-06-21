@@ -216,7 +216,7 @@ func (c *Conn) submit(ctx context.Context, pi *procedureInvocation) (int, error)
 			}
 			c.PartitionDetails = details
 		}
-		conn, _, err := c.getConnByCA(c.PartitionDetails, pi.query, pi.params)
+		conn, err := c.getConnByCA(c.PartitionDetails, pi.query, pi.params)
 		if err != nil {
 			return 0, err
 		}
