@@ -54,9 +54,13 @@ func TestClientAffinity(t *testing.T) {
 			int32(4),
 			int64(2),
 		}
-		_, _, err = conn.getConnByCA(conn.PartitionDetails, query, args)
+		c, err := conn.getConnByCA(conn.PartitionDetails, query, args)
 		if err != nil {
 			ts.Fatal(err)
 		}
+		if c == nil {
+			t.Error("expected connection")
+		}
+		// t.Error(pretty.Sprint(conn.PartitionDetails.Procedures))
 	})
 }
