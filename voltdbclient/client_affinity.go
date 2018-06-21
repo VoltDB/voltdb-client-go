@@ -128,7 +128,7 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (*PartitionDetails, error) 
 		}
 		details.HN = hnator
 	default:
-		return nil, errors.New("not support Legacy hashinator.")
+		return nil, errors.New("not support legacy hashinator")
 	}
 
 	// First table contains the description of partition ids master/slave
@@ -146,34 +146,36 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (*PartitionDetails, error) 
 		if err != nil {
 			return nil, fmt.Errorf("error get partition :%v ", err)
 		}
-		// sites, sitesErr := rows.GetStringByName("Sites")
-		_, err = rows.GetString(1) //sites, sitesErr := rows.GetString(1)
+		sites, err := rows.GetString(1)
+		if err != nil {
+			return nil, fmt.Errorf("error get site :%v ", err)
+		}
+		_, err = rows.GetString(1)
 		if err != nil {
 			return nil, fmt.Errorf("error get sites :%v ", err)
 		}
-
 		var connections []*nodeConn
-		//for _, site := range strings.Split(sites.(string), ",") {
-		//site = strings.TrimSpace(site)
-		////hostId, hostIdErr := strconv.Atoi(strings.Split(site, ":")[0])
-		//panicIfnotNil("Error get hostId", hostIdErr)
-		//if _, ok := c.hostIdToConnection[hostId]; ok {
-		//	connections = append(connections, c.hostIdToConnection[hostId])
-		//}
-		//}
+		for _, site := range strings.Split(sites.(string), ",") {
+			site = strings.TrimSpace(site)
+			hostID, err := strconv.Atoi(strings.Split(site, ":")[0])
+			if err != nil {
+				return nil, fmt.Errorf("error get hostID :%v ", err)
+			}
+			if v, ok := c.hostIDToConnection[hostID]; ok {
+				connections = append(connections, v)
+			}
+		}
 		details.Replicas[int(partition.(int32))] = connections
-
-		// leaderHost, leaderHostErr := rows.GetStringByName("Leader")
 		leaderHost, err := rows.GetString(2)
 		if err != nil {
 			return nil, fmt.Errorf("error get leaderHost :%v ", err)
 		}
-		leaderHostId, err := strconv.Atoi(strings.Split(leaderHost.(string), ":")[0])
+		leaderHostID, err := strconv.Atoi(strings.Split(leaderHost.(string), ":")[0])
 		if err != nil {
 			return nil, fmt.Errorf("error get leaderHostId :%v ", err)
 		}
 		if c.hostIDToConnection != nil {
-			if nc, ok := c.hostIDToConnection[leaderHostId]; ok {
+			if nc, ok := c.hostIDToConnection[leaderHostID]; ok {
 				details.Masters[int(partition.(int32))] = nc
 			}
 		}
@@ -222,7 +224,6 @@ func (c *Conn) getConnByCA(details *PartitionDetails, query string, params []dri
 				return
 			}
 		}
-
 		// If the procedure is read only and single part, load balance across replicas
 		// This is probably slower for SAFE consistency.
 		if info.SinglePartition && info.ReadOnly && c.sendReadsToReplicasBytDefaultIfCAEnabled {
