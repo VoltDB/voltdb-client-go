@@ -141,7 +141,6 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (*PartitionDetails, error) 
 
 	// TODO GetXXXBYName seems broken
 	for rows.AdvanceRow() {
-		// partition, partitionErr := rows.GetBigIntByName("Partition")
 		partition, err := rows.GetInteger(0)
 		if err != nil {
 			return nil, fmt.Errorf("error get partition :%v ", err)
