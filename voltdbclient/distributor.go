@@ -318,9 +318,3 @@ func (proc *procedure) setDefaults() {
 		proc.PartitionParameterType = ParameterNone
 	}
 }
-
-func panicIfnotNil(str string, err error) {
-	if err != nil {
-		log.Panic(str, err)
-	}
-}

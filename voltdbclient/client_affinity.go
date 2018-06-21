@@ -22,6 +22,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -109,21 +110,25 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (*PartitionDetails, error) 
 		Replicas: make(map[int][]*nodeConn),
 		Masters:  make(map[int]*nodeConn),
 	}
-	hashType, hashTypeErr := rows.GetString(0)
-	panicIfnotNil("Error get hashtype ", hashTypeErr)
-	hashConfig, hashConfigErr := rows.GetVarbinary(1)
-	panicIfnotNil("Error get hashConfig ", hashConfigErr)
-	var hnator hashinator
-	var err error
+	hashType, err := rows.GetString(0)
+	if err != nil {
+		return nil, fmt.Errorf("error get hashtype :%v", err)
+	}
+	hashConfig, err := rows.GetVarbinary(1)
+	if err != nil {
+		return nil, fmt.Errorf("error get hashConfig :%v", err)
+	}
 	switch hashType.(string) {
 	case Elastic:
 		configFormat := JSONFormat
 		cooked := true // json format is by default cooked
-		if hnator, err = newHashinatorElastic(configFormat, cooked, hashConfig.([]byte)); err != nil {
+		hnator, err := newHashinatorElastic(configFormat, cooked, hashConfig.([]byte))
+		if err != nil {
 			return nil, err
 		}
+		details.HN = hnator
 	default:
-		return nil, errors.New("Not support Legacy hashinator.")
+		return nil, errors.New("not support Legacy hashinator.")
 	}
 
 	// First table contains the description of partition ids master/slave
@@ -137,11 +142,15 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (*PartitionDetails, error) 
 	// TODO GetXXXBYName seems broken
 	for rows.AdvanceRow() {
 		// partition, partitionErr := rows.GetBigIntByName("Partition")
-		partition, partitionErr := rows.GetInteger(0)
-		panicIfnotNil("Error get partition ", partitionErr)
+		partition, err := rows.GetInteger(0)
+		if err != nil {
+			return nil, fmt.Errorf("error get partition :%v ", err)
+		}
 		// sites, sitesErr := rows.GetStringByName("Sites")
-		_, sitesErr := rows.GetString(1) //sites, sitesErr := rows.GetString(1)
-		panicIfnotNil("Error get sites ", sitesErr)
+		_, err = rows.GetString(1) //sites, sitesErr := rows.GetString(1)
+		if err != nil {
+			return nil, fmt.Errorf("error get sites :%v ", err)
+		}
 
 		var connections []*nodeConn
 		//for _, site := range strings.Split(sites.(string), ",") {
@@ -155,17 +164,20 @@ func (c *Conn) updateAffinityTopology(rows VoltRows) (*PartitionDetails, error) 
 		details.Replicas[int(partition.(int32))] = connections
 
 		// leaderHost, leaderHostErr := rows.GetStringByName("Leader")
-		leaderHost, leaderHostErr := rows.GetString(2)
-		panicIfnotNil("Error get leaderHost", leaderHostErr)
-		leaderHostId, leaderHostIdErr := strconv.Atoi(strings.Split(leaderHost.(string), ":")[0])
-		panicIfnotNil("Error get leaderHostId", leaderHostIdErr)
+		leaderHost, err := rows.GetString(2)
+		if err != nil {
+			return nil, fmt.Errorf("error get leaderHost :%v ", err)
+		}
+		leaderHostId, err := strconv.Atoi(strings.Split(leaderHost.(string), ":")[0])
+		if err != nil {
+			return nil, fmt.Errorf("error get leaderHostId :%v ", err)
+		}
 		if c.hostIDToConnection != nil {
 			if nc, ok := c.hostIDToConnection[leaderHostId]; ok {
 				details.Masters[int(partition.(int32))] = nc
 			}
 		}
 	}
-	details.HN = hnator
 	return details, nil
 }
 
@@ -173,14 +185,20 @@ func (c *Conn) updateProcedurePartitioning(rows VoltRows) (map[string]procedure,
 	procedureInfos := make(map[string]procedure)
 	for rows.AdvanceRow() {
 		// proc information embedded in JSON object in remarks column
-		remarks, remarksErr := rows.GetVarbinary(6)
-		panicIfnotNil("Error get Remarks column", remarksErr)
-		procedureName, procedureNameErr := rows.GetString(2)
-		panicIfnotNil("Error get procedureName column", procedureNameErr)
+		remarks, err := rows.GetVarbinary(6)
+		if err != nil {
+			return nil, fmt.Errorf("error get Remarks column :%v", err)
+		}
+		procedureName, err := rows.GetString(2)
+		if err != nil {
+			return nil, fmt.Errorf("error get procedureName column :%v", err)
+		}
 		proc := procedure{}
-		procErr := json.Unmarshal(remarks.([]byte), &proc)
+		err = json.Unmarshal(remarks.([]byte), &proc)
 		// log.Println("remarks", string(remarks.([]byte)), "proc after unmarshal", proc)
-		panicIfnotNil("Error parse remarks ", procErr)
+		if err != nil {
+			return nil, fmt.Errorf("error parse remarks :%v", err)
+		}
 		proc.setDefaults()
 		procedureInfos[procedureName.(string)] = proc
 	}
