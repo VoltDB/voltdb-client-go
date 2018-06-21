@@ -226,11 +226,9 @@ func (c *Conn) submit(ctx context.Context, pi *procedureInvocation) (int, error)
 				if nc == nil {
 					// we only do this if we didn't get available connection yet.
 					nc = c.availableConn()
-
 				}
 			}
 		}
-
 	} else {
 		nc = c.availableConn()
 	}
