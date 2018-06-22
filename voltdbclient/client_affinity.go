@@ -48,6 +48,27 @@ type PartitionDetails struct {
 	Masters    map[int]*nodeConn
 }
 
+// Dump marshals PartitionDetails to json string. This is for debugging purpose.
+func (p *PartitionDetails) Dump() ([]byte, error) {
+	m := make(map[string]interface{})
+	rep := make(map[int][]string)
+	for k, v := range p.Replicas {
+		var n []string
+		for _, nc := range v {
+			n = append(n, nc.connInfo)
+		}
+		rep[k] = n
+	}
+	m["replicas"] = rep
+	m["procedures"] = p.Procedures
+	master := make(map[int]string)
+	for k, v := range p.Masters {
+		master[k] = v.connInfo
+	}
+	m["masters"] = master
+	return json.Marshal(m)
+}
+
 // GetPartitionDetails communicates with voltdb cluster and returns partition
 // details.
 func (c *Conn) GetPartitionDetails(nc *nodeConn) (*PartitionDetails, error) {
