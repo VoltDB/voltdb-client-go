@@ -3,6 +3,7 @@ package voltdbclient
 import (
 	"context"
 	"database/sql/driver"
+	"io/ioutil"
 	"testing"
 )
 
@@ -48,6 +49,14 @@ func TestClientAffinity(t *testing.T) {
 		r.Close()
 		if conn.PartitionDetails == nil {
 			t.Error("expected partition details to be set")
+		}
+		b, err := conn.PartitionDetails.Dump()
+		if err != nil {
+			ts.Fatal(err)
+		}
+		err = ioutil.WriteFile("topology.json", b, 0600)
+		if err != nil {
+			ts.Error(err)
 		}
 	})
 	t.Run("must pick the right master", func(ts *testing.T) {
