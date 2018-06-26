@@ -223,7 +223,9 @@ func getProcedureStats(servers string, idx int64) ([]procedureStat, error) {
 		if err != nil {
 			return nil, err
 		}
-		o = append(o, p)
+		if p.Procedure == "add_customer" {
+			o = append(o, p)
+		}
 	}
 	return o, nil
 }
