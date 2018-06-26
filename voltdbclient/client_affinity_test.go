@@ -166,12 +166,28 @@ func TestVerifyClientAffinity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, v := range p {
-		if v.Procedure == "add_customer" {
-			if v.PartitionID != 2 {
-				t.Errorf("expected partition id to be 2 got %d instead", v.PartitionID)
-			}
-		}
+	if len(p) != 2 {
+		t.Fatalf("expected 2 procedure stats got %d", len(p))
+	}
+	first := p[0]
+	if first.HostID != 0 {
+		t.Errorf("expected HOST_ID to be 0 got %d", first.HostID)
+	}
+	if first.SiteID != 0 {
+		t.Errorf("expected SITE_ID to be 0 got %d", first.HostID)
+	}
+	if first.PartitionID != 2 {
+		t.Errorf("expected PARTITION_ID to be 2 got %d", first.HostID)
+	}
+	second := p[1]
+	if second.HostID != 1 {
+		t.Errorf("expected HOST_ID to be 1 got %d", second.HostID)
+	}
+	if second.SiteID != 2 {
+		t.Errorf("expected SITE_ID to be 2 got %d", second.HostID)
+	}
+	if second.PartitionID != 2 {
+		t.Errorf("expected PARTITION_ID to be 2 got %d", second.HostID)
 	}
 }
 
