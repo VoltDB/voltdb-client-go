@@ -338,6 +338,7 @@ func (nc *nodeConn) handleProcedureInvocation(ctx context.Context, pi *procedure
 	// is used to achieve blocking request/response scenario.
 	pctx, stop := context.WithCancel(ctx)
 	pi.stop.Store(stop)
+	fmt.Printf("sent %s on node %s\n", pi.query, nc.connInfo)
 	go pi.handleTimeoutsAndCancel(pctx)
 	return 0, nil
 }
