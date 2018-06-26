@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"testing"
 )
@@ -166,6 +168,10 @@ func TestVerifyClientAffinity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	b, _ := json.Marshal(p)
+	fmt.Println(string(b))
+	b, _ = conn.PartitionDetails.Dump()
+	fmt.Println(string(b))
 	if len(p) != 2 {
 		t.Fatalf("expected 2 procedure stats got %d", len(p))
 	}
