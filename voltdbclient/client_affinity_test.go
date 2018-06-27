@@ -2,10 +2,14 @@ package voltdbclient
 
 import (
 	"context"
-	"database/sql"
 	"database/sql/driver"
+	"fmt"
 	"io/ioutil"
+	"os"
+	"sort"
+	"strings"
 	"testing"
+	"text/tabwriter"
 )
 
 func TestClientAffinity(t *testing.T) {
@@ -152,42 +156,53 @@ func TestVerifyClientAffinity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
+	var nodes []procedureStat
+	conn.selectedNode = func(nc *nodeConn, pi *procedureInvocation) {
+		pid, ok := conn.PartitionDetails.GetMasterID(nc.connInfo)
+		if !ok {
+			t.Errorf("can't find master partition id for node %s", nc.connInfo)
+			return
+		}
+		host := nc.connData.HostID
+		fmt.Printf("sending query %s to %s <host_id>%d:%d<partition_id>\n",
+			pi.query, nc.connInfo, host, pid)
+		nodes = append(nodes, procedureStat{
+			HostID:      int(host),
+			PartitionID: pid,
+			Procedure:   pi.query,
+		})
+	}
 	_, err = conn.Exec("@AdHoc", []driver.Value{"delete from customer"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = conn.Exec("add_customer", []driver.Value{
-		int64(1), "john", "doe",
+	for index := 0; index < 10; index++ {
+		_, err = conn.Exec("add_customer", []driver.Value{
+			int64(index), "john", "doe",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	sort.Slice(nodes, func(i, j int) bool {
+		return nodes[i].HostID < nodes[j].HostID
 	})
-	if err != nil {
-		t.Fatal(err)
+	fmt.Println(conn.PartitionDetails.HostMappingTable())
+	s := conn.PartitionDetails.HostMapping()
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight|tabwriter.TabIndent)
+	fmt.Fprintln(w, "Table of partition id to host id mapping")
+	fmt.Fprintln(w, "procedure \tpartition \thost_id")
+	for _, v := range nodes {
+		fmt.Fprintf(w, "%s \t%d:\t%d\n", v.Procedure, v.PartitionID, v.HostID)
 	}
-	p, err := getProcedureStats(servers, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(p) != 2 {
-		t.Fatalf("expected 2 procedure stats got %d", len(p))
-	}
-	first := p[0]
-	if first.HostID != 0 {
-		t.Errorf("expected HOST_ID to be 0 got %d", first.HostID)
-	}
-	if first.SiteID != 0 {
-		t.Errorf("expected SITE_ID to be 0 got %d", first.HostID)
-	}
-	if first.PartitionID != 2 {
-		t.Errorf("expected PARTITION_ID to be 2 got %d", first.HostID)
-	}
-	second := p[1]
-	if second.HostID != 1 {
-		t.Errorf("expected HOST_ID to be 1 got %d", second.HostID)
-	}
-	if second.SiteID != 2 {
-		t.Errorf("expected SITE_ID to be 2 got %d", second.HostID)
-	}
-	if second.PartitionID != 2 {
-		t.Errorf("expected PARTITION_ID to be 2 got %d", second.HostID)
+	w.Flush()
+
+	for _, v := range nodes {
+		f := fmt.Sprintf("%d:%d", v.PartitionID, v.HostID)
+		if !strings.Contains(s, f) {
+			t.Errorf("can't find mapping %s in %s", f, s)
+		}
 	}
 }
 
@@ -212,36 +227,4 @@ type procedureStat struct {
 	Aborts           int
 	Failure          int
 	Transactional    int
-}
-
-func getProcedureStats(servers string, idx int64) ([]procedureStat, error) {
-	conn, err := sql.Open("voltdb", servers)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-	rows, err := conn.Query("@Statistics",
-		"PROCEDURE", idx,
-	)
-	if err != nil {
-		return nil, err
-	}
-	var o []procedureStat
-	defer rows.Close()
-	for rows.Next() {
-		var p procedureStat
-		err := rows.Scan(&p.TimeSstamp, &p.HostID, &p.HostName, &p.SiteID, &p.PartitionID,
-			&p.Procedure, &p.Invocations, &p.TimedInvocations, &p.MinExTime, &p.MaxExTime,
-			&p.AvgMaxExTime, &p.MinResultSize, &p.MaxResultSize,
-			&p.AvgResultSize, &p.MinParamSetSize, &p.MaxParamSetSize, &p.AvgParamSetSize,
-			&p.Aborts, &p.Failure, &p.Transactional,
-		)
-		if err != nil {
-			return nil, err
-		}
-		if p.Procedure == "add_customer" {
-			o = append(o, p)
-		}
-	}
-	return o, nil
 }

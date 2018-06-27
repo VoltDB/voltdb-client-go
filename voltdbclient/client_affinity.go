@@ -18,14 +18,17 @@
 package voltdbclient
 
 import (
+	"bytes"
 	"context"
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
+	"sort"
 	"strconv"
 	"strings"
+	"text/tabwriter"
 )
 
 var errLegacyHashinator = errors.New("Not support Legacy hashinator.")
@@ -46,6 +49,20 @@ type PartitionDetails struct {
 	Replicas   map[int][]*nodeConn
 	Procedures map[string]procedure
 	Masters    map[int]*nodeConn
+	reverse    map[string]int
+}
+
+func (p *PartitionDetails) GetMasterID(nc string) (int, bool) {
+	if p.reverse != nil {
+		v, ok := p.reverse[nc]
+		return v, ok
+	}
+	p.reverse = make(map[string]int)
+	for k, v := range p.Masters {
+		p.reverse[v.connInfo] = k
+	}
+	v, ok := p.reverse[nc]
+	return v, ok
 }
 
 // Dump marshals PartitionDetails to json string. This is for debugging purpose.
@@ -67,6 +84,38 @@ func (p *PartitionDetails) Dump() ([]byte, error) {
 	}
 	m["masters"] = master
 	return json.Marshal(m)
+}
+
+func (p *PartitionDetails) HostMappingTable() string {
+	var buf bytes.Buffer
+	w := tabwriter.NewWriter(&buf, 0, 0, 1, ' ', tabwriter.AlignRight|tabwriter.TabIndent)
+	fmt.Fprintln(w, "Table of partition id to host id mapping")
+	fmt.Fprint(w, "partition \thost_id\n")
+	var keys []int
+	for k := range p.Masters {
+		keys = append(keys, k)
+	}
+	sort.Ints(keys)
+	for _, k := range keys {
+		v := p.Masters[k]
+		fmt.Fprintf(w, "%d:\t%d\n", k, v.connData.HostID)
+	}
+	w.Flush()
+	return buf.String()
+}
+
+func (p *PartitionDetails) HostMapping() string {
+	var keys []int
+	for k := range p.Masters {
+		keys = append(keys, k)
+	}
+	sort.Ints(keys)
+	var s []string
+	for _, k := range keys {
+		v := p.Masters[k]
+		s = append(s, fmt.Sprintf("%d:%d", k, v.connData.HostID))
+	}
+	return strings.Join(s, ",")
 }
 
 // GetPartitionDetails communicates with voltdb cluster and returns partition
