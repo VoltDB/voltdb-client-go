@@ -149,8 +149,33 @@ func TestClientAffinity(t *testing.T) {
 	})
 }
 
+// This executes queries in a 3 node cluster and verifies that the query
+// distribution matches the topology details of the cluster.
+//
+// Only partion id and host id are considered.To setup for this test you need to
+// prepare a 3 node cluster. And  load the following ddl
+//
+// -- CREATE TABLE Customer (
+// --   CustomerID INTEGER UNIQUE NOT NULL,
+// --   FirstName VARCHAR(15),
+// --   LastName VARCHAR (15),
+// --   PRIMARY KEY(CustomerID)
+// --   );
+//
+// -- PARTITION TABLE Customer ON COLUMN CustomerID;
+//
+// -- CREATE PROCEDURE add_customer AS INSERT INTO Customer VALUES ?,?,?;
+//
+// -- PARTITION PROCEDURE add_customer ON TABLE Customer COLUMN CustomerID;
+//
+// You need to export AFFINITY_SERVERS environment variable with a comma
+// separated list of the cluster node.
+//	export AFFINITY_SERVERS="localhost:21212,localhost:21222,localhost:21232"
 func TestVerifyClientAffinity(t *testing.T) {
-	servers := "localhost:21212,localhost:21222,localhost:21232"
+	servers := os.Getenv("AFFINITY_SERVERS")
+	if servers == "" {
+		t.Skip("AFFINITY_SERVERS is not set")
+	}
 	conn, err := OpenConn(servers)
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +222,6 @@ func TestVerifyClientAffinity(t *testing.T) {
 		fmt.Fprintf(w, "%s \t%d:\t%d\n", v.Procedure, v.PartitionID, v.HostID)
 	}
 	w.Flush()
-
 	for _, v := range nodes {
 		f := fmt.Sprintf("%d:%d", v.PartitionID, v.HostID)
 		if !strings.Contains(s, f) {
