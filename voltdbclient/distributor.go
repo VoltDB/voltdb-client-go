@@ -59,7 +59,7 @@ type Conn struct {
 
 	// this is used for debugging, when set it will be called when the node is
 	// picked in client affinity
-	selectedNode func(*nodeConn, *procedureInvocation)
+	selectedNode func(nc string, hostID int, partitionID int, query string)
 }
 
 func newConn(cis []string) (*Conn, error) {
@@ -226,9 +226,6 @@ func (c *Conn) submit(ctx context.Context, pi *procedureInvocation) (int, error)
 		}
 		if conn != nil {
 			nc = conn
-			if c.selectedNode != nil {
-				c.selectedNode(nc, pi)
-			}
 			if conn.isClosed() {
 				if nc == nil {
 					// we only do this if we didn't get available connection yet.

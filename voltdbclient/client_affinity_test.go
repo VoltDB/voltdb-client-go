@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"sort"
 	"strings"
 	"testing"
 	"text/tabwriter"
@@ -182,26 +181,21 @@ func TestVerifyClientAffinity(t *testing.T) {
 	}
 	defer conn.Close()
 	var nodes []procedureStat
-	conn.selectedNode = func(nc *nodeConn, pi *procedureInvocation) {
-		pid, ok := conn.PartitionDetails.GetMasterID(nc.connInfo)
-		if !ok {
-			t.Errorf("can't find master partition id for node %s", nc.connInfo)
-			return
-		}
-		host := nc.connData.HostID
-		fmt.Printf("sending query %s to %s <host_id>%d:%d<partition_id>\n",
-			pi.query, nc.connInfo, host, pid)
+
+	conn.selectedNode = func(connInfo string, hostID int, partitionID int, query string) {
+		fmt.Printf("sending query %s to %s %d:%d\n",
+			query, connInfo, hostID, partitionID)
 		nodes = append(nodes, procedureStat{
-			HostID:      int(host),
-			PartitionID: pid,
-			Procedure:   pi.query,
+			HostID:      hostID,
+			PartitionID: partitionID,
+			Procedure:   query,
 		})
 	}
 	_, err = conn.Exec("@AdHoc", []driver.Value{"delete from customer"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for index := 0; index < 10; index++ {
+	for index := 0; index < 100; index++ {
 		_, err = conn.Exec("add_customer", []driver.Value{
 			int64(index), "john", "doe",
 		})
@@ -209,12 +203,8 @@ func TestVerifyClientAffinity(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	sort.Slice(nodes, func(i, j int) bool {
-		return nodes[i].HostID < nodes[j].HostID
-	})
 	fmt.Println(conn.PartitionDetails.HostMappingTable())
 	s := conn.PartitionDetails.HostMapping()
-
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight|tabwriter.TabIndent)
 	fmt.Fprintln(w, "Table of partition id to host id mapping")
 	fmt.Fprintln(w, "procedure \tpartition \thost_id")

@@ -312,6 +312,9 @@ func (c *Conn) getConnByCA(details *PartitionDetails, query string, params []dri
 			if details.Masters != nil {
 				// Writes and Safe Reads have to go to the master
 				cxn = details.Masters[hashedPartition]
+				if c.selectedNode != nil {
+					c.selectedNode(cxn.connInfo, int(cxn.connData.HostID), hashedPartition, query)
+				}
 			}
 		}
 	}
