@@ -195,7 +195,7 @@ func TestVerifyClientAffinity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for index := 0; index < 100; index++ {
+	for index := 0; index < 10; index++ {
 		_, err = conn.Exec("add_customer", []driver.Value{
 			int64(index), "john", "doe",
 		})
