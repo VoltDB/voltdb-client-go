@@ -2,6 +2,7 @@ package voltdbclient
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"fmt"
 	"io/ioutil"
@@ -191,12 +192,12 @@ func TestVerifyClientAffinity(t *testing.T) {
 			Procedure:   query,
 		})
 	}
-	_, err = conn.Exec("@AdHoc", []driver.Value{"delete from customer"})
+	_, err = conn.Exec("@AdHoc", []driver.Value{"truncate table customer"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for index := 0; index < 10; index++ {
-		_, err = conn.Exec("add_customer", []driver.Value{
+		_, err := conn.Exec("add_customer", []driver.Value{
 			int64(index), "john", "doe",
 		})
 		if err != nil {
@@ -218,6 +219,80 @@ func TestVerifyClientAffinity(t *testing.T) {
 			t.Errorf("can't find mapping %s in %s", f, s)
 		}
 	}
+
+	i, err := getInitiator(servers, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintln(w, "Table of Initiator")
+	fmt.Fprintln(w, "host_id\t procedure name\t invocations")
+	for _, v := range i {
+		fmt.Fprintf(w, "%d\t %s\t %d\n", v.HostID, v.Procedure, v.Invocations)
+	}
+	w.Flush()
+}
+
+func getProcedureStats(servers string, idx int64) ([]procedureStat, error) {
+	conn, err := sql.Open("voltdb", servers)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	rows, err := conn.Query("@Statistics",
+		"PROCEDURE", idx,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var o []procedureStat
+	defer rows.Close()
+	for rows.Next() {
+		var p procedureStat
+		err := rows.Scan(&p.TimeSstamp, &p.HostID, &p.HostName, &p.SiteID, &p.PartitionID,
+			&p.Procedure, &p.Invocations, &p.TimedInvocations, &p.MinExTime, &p.MaxExTime,
+			&p.AvgMaxExTime, &p.MinResultSize, &p.MaxResultSize,
+			&p.AvgResultSize, &p.MinParamSetSize, &p.MaxParamSetSize, &p.AvgParamSetSize,
+			&p.Aborts, &p.Failure, &p.Transactional,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if p.Procedure == "add_customer" {
+			o = append(o, p)
+		}
+	}
+	return o, nil
+}
+
+func getInitiator(servers string, idx int64) ([]procedureStat, error) {
+	conn, err := sql.Open("voltdb", servers)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	rows, err := conn.Query("@Statistics",
+		"INITIATOR", idx,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var o []procedureStat
+	defer rows.Close()
+	for rows.Next() {
+		var p procedureStat
+		var pass string
+		var passInt int
+		err := rows.Scan(&p.TimeSstamp, &p.HostID, &p.HostName, &p.SiteID, &pass, &pass,
+			&p.Procedure, &p.Invocations, &passInt, &passInt, &passInt, &passInt, &passInt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if p.Procedure == "add_customer" {
+			o = append(o, p)
+		}
+	}
+	return o, nil
 }
 
 type procedureStat struct {
