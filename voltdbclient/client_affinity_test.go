@@ -226,10 +226,18 @@ func TestVerifyClientAffinity(t *testing.T) {
 	}
 	fmt.Fprintln(w, "Table of Initiator")
 	fmt.Fprintln(w, "host_id\t procedure name\t invocations")
+	hosts := ""
 	for _, v := range i {
+		hosts += "," + fmt.Sprint(v.HostID)
 		fmt.Fprintf(w, "%d\t %s\t %d\n", v.HostID, v.Procedure, v.Invocations)
 	}
 	w.Flush()
+	for _, v := range nodes {
+		f := fmt.Sprint(v.HostID)
+		if !strings.Contains(hosts, f) {
+			t.Errorf("can't find host %s in %s", f, s)
+		}
+	}
 }
 
 func getProcedureStats(servers string, idx int64) ([]procedureStat, error) {
