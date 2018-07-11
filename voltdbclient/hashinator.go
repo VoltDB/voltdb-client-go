@@ -86,11 +86,11 @@ func (h *hashinatorElastic) getHashedPartitionForParameter(partitionParameterTyp
 		return 0, nil
 	case []byte:
 		v1, _ := murmur3.Sum128(v.([]byte))
-		hash := int(int(v1) >> 32)
+		hash := int(v1) >> 32
 		return SearchToken2Partitions(h.tp, hash), nil
 	case string:
 		v1, _ := murmur3.Sum128([]byte(v.(string)))
-		hash := int(int(v1) >> 32)
+		hash := int(v1) >> 32
 		return SearchToken2Partitions(h.tp, hash), nil
 	case byte:
 		value = uint64(v.(byte))
@@ -111,7 +111,7 @@ func (h *hashinatorElastic) getHashedPartitionForParameter(partitionParameterTyp
 
 func (h *hashinatorElastic) checkPertition(v *[]byte) (int, error) {
 	v1, _ := murmur3.Sum128(*v)
-	hash := int(int(v1) >> 32)
+	hash := int(v1) >> 32
 	return SearchToken2Partitions(h.tp, hash), nil
 }
 
