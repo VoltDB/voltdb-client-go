@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"reflect"
 	"runtime"
 	"runtime/pprof"
 	"strings"
@@ -58,12 +57,30 @@ const (
 // voter benchmark state
 type benchmarkStats struct {
 	totalVotes, acceptedVotes, badContestantVotes, badVoteCountVotes, failedVotes uint64
+	mu                                                                            sync.RWMutex
 }
 
-// helper function for clearing content of any type
-func clear(v interface{}) {
-	p := reflect.ValueOf(v).Elem()
-	p.Set(reflect.Zero(p.Type()))
+func (b *benchmarkStats) addVote() {
+	b.mu.Lock()
+	b.totalVotes++
+	b.mu.Unlock()
+}
+
+func (b *benchmarkStats) getVotes() uint64 {
+	b.mu.RLock()
+	v := b.totalVotes
+	b.mu.RUnlock()
+	return v
+}
+
+func (b *benchmarkStats) clear() {
+	b.mu.Lock()
+	b.totalVotes = 0
+	b.acceptedVotes = 0
+	b.badContestantVotes = 0
+	b.badVoteCountVotes = 0
+	b.failedVotes = 0
+	b.mu.Unlock()
 }
 
 var (
@@ -123,8 +140,8 @@ func (bm *benchmark) runBenchmark() {
 	}
 
 	//reset the stats after warmup
-	clear(fullStats)
-	clear(periodicStats)
+	fullStats.clear()
+	periodicStats.clear()
 
 	// print periodic statistics to the console
 	timeStart := time.Now()
@@ -347,16 +364,19 @@ func printStatistics(ctx context.Context, config *voterConfig) {
 	ticker := time.NewTicker(config.displayinterval)
 	s := time.Now()
 	defer ticker.Stop()
+	n := config.displayinterval.Seconds()
+	var total uint64
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case t := <-ticker.C:
 			fmt.Print(t.Sub(s))
-			fmt.Printf(" Throughput %v/s\n", float64(periodicStats.totalVotes)/config.displayinterval.Seconds())
+			v := periodicStats.getVotes() - total
+			fmt.Printf(" Throughput %v/s\n", float64(v)/n)
 			// fmt.Printf("Aborts/Failure %v/%v\n", periodicStats.aborts, periodicStats.failures)
 			// fmt.Printf("Avg/95%% Latency %.2f/%.2fms\n")
-			clear(periodicStats)
+			total += v
 		}
 	}
 }
