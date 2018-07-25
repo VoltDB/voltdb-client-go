@@ -29,7 +29,6 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -115,11 +114,11 @@ func (bm *benchmark) runBenchmark() {
 	defer cancel()
 	switch bm.config.runtype {
 	case ASYNC:
-		vote(wctx, bm.config, bm.placeVotesAsync)
+		bm.placeVotesAsync(wctx)
 	case SYNC:
-		vote(wctx, bm.config, bm.placeVotesSync)
+		bm.placeVotesSync(wctx)
 	case SQL:
-		vote(wctx, bm.config, bm.placeVotesSQL)
+		bm.placeVotesSQL(wctx)
 	}
 
 	//reset the stats after warmup
@@ -137,16 +136,16 @@ func (bm *benchmark) runBenchmark() {
 	go printStatistics(bctx, bm.config)
 	switch bm.config.runtype {
 	case ASYNC:
-		vote(bctx, bm.config, bm.placeVotesAsync)
+		bm.placeVotesAsync(bctx)
 	case SYNC:
-		vote(bctx, bm.config, bm.placeVotesSync)
+		bm.placeVotesSync(bctx)
 	case SQL:
-		vote(bctx, bm.config, bm.placeVotesSQL)
+		bm.placeVotesSQL(bctx)
 	}
 	timeElapsed := time.Now().Sub(timeStart)
 	<-bctx.Done()
 	// print the summary results
-	printResults(timeElapsed, conn)
+	printResults(timeElapsed, bm.config)
 }
 
 func openAndPingDB(servers string) *sql.DB {
@@ -163,16 +162,14 @@ func openAndPingDB(servers string) *sql.DB {
 	return db
 }
 
-func (bm *benchmark) placeVotesSQL(ctx context.Context, done func()) {
+func (bm *benchmark) placeVotesSQL(ctx context.Context) {
 	volt := openAndPingDB(bm.config.servers)
-	defer volt.Close()
-
 	// don't support prepare statement with store procedure
 	ops := 0
 	for {
 		select {
 		case <-ctx.Done():
-			done()
+			volt.Close()
 			return
 		default:
 			contestantNumber, phoneNumber := bm.switchboard.receive()
@@ -182,14 +179,13 @@ func (bm *benchmark) placeVotesSQL(ctx context.Context, done func()) {
 	}
 }
 
-func (bm *benchmark) placeVotesSync(ctx context.Context, done func()) {
+func (bm *benchmark) placeVotesSync(ctx context.Context) {
 	volt := connect(bm.config.servers)
-	defer volt.Close()
 	ops := 0
 	for {
 		select {
 		case <-ctx.Done():
-			done()
+			volt.Close()
 			return
 		default:
 			contestantNumber, phoneNumber := bm.switchboard.receive()
@@ -205,33 +201,20 @@ func (bm *benchmark) placeVotesSync(ctx context.Context, done func()) {
 
 }
 
-func (bm *benchmark) placeVotesAsync(ctx context.Context, done func()) {
+func (bm *benchmark) placeVotesAsync(ctx context.Context) {
 	volt := connect(bm.config.servers)
-	defer volt.Close()
 	vcb := voteCallBack{}
 	for {
 		select {
 		case <-ctx.Done():
 			volt.Drain()
-			done()
+			volt.Close()
 			return
 		default:
 			contestantNumber, phoneNumber := bm.switchboard.receive()
 			volt.QueryAsync(vcb, "Vote", []driver.Value{phoneNumber, contestantNumber, int64(bm.config.maxvotes)})
 		}
 	}
-}
-
-func vote(ctx context.Context, config *voterConfig, fn func(ctx context.Context, complete func())) {
-	wg := &sync.WaitGroup{}
-	doneFunc := func() {
-		wg.Done()
-	}
-	for i := 0; i < config.goroutines; i++ {
-		wg.Add(1)
-		go fn(ctx, doneFunc)
-	}
-	wg.Wait()
 }
 
 type voteCallBack struct {
@@ -266,12 +249,12 @@ func handleSQLRows(rows *sql.Rows, err error) (success int) {
 					atomic.AddUint64(&(fullStats.acceptedVotes), 1)
 				}
 			} else {
-				log.Panic(err)
+				log.Println(err)
 				// shouldn't be here
 			}
 			return 1
 		}
-		log.Panic(err)
+		log.Println(err)
 		atomic.AddUint64(&(fullStats.failedVotes), 1)
 		return 0
 	}
@@ -361,7 +344,9 @@ func printStatistics(ctx context.Context, config *voterConfig) {
 	}
 }
 
-func printResults(timeElapsed time.Duration, conn *voltdbclient.Conn) {
+func printResults(timeElapsed time.Duration, config *voterConfig) {
+	conn := connect(config.servers)
+	defer conn.Close()
 	// 1. Voting Board statistics, Voting results and performance statistics
 	display := "\n" +
 		horizontalRule +

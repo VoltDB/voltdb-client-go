@@ -19,8 +19,8 @@ package voltdbclient
 
 import (
 	"bytes"
+	"context"
 	"database/sql/driver"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -45,18 +45,15 @@ const defaultMaxRetries = 10
 const defaultRetryInterval = time.Second
 
 type nodeConn struct {
-	connInfo     string
-	connData     *wire.ConnInfo
-	tcpConn      *net.TCPConn
-	drainCh      chan chan bool
-	bpCh         chan chan bool
-	closeCh      chan chan bool
-	responseCh   chan *bytes.Buffer
-	requests     *sync.Map
-	queuedBytes  int
-	bp           bool
-	disconnected bool
-	closed       atomic.Value
+	connInfo       string
+	connData       *wire.ConnInfo
+	tcpConn        *net.TCPConn
+	bpCh           chan chan bool
+	requests       *sync.Map
+	queuedRequests int64
+	bp             bool
+	disconnected   bool
+	closed         atomic.Value
 
 	// This is the duration to wait before the next retry to connect to a node that
 	// lost connection attempt
@@ -68,36 +65,44 @@ type nodeConn struct {
 	// The maximum number of retries to reconnect to a disconeected node before
 	// giving up.
 	maxRetries int
+	cancel     func()
+	draining   atomic.Value
+}
+
+func (nc *nodeConn) isDraining() bool {
+	if v := nc.draining.Load(); v != nil {
+		return v.(bool)
+	}
+	return false
 }
 
 func newNodeConn(ci string) *nodeConn {
 	return &nodeConn{
-		connInfo:   ci,
-		bpCh:       make(chan chan bool),
-		closeCh:    make(chan chan bool),
-		drainCh:    make(chan chan bool),
-		responseCh: make(chan *bytes.Buffer, maxResponseBuffer),
-		requests:   &sync.Map{},
+		connInfo: ci,
+		bpCh:     make(chan chan bool),
+		requests: &sync.Map{},
 	}
 }
 
-func (nc *nodeConn) submit(pi *procedureInvocation) (int, error) {
+func (nc *nodeConn) submit(ctx context.Context, pi *procedureInvocation) (int, error) {
 	if nc.isClosed() {
 		return 0, fmt.Errorf("%s:%d writing on a closed node connection",
 			nc.connInfo, pi.handle)
 	}
-	return nc.handleProcedureInvocation(pi)
+	return nc.handleProcedureInvocation(ctx, pi)
 }
 
-func (nc *nodeConn) markClosed() {
+func (nc *nodeConn) markClosed() error {
 	nc.closed.Store(true)
-	nc.tcpConn.Close()
-
-	// release all stored pending requests. This connection is closed so we can't
-	// satisfy the requests.
-	//
-	// TODO: handle the requests with connection closed error?
-	nc.requests = &sync.Map{}
+	nc.requests.Range(func(k, v interface{}) bool {
+		nc.requests.Delete(k)
+		r := v.(*procedureInvocation)
+		nc.handleMarkClosed(r)
+		atomic.AddInt64(&nc.queuedRequests, -1)
+		return true
+	})
+	nc.cancel()
+	return nc.tcpConn.Close()
 }
 
 func (nc *nodeConn) isClosed() bool {
@@ -107,33 +112,30 @@ func (nc *nodeConn) isClosed() bool {
 	return false
 }
 
-// when the node conn is closed by its owning distributer
-func (nc *nodeConn) close() chan bool {
-	respCh := make(chan bool, 1)
-	nc.closeCh <- respCh
-	return respCh
+func (nc *nodeConn) Close() error {
+	if nc.isClosed() {
+		return nil
+	}
+	return nc.markClosed()
 }
 
-func (nc *nodeConn) connect(protocolVersion int) error {
+func (nc *nodeConn) connect(ctx context.Context, protocolVersion int) error {
 	tcpConn, connData, err := nc.networkConnect(protocolVersion)
 	if err != nil {
 		return err
 	}
 	nc.connData = connData
 	nc.tcpConn = tcpConn
-
-	go nc.listen()
-
-	nc.drainCh = make(chan chan bool, 1)
-
-	go nc.loop(nc.bpCh)
+	nctx, cancel := context.WithCancel(ctx)
+	nc.cancel = cancel
+	go nc.listen(nctx)
 	return nil
 }
 
 // called when the network listener loses connection.
 // the 'processAsyncs' goroutine and channel stay in place over
 // a reconnect, they're not affected.
-func (nc *nodeConn) reconnect(protocolVersion int) {
+func (nc *nodeConn) reconnect(ctx context.Context, protocolVersion int) {
 	if nc.retry {
 		if !nc.isClosed() {
 			return
@@ -163,8 +165,7 @@ func (nc *nodeConn) reconnect(protocolVersion int) {
 				}
 				nc.tcpConn = tcpConn
 				nc.connData = connData
-				go nc.listen()
-				go nc.loop(nc.bpCh)
+				go nc.listen(ctx)
 				nc.closed.Store(false)
 				return
 			}
@@ -210,7 +211,6 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.Con
 			return nil, nil, fmt.Errorf("voltdbclient: failed to parse retry value %v", err)
 		}
 		nc.retry = r
-
 		interval := query.Get("retry_interval")
 		if interval != "" {
 			i, err := time.ParseDuration(interval)
@@ -231,147 +231,95 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.Con
 	return tcpConn, i, nil
 }
 
-func (nc *nodeConn) drain(respCh chan bool) {
-	nc.drainCh <- respCh
+func (nc *nodeConn) Drain(ctx context.Context) error {
+	if nc.isClosed() {
+		return nil
+	}
+	nc.draining.Store(true)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			if !nc.isDraining() {
+				return nil
+			}
+			if nc.queuedRequests == 0 {
+				nc.draining.Store(false)
+				return nil
+			}
+		}
+	}
 }
 
 func (nc *nodeConn) hasBP() bool {
-	respCh := make(chan bool)
-	nc.bpCh <- respCh
-	return <-respCh
+	// respCh := make(chan bool)
+	// nc.bpCh <- respCh
+	// return <-respCh
+	return false
 }
 
 // listen listens for messages from the server and calls back a registered listener.
 // listen blocks on input from the server and should be run as a go routine.
-func (nc *nodeConn) listen() {
-	d := wire.NewDecoder(nc.tcpConn)
-	s := &wire.Decoder{}
+func (nc *nodeConn) listen(ctx context.Context) {
+	d := &wire.Decoder{}
 	for {
 		if nc.isClosed() {
 			return
 		}
-		b, err := d.Message()
-		if err != nil {
-			if nc.responseCh == nil {
-				// exiting
-				return
-			}
-			// TODO: put the error on the channel
-			// the owner needs to reconnect
-			return
-		}
-		buf := bytes.NewBuffer(b)
-		s.SetReader(buf)
-		_, err = s.Byte()
-		if err != nil {
-			if nc.responseCh == nil {
-				return
-			}
-			return
-		}
-		nc.responseCh <- buf
-	}
-}
-
-func (nc *nodeConn) loop(bpCh <-chan chan bool) {
-	var draining bool
-	var drainRespCh chan bool
-
-	var tci = int64(DefaultQueryTimeout / 10)                    // timeout check interval
-	tcc := time.NewTimer(time.Duration(tci) * time.Nanosecond).C // timeout check timer channel
-
-	// for ping
-	var pingTimeout = 2 * time.Minute
-	pingSentTime := time.Now()
-	var pingOutstanding bool
-	for {
-		if nc.isClosed() {
-			return
-		}
-		// setup select cases
-		if draining {
-			if nc.queuedBytes <= 0 {
-				drainRespCh <- true
-				drainRespCh = nil
-				draining = false
-			}
-		}
-
-		// ping
-		pingSinceSent := time.Now().Sub(pingSentTime)
-		if pingOutstanding {
-			if pingSinceSent > pingTimeout {
-				// TODO: should disconnect
-			}
-		} else if pingSinceSent > pingTimeout/3 {
-			nc.sendPing()
-			pingOutstanding = true
-			pingSentTime = time.Now()
-		}
-
 		select {
-		case respCh := <-nc.closeCh:
-			nc.tcpConn.Close()
-			respCh <- true
+		case <-ctx.Done():
+			if !nc.isClosed() {
+				nc.markClosed()
+			}
 			return
-		case resp := <-nc.responseCh:
-			decoder := wire.NewDecoder(resp)
-			handle, err := decoder.Int64()
+		default:
+			d.SetReader(nc.tcpConn)
+			b, err := d.Message()
+			if err != nil {
+				if !nc.isClosed() {
+					nc.markClosed()
+				}
+				return
+			}
+			buf := bytes.NewBuffer(b)
+			d.SetReader(buf)
+			_, err = d.Byte()
+			if err != nil {
+				return
+			}
+			handle, err := d.Int64()
 			// can't do anything without a handle.  If reading the handle fails,
 			// then log and drop the message.
 			if err != nil {
 				continue
 			}
-			if handle == PingHandle {
-				pingOutstanding = false
-				continue
-			}
 			r, ok := nc.requests.Load(handle)
 			if !ok || r == nil {
-				// there's a race here with timeout.  A request can be timed out and
-				// then a response received.  In this case drop the response.
 				continue
 			}
-			req := r.(*networkRequest)
-			nc.queuedBytes -= req.numBytes
+			req := r.(*procedureInvocation)
+			atomic.AddInt64(&nc.queuedRequests, -1)
 			nc.requests.Delete(handle)
-			if req.isSync() {
-				nc.handleSyncResponse(handle, resp, req)
+			if !req.async {
+				nc.handleSyncResponse(handle, buf, req)
 			} else {
-				nc.handleAsyncResponse(handle, resp, req)
+				nc.handleAsyncResponse(handle, buf, req)
 			}
-
-		case respBPCh := <-bpCh:
-			respBPCh <- nc.bp
-		case drainRespCh = <-nc.drainCh:
-			draining = true
-		// check for timed out procedure invocations
-		case <-tcc:
-			nc.requests.Range(func(_, v interface{}) bool {
-				req := v.(*networkRequest)
-				if time.Now().After(req.submitted.Add(req.timeout)) {
-					nc.queuedBytes -= req.numBytes
-					nc.handleTimeout(req)
-					nc.requests.Delete(req.handle)
-				}
-				return true
-			})
-			tcc = time.NewTimer(time.Duration(tci) * time.Nanosecond).C
+			if nc.queuedRequests == 0 {
+				nc.draining.Store(false)
+			}
 		}
 	}
 }
 
-func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, error) {
-	var nr *networkRequest
-	if pi.isAsync() {
-		nr = newAsyncRequest(pi.handle, pi.responseCh, pi.isQuery, pi.arc, pi.getLen(), pi.timeout, time.Now())
-	} else {
-		nr = newSyncRequest(pi.handle, pi.responseCh, pi.isQuery, pi.getLen(), pi.timeout, time.Now())
-	}
-	nc.requests.Store(pi.handle, nr)
-	nc.queuedBytes += pi.slen
+func (nc *nodeConn) handleProcedureInvocation(ctx context.Context, pi *procedureInvocation) (int, error) {
 	encoder := wire.NewEncoder()
 	EncodePI(encoder, pi)
+	err := nc.tcpConn.SetWriteDeadline(time.Now().Add(time.Second))
+	if err != nil {
+		return 0, err
+	}
 	n, err := nc.tcpConn.Write(encoder.Bytes())
 	if err != nil {
 		if strings.Contains(err.Error(), "write: broken pipe") {
@@ -379,41 +327,51 @@ func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, err
 		}
 		return n, fmt.Errorf("%s: %v", nc.connInfo, err)
 	}
+	nc.requests.Store(pi.handle, pi)
+	atomic.AddInt64(&nc.queuedRequests, 1)
 	pi.conn = nc
+
+	// pctx is the context to manage procedure invocation resources. This way we
+	// can call sto() only to signal the procedure to clear its resources without
+	// canceling the parent context(which can be used to signal completion of
+	// execution), check *Conn.QueryTimeout or *Conn.Exec timeout to see how this
+	// is used to achieve blocking request/response scenario.
+	pctx, stop := context.WithCancel(ctx)
+	pi.stop.Store(stop)
+	go pi.handleTimeoutsAndCancel(pctx)
 	return 0, nil
 }
 
-func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRequest) {
-	respCh := req.getChan()
+func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *procedureInvocation) {
+	defer req.Close()
 	decoder := wire.NewDecoder(r)
 	rsp, err := decodeResponse(decoder, handle)
 	if err != nil {
 		e := err.(VoltError)
 		e.error = fmt.Errorf("%s: %v", nc.connInfo, e.error)
-		respCh <- e
-	} else if req.isQuery() {
-
+		req.responseCh <- e
+	} else if req.isQuery {
 		if rows, err := decodeRows(decoder, rsp); err != nil {
-			respCh <- err.(voltResponse)
+			req.responseCh <- err.(voltResponse)
 		} else {
-			respCh <- rows
+			req.responseCh <- rows
 		}
 	} else {
 		if result, err := decodeResult(decoder, rsp); err != nil {
-			respCh <- err.(voltResponse)
+			req.responseCh <- err.(voltResponse)
 		} else {
-			respCh <- result
+			req.responseCh <- result
 		}
 	}
-
 }
 
-func (nc *nodeConn) handleAsyncResponse(handle int64, r io.Reader, req *networkRequest) {
+func (nc *nodeConn) handleAsyncResponse(handle int64, r io.Reader, req *procedureInvocation) {
+	defer req.Close()
 	d := wire.NewDecoder(r)
 	rsp, err := decodeResponse(d, handle)
 	if err != nil {
 		req.arc.ConsumeError(err)
-	} else if req.isQuery() {
+	} else if req.isQuery {
 		if rows, err := decodeRows(d, rsp); err != nil {
 			req.arc.ConsumeError(err)
 		} else {
@@ -428,12 +386,24 @@ func (nc *nodeConn) handleAsyncResponse(handle int64, r io.Reader, req *networkR
 	}
 }
 
-func (nc *nodeConn) handleTimeout(req *networkRequest) {
-	err := errors.New("timeout")
+func (nc *nodeConn) handleTimeout(req *procedureInvocation) {
+	err := fmt.Errorf("timeout %s %d:%s", nc.connInfo, req.handle, req.query)
 	verr := VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
-	if req.isSync() {
-		respCh := req.getChan()
-		respCh <- verr
+	if !req.async {
+		req.responseCh <- verr
+	} else {
+		req.arc.ConsumeError(verr)
+	}
+	atomic.AddInt64(&nc.queuedRequests, -1)
+	nc.requests.Delete(req.handle)
+}
+
+func (nc *nodeConn) handleMarkClosed(req *procedureInvocation) {
+	defer req.Close()
+	err := fmt.Errorf("node %s was marked as closed clearing up this request ", nc.connInfo)
+	verr := VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
+	if !req.async {
+		req.responseCh <- verr
 	} else {
 		req.arc.ConsumeError(verr)
 	}

@@ -6,6 +6,8 @@ test-race:
 	go test -v -race ./wire
 	go test -v -race ./voltdbclient
 
+test-affinity:
+	go test -v -run VerifyClientAffinity ./voltdbclient
 bench:
 	go test -run none -v  -bench=. ./voltdbclient
 

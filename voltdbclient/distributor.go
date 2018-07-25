@@ -18,6 +18,7 @@
 package voltdbclient
 
 import (
+	"context"
 	"database/sql/driver"
 	"errors"
 	"fmt"
@@ -48,36 +49,33 @@ type Conn struct {
 	closeCh                                  chan chan bool
 	open                                     atomic.Value
 	rl                                       rateLimiter
-	drainCh                                  chan chan bool
 	useClientAffinity                        bool
 	sendReadsToReplicasBytDefaultIfCAEnabled bool
-	subscribedConnection                     *nodeConn
 	connected                                []*nodeConn
-	hasTopoStats                             bool
-	subTopoCh                                <-chan voltResponse
-	topoStatsCh                              <-chan voltResponse
-	prInfoCh                                 <-chan voltResponse
-	fetchedCatalog                           bool
-	hnator                                   hashinator
-	partitionReplicas                        *map[int][]*nodeConn
-	procedureInfos                           *map[string]procedure
-	partitionMasters                         map[int]*nodeConn
+	ctx                                      context.Context
+	cancel                                   func()
+	PartitionDetails                         *PartitionDetails
+	hostIDToConnection                       map[int]*nodeConn
+
+	// this is used for debugging, when set it will be called when the node is
+	// picked in client affinity
+	selectedNode func(nc string, hostID int, partitionID int, query string)
 }
 
 func newConn(cis []string) (*Conn, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	var c = &Conn{
-		closeCh:           make(chan chan bool),
-		rl:                newTxnLimiter(),
-		drainCh:           make(chan chan bool),
-		useClientAffinity: true,
-		partitionMasters:  make(map[int]*nodeConn),
+		closeCh:            make(chan chan bool),
+		rl:                 newTxnLimiter(),
+		useClientAffinity:  true,
+		ctx:                ctx,
+		cancel:             cancel,
+		hostIDToConnection: make(map[int]*nodeConn),
 	}
 	c.open.Store(true)
-
 	if err := c.start(cis); err != nil {
 		return nil, err
 	}
-
 	return c, nil
 }
 
@@ -162,28 +160,23 @@ func OpenConnWithMaxOutstandingTxns(ci string, maxOutTxns int) (*Conn, error) {
 
 func (c *Conn) start(cis []string) error {
 	var (
-		err                error
-		disconnected       []*nodeConn
-		hostIDToConnection = make(map[int]*nodeConn)
+		err          error
+		disconnected []*nodeConn
 	)
-
 	for _, ci := range cis {
 		nc := newNodeConn(ci)
-		if err = nc.connect(ProtocolVersion); err != nil {
+		if err = nc.connect(c.ctx, ProtocolVersion); err != nil {
 			disconnected = append(disconnected, nc)
 			continue
 		}
 		c.connected = append(c.connected, nc)
 		if c.useClientAffinity {
-			hostIDToConnection[int(nc.connData.HostID)] = nc
+			c.hostIDToConnection[int(nc.connData.HostID)] = nc
 		}
 	}
-
 	if len(c.connected) == 0 {
 		return fmt.Errorf("No valid connections %v", err)
 	}
-
-	go c.loop(disconnected, &hostIDToConnection)
 	return nil
 }
 
@@ -208,121 +201,45 @@ func (c *Conn) getConn() *nodeConn {
 }
 
 func (c *Conn) availableConn() *nodeConn {
-	nc := c.getConn()
-	c.subscribedConnection = nc
-	if c.useClientAffinity && c.subscribedConnection == nil && len(c.connected) > 0 {
-		c.subTopoCh = c.subscribeTopo(nc)
-	}
-	if c.useClientAffinity && !c.hasTopoStats && len(c.connected) > 0 {
-		c.topoStatsCh = c.getTopoStatistics(nc)
-		c.hasTopoStats = true
-	}
-	if c.useClientAffinity && !c.fetchedCatalog && len(c.connected) > 0 {
-		c.prInfoCh = c.getProcedureInfo(nc)
-		c.fetchedCatalog = true
-	}
-	return c.subscribedConnection
+	return c.getConn()
 }
 
-func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeConn) {
-	// TODO: resubsribe when we lose the subscribed connection
-
-	for {
-		select {
-		case closeRespCh := <-c.closeCh:
-			if len(c.connected) == 0 {
-				closeRespCh <- true
-			} else {
-
-				// We make sure all node connections managed by this Conn object are closed.
-				// This will block, it is okay though since we are closing the connection
-				// which means we don't want anything else to be happening.
-				for _, connectedNc := range c.connected {
-					<-connectedNc.close()
-				}
-				closeRespCh <- true
-				return
+// Submit the pi to an available connection. If the client affinity was enabled
+// then we use client affinity to select the node connection.
+//
+// In the event of client affinity picks a dead node, we fallback to picking a
+// random available connection.
+func (c *Conn) submit(ctx context.Context, pi *procedureInvocation) (int, error) {
+	var nc *nodeConn
+	if c.useClientAffinity && len(c.connected) > 1 {
+		if c.PartitionDetails == nil {
+			nc = c.availableConn()
+			details, err := c.GetPartitionDetails(nc)
+			if err != nil {
+				return 0, err
 			}
-		case topoResp := <-c.subTopoCh:
-			switch topoResp.(type) {
-			// handle an error, otherwise the subscribe succeeded.
-			case VoltError:
-				if ResponseStatus(topoResp.getStatus()) == ConnectionLost {
-					// TODO: handle this.  Move the connection out of connected, try again.
-					// TODO: try to reconnect to the host in a separate go routine.
-					// TODO: subscribe to topo a second time
+			c.PartitionDetails = details
+		}
+		conn, err := c.getConnByCA(c.PartitionDetails, pi.query, pi.params)
+		if err != nil {
+			return 0, err
+		}
+		if conn != nil {
+			nc = conn
+			if conn.isClosed() {
+				if nc == nil {
+					// we only do this if we didn't get available connection yet.
+					nc = c.availableConn()
 				}
-				c.subscribedConnection = nil
-			default:
-				c.subTopoCh = nil
-			}
-		case topoStatsResp := <-c.topoStatsCh:
-			switch topoStatsResp.(type) {
-			case VoltRows:
-				tmpHnator, tmpPartitionReplicas, err := c.updateAffinityTopology(topoStatsResp.(VoltRows))
-				if err == nil {
-					c.hnator = tmpHnator
-					c.partitionReplicas = tmpPartitionReplicas
-					c.topoStatsCh = nil
-				} else {
-					if err.Error() != errLegacyHashinator.Error() {
-						c.hasTopoStats = false
-					}
-				}
-			default:
-				c.hasTopoStats = false
-			}
-		case prInfoResp := <-c.prInfoCh:
-			switch prInfoResp.(type) {
-			case VoltRows:
-				tmpProcedureInfos, err := c.updateProcedurePartitioning(prInfoResp.(VoltRows))
-				if err == nil {
-					c.procedureInfos = tmpProcedureInfos
-					c.prInfoCh = nil
-				} else {
-					c.fetchedCatalog = false
-				}
-			default:
-				c.fetchedCatalog = false
-			}
-		case drainRespCh := <-c.drainCh:
-			if len(c.connected) == 0 {
-				drainRespCh <- true
-			} else {
-				for _, connectedNc := range c.connected {
-					responseCh := make(chan bool, 1)
-					connectedNc.drain(responseCh)
-					<-responseCh
-				}
-				drainRespCh <- true
 			}
 		}
+	} else {
+		nc = c.availableConn()
 	}
-
-	// have the set of ncs.
-	// I have some data structures that go with client affinity.
-
-	// each time through the loop.
-	// look for new pis, assign to some nc
-	// for reconnectings nc's, see if reconnected.
-	// check error channel to see if any lost connections.
-}
-
-func (c *Conn) submit(pi *procedureInvocation) (int, error) {
-	nc := c.availableConn()
-	// var nc *nodeConn
-	// var backpressure = true
-	// var err error
-	// if c.useClientAffinity && c.hnator != nil && c.partitionReplicas != nil && c.procedureInfos != nil {
-	// 	nc, backpressure, err =
-	// 		c.getConnByCA(c.connected, c.hnator, &c.partitionMasters, c.partitionReplicas, c.procedureInfos, pi)
-	// }
-	// if err != nil && !backpressure && nc != nil {
-	// 	// nc.submit(pi)
-	// } else {
-	// 	// c.allNcsPiCh <- pi
-	// }
-	return nc.submit(pi)
+	if nc == nil {
+		nc = c.availableConn()
+	}
+	return nc.submit(ctx, pi)
 }
 
 // Begin starts a transaction.
@@ -335,20 +252,36 @@ func (c *Conn) Begin() (driver.Tx, error) {
 // and reopen connections.  Close would typically be called using a defer.
 // Operations using a closed connection cause a panic.
 func (c *Conn) Close() error {
-	respCh := make(chan bool)
-	c.closeCh <- respCh
-	<-respCh
+	if c.isClosed() {
+		return nil
+	}
+	for _, nc := range c.connected {
+		err := nc.Close()
+		if err != nil {
+			return err
+		}
+	}
+	c.cancel()
+	c.setClosed()
 	return nil
 }
 
 // Drain blocks until all outstanding asynchronous requests have been satisfied.
-// Asynchronous requests are processed in a background thread; this call blocks
-// the current thread until that background thread has finished with all
+// Asynchronous requests are processed in a background goroutine; this call blocks
+// the current thread until that background goroutine has finished with all
 // asynchronous requests.
-func (c *Conn) Drain() {
-	drainRespCh := make(chan bool, 1)
-	c.drainCh <- drainRespCh
-	<-drainRespCh
+func (c *Conn) Drain() error {
+	if !c.isClosed() {
+		for _, nc := range c.connected {
+			log.Println("start draining ", nc.connInfo)
+			err := nc.Drain(c.ctx)
+			if err != nil {
+				return err
+			}
+			log.Println("done draining ", nc.connInfo)
+		}
+	}
+	return nil
 }
 
 func (c *Conn) assertOpen() {
@@ -385,11 +318,5 @@ func (proc *procedure) setDefaults() {
 	if !proc.SinglePartition {
 		proc.PartitionParameter = ParameterNone
 		proc.PartitionParameterType = ParameterNone
-	}
-}
-
-func panicIfnotNil(str string, err error) {
-	if err != nil {
-		log.Panic(str, err)
 	}
 }
