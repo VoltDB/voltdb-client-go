@@ -18,6 +18,7 @@
 package voltdbclient
 
 import (
+	"context"
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
@@ -26,26 +27,32 @@ import (
 
 var errLegacyHashinator = errors.New("Not support Legacy hashinator.")
 
-func (c *Conn) subscribeTopo(nc *nodeConn) <-chan voltResponse {
+func (c *Conn) subscribeTopo(ctx context.Context, nc *nodeConn) <-chan voltResponse {
 	responseCh := make(chan voltResponse, 1)
-	SubscribeTopoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Subscribe", []driver.Value{"TOPOLOGY"}, responseCh, DefaultQueryTimeout)
-	nc.submit(SubscribeTopoPi)
+	subscribeTopoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Subscribe", []driver.Value{"TOPOLOGY"}, responseCh, DefaultQueryTimeout)
+	nctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
+	subscribeTopoPi.cancel = cancel
+	nc.submit(nctx, subscribeTopoPi)
 	return responseCh
 }
 
-func (c *Conn) getTopoStatistics(nc *nodeConn) <-chan voltResponse {
+func (c *Conn) getTopoStatistics(ctx context.Context, nc *nodeConn) <-chan voltResponse {
 	// TODO add sysHandle to procedureInvocation
 	// system call procedure should bypass timeout and backpressure
 	responseCh := make(chan voltResponse, 1)
 	topoStatisticsPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Statistics", []driver.Value{"TOPO", int32(JSONFormat)}, responseCh, DefaultQueryTimeout)
-	nc.submit(topoStatisticsPi)
+	nctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
+	topoStatisticsPi.cancel = cancel
+	nc.submit(nctx, topoStatisticsPi)
 	return responseCh
 }
 
-func (c *Conn) getProcedureInfo(nc *nodeConn) <-chan voltResponse {
+func (c *Conn) getProcedureInfo(ctx context.Context, nc *nodeConn) <-chan voltResponse {
 	responseCh := make(chan voltResponse, 1)
 	procedureInfoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@SystemCatalog", []driver.Value{"PROCEDURES"}, responseCh, DefaultQueryTimeout)
-	nc.submit(procedureInfoPi)
+	nctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
+	procedureInfoPi.cancel = cancel
+	nc.submit(nctx, procedureInfoPi)
 	return responseCh
 }
 

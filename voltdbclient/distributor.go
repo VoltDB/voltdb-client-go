@@ -18,6 +18,7 @@
 package voltdbclient
 
 import (
+	"context"
 	"database/sql/driver"
 	"errors"
 	"fmt"
@@ -48,7 +49,6 @@ type Conn struct {
 	closeCh                                  chan chan bool
 	open                                     atomic.Value
 	rl                                       rateLimiter
-	drainCh                                  chan chan bool
 	useClientAffinity                        bool
 	sendReadsToReplicasBytDefaultIfCAEnabled bool
 	subscribedConnection                     *nodeConn
@@ -62,22 +62,24 @@ type Conn struct {
 	partitionReplicas                        *map[int][]*nodeConn
 	procedureInfos                           *map[string]procedure
 	partitionMasters                         map[int]*nodeConn
+	ctx                                      context.Context
+	cancel                                   func()
 }
 
 func newConn(cis []string) (*Conn, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	var c = &Conn{
 		closeCh:           make(chan chan bool),
 		rl:                newTxnLimiter(),
-		drainCh:           make(chan chan bool),
 		useClientAffinity: true,
 		partitionMasters:  make(map[int]*nodeConn),
+		ctx:               ctx,
+		cancel:            cancel,
 	}
 	c.open.Store(true)
-
 	if err := c.start(cis); err != nil {
 		return nil, err
 	}
-
 	return c, nil
 }
 
@@ -169,7 +171,7 @@ func (c *Conn) start(cis []string) error {
 
 	for _, ci := range cis {
 		nc := newNodeConn(ci)
-		if err = nc.connect(ProtocolVersion); err != nil {
+		if err = nc.connect(c.ctx, ProtocolVersion); err != nil {
 			disconnected = append(disconnected, nc)
 			continue
 		}
@@ -211,14 +213,14 @@ func (c *Conn) availableConn() *nodeConn {
 	nc := c.getConn()
 	c.subscribedConnection = nc
 	if c.useClientAffinity && c.subscribedConnection == nil && len(c.connected) > 0 {
-		c.subTopoCh = c.subscribeTopo(nc)
+		c.subTopoCh = c.subscribeTopo(c.ctx, nc)
 	}
 	if c.useClientAffinity && !c.hasTopoStats && len(c.connected) > 0 {
-		c.topoStatsCh = c.getTopoStatistics(nc)
+		c.topoStatsCh = c.getTopoStatistics(c.ctx, nc)
 		c.hasTopoStats = true
 	}
 	if c.useClientAffinity && !c.fetchedCatalog && len(c.connected) > 0 {
-		c.prInfoCh = c.getProcedureInfo(nc)
+		c.prInfoCh = c.getProcedureInfo(c.ctx, nc)
 		c.fetchedCatalog = true
 	}
 	return c.subscribedConnection
@@ -226,23 +228,27 @@ func (c *Conn) availableConn() *nodeConn {
 
 func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeConn) {
 	// TODO: resubsribe when we lose the subscribed connection
-
 	for {
 		select {
+		case <-c.ctx.Done():
+			return
 		case closeRespCh := <-c.closeCh:
+			if c.isClosed() {
+				closeRespCh <- true
+				return
+			}
 			if len(c.connected) == 0 {
 				closeRespCh <- true
 			} else {
-
 				// We make sure all node connections managed by this Conn object are closed.
 				// This will block, it is okay though since we are closing the connection
 				// which means we don't want anything else to be happening.
 				for _, connectedNc := range c.connected {
-					<-connectedNc.close()
+					connectedNc.Close()
 				}
 				closeRespCh <- true
-				return
 			}
+			return
 		case topoResp := <-c.subTopoCh:
 			switch topoResp.(type) {
 			// handle an error, otherwise the subscribe succeeded.
@@ -285,17 +291,6 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 			default:
 				c.fetchedCatalog = false
 			}
-		case drainRespCh := <-c.drainCh:
-			if len(c.connected) == 0 {
-				drainRespCh <- true
-			} else {
-				for _, connectedNc := range c.connected {
-					responseCh := make(chan bool, 1)
-					connectedNc.drain(responseCh)
-					<-responseCh
-				}
-				drainRespCh <- true
-			}
 		}
 	}
 
@@ -308,7 +303,7 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 	// check error channel to see if any lost connections.
 }
 
-func (c *Conn) submit(pi *procedureInvocation) (int, error) {
+func (c *Conn) submit(ctx context.Context, pi *procedureInvocation) (int, error) {
 	nc := c.availableConn()
 	// var nc *nodeConn
 	// var backpressure = true
@@ -322,7 +317,7 @@ func (c *Conn) submit(pi *procedureInvocation) (int, error) {
 	// } else {
 	// 	// c.allNcsPiCh <- pi
 	// }
-	return nc.submit(pi)
+	return nc.submit(ctx, pi)
 }
 
 // Begin starts a transaction.
@@ -338,17 +333,27 @@ func (c *Conn) Close() error {
 	respCh := make(chan bool)
 	c.closeCh <- respCh
 	<-respCh
+	c.cancel()
+	c.setClosed()
 	return nil
 }
 
 // Drain blocks until all outstanding asynchronous requests have been satisfied.
-// Asynchronous requests are processed in a background thread; this call blocks
-// the current thread until that background thread has finished with all
+// Asynchronous requests are processed in a background goroutine; this call blocks
+// the current thread until that background goroutine has finished with all
 // asynchronous requests.
-func (c *Conn) Drain() {
-	drainRespCh := make(chan bool, 1)
-	c.drainCh <- drainRespCh
-	<-drainRespCh
+func (c *Conn) Drain() error {
+	if !c.isClosed() {
+		for _, nc := range c.connected {
+			log.Println("start draining ", nc.connInfo)
+			err := nc.Drain(c.ctx)
+			if err != nil {
+				return err
+			}
+			log.Println("done draining ", nc.connInfo)
+		}
+	}
+	return nil
 }
 
 func (c *Conn) assertOpen() {

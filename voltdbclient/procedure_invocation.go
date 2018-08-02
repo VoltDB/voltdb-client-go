@@ -18,6 +18,7 @@
 package voltdbclient
 
 import (
+	"context"
 	"database/sql/driver"
 	"fmt"
 	"reflect"
@@ -40,11 +41,12 @@ type procedureInvocation struct {
 	timeout    time.Duration
 	arc        AsyncResponseConsumer
 	async      bool
-	slen       int // length of pi once serialized
 
 	// This is the connection that received the invocation request. It is through
 	// this connection that the response to the procedure invocation will be sent.
-	conn *nodeConn
+	conn   *nodeConn
+	cancel func()
+	stop   func()
 }
 
 func newSyncProcedureInvocation(handle int64, isQuery bool, query string, params []driver.Value, responseCh chan voltResponse, timeout time.Duration) *procedureInvocation {
@@ -56,7 +58,6 @@ func newSyncProcedureInvocation(handle int64, isQuery bool, query string, params
 		responseCh: responseCh,
 		timeout:    timeout,
 		async:      false,
-		slen:       -1,
 	}
 }
 
@@ -69,7 +70,6 @@ func newAsyncProcedureInvocation(handle int64, isQuery bool, query string, param
 		timeout: timeout,
 		arc:     arc,
 		async:   true,
-		slen:    -1,
 	}
 }
 
@@ -81,15 +81,11 @@ func newProcedureInvocationByHandle(handle int64, isQuery bool, query string, pa
 		query:   query,
 		params:  params,
 		async:   true,
-		slen:    -1,
 	}
 }
 
 func (pi *procedureInvocation) getLen() int {
-	if pi.slen == -1 {
-		pi.slen = pi.calcLen()
-	}
-	return pi.slen
+	return pi.calcLen()
 }
 
 func (pi *procedureInvocation) calcLen() int {
@@ -150,4 +146,30 @@ func (pi procedureInvocation) getPartitionParamValue(index int) driver.Value {
 
 func (pi procedureInvocation) isAsync() bool {
 	return pi.async
+}
+
+// This will wait until the context ctx is cancelled/timeout. If it timeout then
+// we handle this procedure invocation as timedout.
+//
+// This is blocking, so call it in a separate goroutine.
+func (pi *procedureInvocation) handleTimeoutsAndCancel(ctx context.Context) {
+	if pi.cancel != nil {
+		<-ctx.Done()
+
+		// If the parent context was cancelled nothing will happen. We just make sure
+		// that the timeout is handled.
+		//
+		// We call cancel to clear any resources associated with this procedure
+		// invocation.
+		if ctx.Err() == context.DeadlineExceeded {
+			pi.conn.handleTimeout(pi)
+		}
+		pi.cancel()
+	}
+}
+
+func (pi *procedureInvocation) Close() {
+	if pi.stop != nil {
+		pi.stop()
+	}
 }
