@@ -496,3 +496,16 @@ func bytesToTime(bs []byte) time.Time {
 	// time.Unix will take either seconds or nanos. Multiply by 1000 and use nanos.
 	return time.Unix(0, millis*1000)
 }
+
+// HasNextResultSet implements driver.RowsNextResultSet
+func (vr *VoltRows) HasNextResultSet() bool {
+	return vr.tableIndex+1 < vr.getNumTables()
+}
+
+// NextResultSet implements driver.RowsNextResultSet
+func (vr *VoltRows) NextResultSet() error {
+	if !vr.AdvanceToTable(vr.tableIndex + 1) {
+		return io.EOF
+	}
+	return nil
+}
