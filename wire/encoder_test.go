@@ -7,6 +7,50 @@ import (
 	"time"
 )
 
+func TestEncoder_MarshalNil(t *testing.T) {
+	t.Parallel()
+	e := NewEncoder()
+	n, err := e.MarshalNil()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("expected %d got %d", ByteSize, n)
+	}
+
+	b := e.Bytes()
+	if b[0] != byte(NullColumn) {
+		t.Errorf("expected NullColumn byte %d got %d", NullColumn, b[0])
+	}
+}
+
+func TestEncoder_Nil(t *testing.T) {
+	testCases := []struct {
+		val  interface{}
+		size int
+	}{
+		{
+			val:  (*string)(nil),
+			size: 1,
+		},
+		{
+			val:  nil,
+			size: 1,
+		},
+	}
+
+	for i := range testCases {
+		e := NewEncoder()
+		n, err := e.Marshal(testCases[i].val)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != testCases[i].size {
+			t.Errorf("expected size %d got %d", testCases[i].size, n)
+		}
+	}
+}
+
 func TestEncoder_Byte(t *testing.T) {
 	t.Parallel()
 
