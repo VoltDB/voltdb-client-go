@@ -336,7 +336,7 @@ func TestOpenAuth(t *testing.T) {
 	}
 }
 
-func TestMultiResultSet(t *testing.T) {
+func TestRowsNextResultSet(t *testing.T) {
 	const (
 		rowSets = 3
 		rowCnt  = 100

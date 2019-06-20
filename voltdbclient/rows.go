@@ -34,6 +34,11 @@ var nullDecimal = [...]byte{128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 var nullTimestamp = [...]byte{128, 0, 0, 0, 0, 0, 0, 0}
 var order = binary.BigEndian
 
+var (
+	_ driver.Rows              = VoltRows{}
+	_ driver.RowsNextResultSet = &VoltRows{}
+)
+
 // VoltRows is an implementation of database/sql/driver.Rows.
 //
 // A response to a query from the VoltDB server might include rows from more
@@ -498,7 +503,7 @@ func bytesToTime(bs []byte) time.Time {
 }
 
 // HasNextResultSet implements driver.RowsNextResultSet
-func (vr *VoltRows) HasNextResultSet() bool {
+func (vr VoltRows) HasNextResultSet() bool {
 	return (vr.tableIndex != -1) && vr.tableIndex+1 < vr.getNumTables()
 }
 
