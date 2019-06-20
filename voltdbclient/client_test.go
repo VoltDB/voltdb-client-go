@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math/big"
+	"math/rand"
 	"strings"
 	"testing"
 	"time"
@@ -332,5 +333,103 @@ func TestOpenAuth(t *testing.T) {
 	_, err = db.Exec("@AdHoc", "drop table some_random_table if exists")
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMultiResultSet(t *testing.T) {
+	const (
+		rowSets = 3
+		rowCnt  = 100
+	)
+	var items [rowSets][rowCnt]int32
+
+	db, err := sql.Open("voltdb", "localhost:21212")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec("@AdHoc", "drop procedure multi if exists")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for idx := range items {
+		_, err = db.Exec("@AdHoc", fmt.Sprintf("drop table multi%d if exists", idx))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	defer func() {
+		db.Exec("@AdHoc", "drop procedure multi if exists")
+		for idx := range items {
+			db.Exec("@AdHoc", fmt.Sprintf("drop table multi%d if exists", idx))
+		}
+	}()
+
+	for idx := range items {
+		_, err = db.Exec("@AdHoc", fmt.Sprintf("create table multi%d (id int primary key, val int)", idx))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sqlProc := "create procedure multi as begin\n"
+	for idx := range items {
+		sqlProc += fmt.Sprintf("  select val from multi%d order by id;\n", idx)
+	}
+	sqlProc += "end;"
+
+	_, err = db.Exec("@AdHoc", sqlProc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rand.Seed(time.Now().UnixNano())
+	for idx := range items {
+		for i := range items[idx] {
+			r := rand.Int31()
+			items[idx][i] = r
+			query := fmt.Sprintf("insert into multi%d(id, val) values (%d, %d)", idx, i, r)
+			//log.Println(query)
+			_, err = db.Exec("@AdHoc", query)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	rows, err := db.Query("multi")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		idx    int
+		hasVal int32
+	)
+
+	for {
+		var i int
+		for rows.Next() {
+			if err = rows.Scan(&hasVal); err != nil {
+				t.Fatal(err)
+			}
+			if want, got := items[idx][i], hasVal; want != got {
+				t.Fatalf("[%d:%d] want %d, got %d", idx, i, want, got)
+			}
+			i++
+		}
+		if i != len(items[idx]) {
+			t.Errorf("expected %d rows, got %d", len(items[idx]), i)
+		}
+		idx++
+		if !rows.NextResultSet() {
+			break
+		}
+	}
+	if idx != len(items) {
+		t.Errorf("expected %d rowsets, got %d", len(items), idx)
 	}
 }

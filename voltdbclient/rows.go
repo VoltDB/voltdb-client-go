@@ -499,7 +499,7 @@ func bytesToTime(bs []byte) time.Time {
 
 // HasNextResultSet implements driver.RowsNextResultSet
 func (vr *VoltRows) HasNextResultSet() bool {
-	return vr.tableIndex+1 < vr.getNumTables()
+	return (vr.tableIndex != -1) && vr.tableIndex+1 < vr.getNumTables()
 }
 
 // NextResultSet implements driver.RowsNextResultSet
