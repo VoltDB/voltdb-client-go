@@ -148,7 +148,7 @@ func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Dura
 		case resp := <-pi.responseCh:
 			switch e := resp.(type) {
 			case VoltRows:
-				return e, nil
+				return &e, nil
 			case VoltError:
 				return nil, e
 			default:
