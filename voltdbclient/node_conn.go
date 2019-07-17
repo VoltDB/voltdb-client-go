@@ -68,23 +68,34 @@ type nodeConn struct {
 	// The maximum number of retries to reconnect to a disconeected node before
 	// giving up.
 	maxRetries int
+
+	//host and port
+	hostAndPort string
 }
 
 func newNodeConn(ci string) *nodeConn {
+	var host string
+	u, err := parseURL(ci)
+	if err == nil {
+		// if there is error with URL, it will be thrown later by connect
+		host = u.Host
+	}
+
 	return &nodeConn{
-		connInfo:   ci,
-		bpCh:       make(chan chan bool),
-		closeCh:    make(chan chan bool),
-		drainCh:    make(chan chan bool),
-		responseCh: make(chan *bytes.Buffer, maxResponseBuffer),
-		requests:   &sync.Map{},
+		connInfo:    ci,
+		bpCh:        make(chan chan bool),
+		closeCh:     make(chan chan bool),
+		drainCh:     make(chan chan bool),
+		responseCh:  make(chan *bytes.Buffer, maxResponseBuffer),
+		requests:    &sync.Map{},
+		hostAndPort: host,
 	}
 }
 
 func (nc *nodeConn) submit(pi *procedureInvocation) (int, error) {
 	if nc.isClosed() {
 		return 0, fmt.Errorf("%s:%d writing on a closed node connection",
-			nc.connInfo, pi.handle)
+			nc.hostAndPort, pi.handle)
 	}
 	return nc.handleProcedureInvocation(pi)
 }
@@ -157,7 +168,7 @@ func (nc *nodeConn) reconnect(protocolVersion int) {
 				}
 				tcpConn, connData, err := nc.networkConnect(protocolVersion)
 				if err != nil {
-					log.Println(fmt.Printf("Failed to reconnect to server %s with %s, retrying ...%d\n", nc.connInfo, err, count))
+					log.Println(fmt.Printf("Failed to reconnect to server %s with %s, retrying ...%d\n", nc.hostAndPort, err, count))
 					count++
 					continue
 				}
@@ -179,18 +190,18 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.Con
 	}
 	raddr, err := net.ResolveTCPAddr("tcp", u.Host)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error resolving %v", nc.connInfo)
+		return nil, nil, fmt.Errorf("error resolving %v", nc.hostAndPort)
 	}
 	tcpConn, err := net.DialTCP("tcp", nil, raddr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to connect to server %v", nc.connInfo)
+		return nil, nil, fmt.Errorf("failed to connect to server %v", nc.hostAndPort)
 	}
 	pass, _ := u.User.Password()
 	encoder := wire.NewEncoder()
 	login, err := encoder.Login(protocolVersion, u.User.Username(), pass)
 	if err != nil {
 		tcpConn.Close()
-		return nil, nil, fmt.Errorf("failed to serialize login message %v", nc.connInfo)
+		return nil, nil, fmt.Errorf("failed to serialize login message %v", nc.hostAndPort)
 	}
 	_, err = tcpConn.Write(login)
 	if err != nil {
@@ -200,7 +211,7 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.Con
 	i, err := decoder.Login()
 	if err != nil {
 		tcpConn.Close()
-		return nil, nil, fmt.Errorf("failed to login to server %v", nc.connInfo)
+		return nil, nil, fmt.Errorf("failed to login to server %v", nc.hostAndPort)
 	}
 	query := u.Query()
 	retry := query.Get("retry")
@@ -375,9 +386,9 @@ func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, err
 	n, err := nc.tcpConn.Write(encoder.Bytes())
 	if err != nil {
 		if strings.Contains(err.Error(), "write: broken pipe") {
-			return n, fmt.Errorf("node %s: is down", nc.connInfo)
+			return n, fmt.Errorf("node %s: is down", nc.hostAndPort)
 		}
-		return n, fmt.Errorf("%s: %v", nc.connInfo, err)
+		return n, fmt.Errorf("%s: %v", nc.hostAndPort, err)
 	}
 	pi.conn = nc
 	return 0, nil
@@ -389,7 +400,7 @@ func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRe
 	rsp, err := decodeResponse(decoder, handle)
 	if err != nil {
 		e := err.(VoltError)
-		e.error = fmt.Errorf("%s: %v", nc.connInfo, e.error)
+		e.error = fmt.Errorf("%s: %v", nc.hostAndPort, e.error)
 		respCh <- e
 	} else if req.isQuery() {
 
@@ -450,7 +461,7 @@ func (nc *nodeConn) sendPing() error {
 	_, err := nc.tcpConn.Write(encoder.Bytes())
 	if err != nil {
 		if strings.Contains(err.Error(), "write: broken pipe") {
-			return fmt.Errorf("node %s: is down", nc.connInfo)
+			return fmt.Errorf("node %s: is down", nc.hostAndPort)
 		}
 	}
 	return err
