@@ -200,6 +200,9 @@ func (e *Encoder) Marshal(v interface{}) (int, error) {
 		return e.MarshalTime(x)
 	default:
 		rv := reflect.ValueOf(v)
+		if !rv.IsValid() || rv.IsNil() {
+			return e.MarshalNil()
+		}
 		switch rv.Kind() {
 		case reflect.Slice:
 			return e.MarshalSlice(rv)
@@ -208,6 +211,11 @@ func (e *Encoder) Marshal(v interface{}) (int, error) {
 		}
 		return 0, errUnknownParam
 	}
+}
+
+// MarshalNil encodes nil
+func (e *Encoder) MarshalNil() (int, error) {
+	return e.Byte(NullColumn)
 }
 
 // MarshalBool encodes boolean argument
