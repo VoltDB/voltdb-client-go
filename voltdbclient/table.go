@@ -20,6 +20,7 @@ package voltdbclient
 import (
 	"bytes"
 	"fmt"
+	"strings"
 
 	"github.com/VoltDB/voltdb-client-go/wire"
 )
@@ -52,7 +53,7 @@ func newVoltTable(columnCount int16, columnTypes []int8, columnNames []string, r
 
 	// store columnName to columnIndex
 	for ci, cn := range columnNames {
-		vt.cnToCi[cn] = int16(ci)
+		vt.cnToCi[strings.ToUpper(cn)] = int16(ci)
 	}
 	return vt
 }
