@@ -26,13 +26,13 @@ import (
 )
 
 type voltResponse interface {
-	getAppStatus() ResponseStatus
-	getAppStatusString() string
-	getClusterRoundTripTime() int32
-	getHandle() int64
-	getNumTables() int16
-	getStatus() ResponseStatus
-	getStatusString() string
+	GetAppStatus() ResponseStatus
+	GetAppStatusString() string
+	GetClusterRoundTripTime() int32
+	GetHandle() int64
+	GetNumTables() int16
+	GetStatus() ResponseStatus
+	GetStatusString() string
 }
 
 // VoltError type
@@ -80,31 +80,31 @@ func emptyVoltResponseInfoWithLatency(rtt int32) voltResponseInfo {
 	}
 }
 
-func (vrsp voltResponseInfo) getAppStatus() ResponseStatus {
+func (vrsp voltResponseInfo) GetAppStatus() ResponseStatus {
 	return vrsp.appStatus
 }
 
-func (vrsp voltResponseInfo) getAppStatusString() string {
+func (vrsp voltResponseInfo) GetAppStatusString() string {
 	return vrsp.appStatusString
 }
 
-func (vrsp voltResponseInfo) getClusterRoundTripTime() int32 {
+func (vrsp voltResponseInfo) GetClusterRoundTripTime() int32 {
 	return vrsp.clusterRoundTripTime
 }
 
-func (vrsp voltResponseInfo) getHandle() int64 {
+func (vrsp voltResponseInfo) GetHandle() int64 {
 	return vrsp.handle
 }
 
-func (vrsp voltResponseInfo) getNumTables() int16 {
+func (vrsp voltResponseInfo) GetNumTables() int16 {
 	return vrsp.numTables
 }
 
-func (vrsp voltResponseInfo) getStatus() ResponseStatus {
+func (vrsp voltResponseInfo) GetStatus() ResponseStatus {
 	return vrsp.status
 }
 
-func (vrsp voltResponseInfo) getStatusString() string {
+func (vrsp voltResponseInfo) GetStatusString() string {
 	return vrsp.statusString
 }
 
@@ -219,7 +219,7 @@ func decodeResponse(d *wire.Decoder, handle int64) (rsp voltResponse, volterr er
 }
 
 func decodeResult(d *wire.Decoder, rsp voltResponse) (VoltResult, error) {
-	numTables := rsp.getNumTables()
+	numTables := rsp.GetNumTables()
 	ras := make([]int64, numTables)
 	var i int16
 	for ; i < numTables; i++ {
@@ -235,7 +235,7 @@ func decodeResult(d *wire.Decoder, rsp voltResponse) (VoltResult, error) {
 
 func decodeRows(d *wire.Decoder, rsp voltResponse) (VoltRows, error) {
 	var err error
-	numTables := rsp.getNumTables()
+	numTables := rsp.GetNumTables()
 	tables := make([]*voltTable, numTables)
 	for idx := range tables {
 		if tables[idx], err = decodeTableForRows(d); err != nil {
