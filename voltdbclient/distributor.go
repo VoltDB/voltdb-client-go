@@ -247,7 +247,7 @@ func (c *Conn) loop(disconnected []*nodeConn, hostIDToConnection *map[int]*nodeC
 			switch topoResp.(type) {
 			// handle an error, otherwise the subscribe succeeded.
 			case VoltError:
-				if ResponseStatus(topoResp.getStatus()) == ConnectionLost {
+				if ResponseStatus(topoResp.GetStatus()) == ConnectionLost {
 					// TODO: handle this.  Move the connection out of connected, try again.
 					// TODO: try to reconnect to the host in a separate go routine.
 					// TODO: subscribe to topo a second time

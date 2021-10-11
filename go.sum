@@ -1,4 +1,2 @@
-github.com/VoltDB/voltdb-client-go v1.0.1 h1:85ZcykHS0goztdAVOCo36NeMFGdU08/x7E+nQI8kH0I=
-github.com/VoltDB/voltdb-client-go v1.0.1/go.mod h1:FSuyUyPbMimaMJ9DItBzhVzjFj5S4XHcEISlKEnFZ5Q=
 github.com/spaolacci/murmur3 v1.1.0 h1:7c1g84S4BPRrfL5Xrdp6fOJ206sU9y293DDHaoy0bLI=
 github.com/spaolacci/murmur3 v1.1.0/go.mod h1:JwIasOWyU6f++ZhiEuf87xNszmSA2myDM2Kzu9HwQUA=

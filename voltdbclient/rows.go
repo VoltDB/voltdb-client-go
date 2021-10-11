@@ -189,7 +189,7 @@ func (vr *VoltRows) AdvanceTable() bool {
 // AdvanceToTable advances to the table indicated by the index. Returns false if
 // there is no table at the given index.
 func (vr *VoltRows) AdvanceToTable(tableIndex int16) bool {
-	if tableIndex >= vr.getNumTables() || tableIndex < 0 {
+	if tableIndex >= vr.GetNumTables() || tableIndex < 0 {
 		return false
 	}
 	vr.tableIndex = tableIndex
@@ -504,7 +504,7 @@ func bytesToTime(bs []byte) time.Time {
 
 // HasNextResultSet implements driver.RowsNextResultSet
 func (vr VoltRows) HasNextResultSet() bool {
-	return (vr.tableIndex != -1) && vr.tableIndex+1 < vr.getNumTables()
+	return (vr.tableIndex != -1) && vr.tableIndex+1 < vr.GetNumTables()
 }
 
 // NextResultSet implements driver.RowsNextResultSet
