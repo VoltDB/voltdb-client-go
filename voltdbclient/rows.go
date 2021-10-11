@@ -55,6 +55,10 @@ type VoltRows struct {
 	tableIndex int16
 }
 
+func (self *VoltRows) Response() voltResponse {
+	return self.voltResponse
+}
+
 func newVoltRows(resp voltResponse, tables []*voltTable) *VoltRows {
 	var vr = &VoltRows{
 		voltResponse: resp,
