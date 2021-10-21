@@ -102,6 +102,10 @@ func (e *Encoder) Int32(v int32) (int, error) {
 	return e.uint32(uint32(v))
 }
 
+func (e *Encoder) Int(v int) (int, error) {
+	return e.uint32(uint32(v))
+}
+
 func (e *Encoder) uint32(v uint32) (int, error) {
 	b := make([]byte, IntegerSize)
 	endian.PutUint32(b, v)
@@ -188,6 +192,8 @@ func (e *Encoder) Marshal(v interface{}) (int, error) {
 		return e.MarshalByte(x)
 	case int16:
 		return e.MarshalShort(x)
+	case int:
+		return e.MarshalInt(x)
 	case int32:
 		return e.MarshalInt32(x)
 	case int64:
@@ -200,6 +206,9 @@ func (e *Encoder) Marshal(v interface{}) (int, error) {
 		return e.MarshalTime(x)
 	default:
 		rv := reflect.ValueOf(v)
+		if !rv.IsValid() || rv.IsNil() {
+			return e.MarshalNil()
+		}
 		switch rv.Kind() {
 		case reflect.Slice:
 			return e.MarshalSlice(rv)
@@ -208,6 +217,11 @@ func (e *Encoder) Marshal(v interface{}) (int, error) {
 		}
 		return 0, errUnknownParam
 	}
+}
+
+// MarshalNil encodes nil
+func (e *Encoder) MarshalNil() (int, error) {
+	return e.Byte(NullColumn)
 }
 
 // MarshalBool encodes boolean argument
@@ -256,6 +270,19 @@ func (e *Encoder) MarshalInt32(v int32) (int, error) {
 		return 0, err
 	}
 	i, err := e.Int32(v)
+	if err != nil {
+		return 0, err
+	}
+	return n + i, nil
+}
+
+// MarshalInt encodes int argument
+func (e *Encoder) MarshalInt(v int) (int, error) {
+	n, err := e.Byte(IntColumn)
+	if err != nil {
+		return 0, err
+	}
+	i, err := e.Int(v)
 	if err != nil {
 		return 0, err
 	}

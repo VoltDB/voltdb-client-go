@@ -117,7 +117,7 @@ func (pi *procedureInvocation) calcParamLen(param interface{}) int {
 		return 2
 	case reflect.Int16:
 		return 3
-	case reflect.Int32:
+	case reflect.Int, reflect.Int32:
 		return 5
 	case reflect.Int64:
 		return 9

@@ -365,6 +365,45 @@ func (vr VoltRows) GetSmallIntByName(cn string) (interface{}, error) {
 }
 
 // GetString returns the value of a STRING column at the given index in the
+// current row taking into account correct type arg
+func (rows VoltRows) GetStringValue(valtype int8, colIndex int16) (string, error) {
+	switch valtype {
+	case 3:
+		i, err := rows.GetTinyInt(colIndex)
+		if err != nil {
+			return "", err
+		}
+		if i == nil {
+			return "0", nil
+		}
+		return fmt.Sprintf("%d", i.(int8)), nil
+	case 5:
+		i, err := rows.GetInteger(colIndex)
+		if err != nil {
+			return "", err
+		}
+		if i == nil {
+			return "0", nil
+		}
+		return fmt.Sprintf("%d", i.(int32)), nil
+	case 6:
+		i, err := rows.GetBigInt(colIndex)
+		if err != nil {
+			return "", err
+		}
+		if i == nil {
+			return "0", nil
+		}
+		return fmt.Sprintf("%d", i.(int64)), nil
+	}
+	s, err := rows.GetString(colIndex)
+	if err != nil || s == nil {
+		return "", err
+	}
+	return s.(string), nil
+}
+
+// GetString returns the value of a STRING column at the given index in the
 // current row.
 func (vr VoltRows) GetString(colIndex int16) (interface{}, error) {
 	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
