@@ -124,6 +124,8 @@ const (
 	ResponseUnknown            ResponseStatus = -7
 	TXNRestart                 ResponseStatus = -8
 	OperationalFailure         ResponseStatus = -9
+	// -10 to -12 are not in the client's perview
+	UnsupportedDynamicChange   ResponseStatus = -13
 	UninitializedAppStatusCode ResponseStatus = -128
 )
 
@@ -150,6 +152,8 @@ func (rs ResponseStatus) String() string {
 		return "TXN RESTART"
 	case OperationalFailure:
 		return "OPERATIONAL FAILURE"
+	case UnsupportedDynamicChange:
+		return "UNSUPPORTED DYNAMIC CHANGE"
 	case UninitializedAppStatusCode:
 		return "UNINITIALIZED APP STATUS CODE"
 	}
