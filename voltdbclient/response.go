@@ -176,15 +176,13 @@ func decodeResponse(d *wire.Decoder, handle int64) (rsp voltResponse, volterr er
 		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 	}
 	var statusString string
-	if status != Success {
-		if fieldsPresent&(1<<5) != 0 {
-			statusString, err = d.String()
-			if err != nil {
-				return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
-			}
+	if fieldsPresent&(1<<5) != 0 {
+		statusString, err = d.String()
+		if err != nil {
+			return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 		}
-		errString := fmt.Sprintf("Bad status %s %s\n", ResponseStatus(status).String(), statusString)
-		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: errors.New(errString)}
+	} else {
+		statusString = ""
 	}
 
 	b, err = d.Byte()
@@ -193,15 +191,13 @@ func decodeResponse(d *wire.Decoder, handle int64) (rsp voltResponse, volterr er
 		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 	}
 	var appStatusString string
-	if appStatus != 0 && appStatus != math.MinInt8 {
-		if fieldsPresent&(1<<7) != 0 {
-			appStatusString, err = d.String()
-			if err != nil {
-				return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
-			}
+	if fieldsPresent&(1<<7) != 0 {
+		appStatusString, err = d.String()
+		if err != nil {
+			return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: err}
 		}
-		errString := fmt.Sprintf("Bad app status %d %s\n", appStatus, appStatusString)
-		return nil, VoltError{voltResponse: emptyVoltResponseInfo(), error: errors.New(errString)}
+	} else {
+		appStatusString = ""
 	}
 
 	clusterRoundTripTime, err := d.Int32()
