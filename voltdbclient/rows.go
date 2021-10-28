@@ -172,6 +172,9 @@ func (vr VoltRows) Next(dest []driver.Value) (err error) {
 // AdvanceRow advances to the next row of data, returns false if there isn't a
 // next row.
 func (vr VoltRows) AdvanceRow() bool {
+	if !vr.isValidTable() {
+		return false
+	}
 	return vr.table().advanceRow()
 }
 
@@ -395,6 +398,15 @@ func (rows VoltRows) GetStringValue(valtype int8, colIndex int16) (string, error
 			return "0", nil
 		}
 		return fmt.Sprintf("%d", i.(int64)), nil
+	case 8:
+		i, err := rows.GetFloat(colIndex)
+		if err != nil {
+			return "", err
+		}
+		if i == nil {
+			return "0", nil
+		}
+		return fmt.Sprintf("%f", i.(float64)), nil
 	}
 	s, err := rows.GetString(colIndex)
 	if err != nil || s == nil {
