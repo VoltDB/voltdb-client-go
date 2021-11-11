@@ -380,6 +380,15 @@ func (rows VoltRows) GetStringValue(valtype int8, colIndex int16) (string, error
 			return "0", nil
 		}
 		return fmt.Sprintf("%d", i.(int8)), nil
+	case 4:
+		i, err := rows.GetSmallInt(colIndex)
+		if err != nil {
+			return "", err
+		}
+		if i == nil {
+			return "0", nil
+		}
+		return fmt.Sprintf("%d", i.(int16)), nil
 	case 5:
 		i, err := rows.GetInteger(colIndex)
 		if err != nil {
@@ -407,7 +416,38 @@ func (rows VoltRows) GetStringValue(valtype int8, colIndex int16) (string, error
 			return "0", nil
 		}
 		return fmt.Sprintf("%f", i.(float64)), nil
+	case 11:
+		t, err := rows.GetTimestamp(colIndex)
+		if err != nil {
+			return "", err
+		}
+		if t == nil {
+			return "0", nil
+		}
+		return t.(time.Time).String(), nil
+	case 22:
+		t, err := rows.GetDecimal(colIndex)
+		if err != nil {
+			return "", err
+		}
+		if t == nil {
+			return "0", nil
+		}
+		return fmt.Sprintf("%s", t.(big.Float)), nil
+	case 25:
+		t, err := rows.GetVarbinary(colIndex)
+		if err != nil {
+			return "", err
+		}
+		if t == nil {
+			return "0", nil
+		}
+		return string(t.([]byte)), nil
 	}
+	if valtype != 9 {
+		return "", errors.New("Unsupported type for GetStringValue")
+	}
+	// type 9 is string
 	s, err := rows.GetString(colIndex)
 	if err != nil || s == nil {
 		return "", err
