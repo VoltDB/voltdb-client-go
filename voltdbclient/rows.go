@@ -433,7 +433,7 @@ func (rows VoltRows) GetStringValue(valtype int8, colIndex int16) (string, error
 		if t == nil {
 			return "0", nil
 		}
-		return fmt.Sprintf("%s", t.(big.Float)), nil
+		return fmt.Sprintf("%v", t.(big.Float)), nil
 	case 25:
 		t, err := rows.GetVarbinary(colIndex)
 		if err != nil {
