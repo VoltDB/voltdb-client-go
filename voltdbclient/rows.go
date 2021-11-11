@@ -440,7 +440,7 @@ func (rows VoltRows) GetStringValue(valtype int8, colIndex int16) (string, error
 			return "", err
 		}
 		if t == nil {
-			return "0", nil
+			return "", nil
 		}
 		return string(t.([]byte)), nil
 	}
