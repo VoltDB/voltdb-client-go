@@ -24,6 +24,7 @@ import (
 	"log"
 	"math/rand"
 	"strings"
+	"io/ioutil"
 	"sync/atomic"
 	"time"
 )
@@ -45,6 +46,7 @@ var ProtocolVersion = 1
 
 // Conn holds the set of currently active connections.
 type Conn struct {
+	pemPath string
 	closeCh                                  chan chan bool
 	open                                     atomic.Value
 	rl                                       rateLimiter
@@ -62,6 +64,24 @@ type Conn struct {
 	partitionReplicas                        *map[int][]*nodeConn
 	procedureInfos                           *map[string]procedure
 	partitionMasters                         map[int]*nodeConn
+}
+
+func newTLSConn(cis []string, pemPath string) (*Conn, error) {
+	var c = &Conn{
+		pemPath: pemPath,
+		closeCh:           make(chan chan bool),
+		rl:                newTxnLimiter(),
+		drainCh:           make(chan chan bool),
+		useClientAffinity: true,
+		partitionMasters:  make(map[int]*nodeConn),
+	}
+	c.open.Store(true)
+
+	if err := c.start(cis); err != nil {
+		return nil, err
+	}
+
+	return c, nil
 }
 
 func newConn(cis []string) (*Conn, error) {
@@ -125,6 +145,16 @@ func OpenConn(ci string) (*Conn, error) {
 	return newConn(cis)
 }
 
+// OpenTLSConn uses TLS for network connections
+func OpenTLSConn(ci, pemPath string) (*Conn, error) {
+	ci = strings.TrimSpace(ci)
+	if ci == "" {
+		return nil, ErrMissingServerArgument
+	}
+	cis := strings.Split(ci, ",")
+	return newTLSConn(cis, pemPath)
+}
+
 // OpenConnWithLatencyTarget returns a new connection to the VoltDB server.
 // This connection will try to meet the specified latency target, potentially by
 // throttling the rate at which asynchronous transactions are submitted.
@@ -168,7 +198,16 @@ func (c *Conn) start(cis []string) error {
 	)
 
 	for _, ci := range cis {
-		nc := newNodeConn(ci)
+		var nc *nodeConn
+		if len(c.pemPath) > 0 {
+			pemBytes, err := ioutil.ReadFile(c.pemPath)
+			if err != nil {
+				return err
+			}
+			nc = newNodeTLSConn(ci, pemBytes)
+		} else {
+			nc = newNodeConn(ci)
+		}
 		if err = nc.connect(ProtocolVersion); err != nil {
 			disconnected = append(disconnected, nc)
 			continue

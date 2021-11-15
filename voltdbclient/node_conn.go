@@ -19,7 +19,6 @@ package voltdbclient
 
 import (
 	"bytes"
-	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io"
@@ -28,8 +27,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
+
+	"database/sql/driver"
+	"crypto/x509"
+	"crypto/tls"
+	"sync/atomic"
+	"net/url"
 
 	"github.com/VoltDB/voltdb-client-go/wire"
 )
@@ -45,9 +49,11 @@ const defaultMaxRetries = 10
 const defaultRetryInterval = time.Second
 
 type nodeConn struct {
+	pemBytes []byte
 	connInfo     string
 	connData     *wire.ConnInfo
 	tcpConn      *net.TCPConn
+	tlsConn      *tls.Conn
 	drainCh      chan chan bool
 	bpCh         chan chan bool
 	closeCh      chan chan bool
@@ -72,6 +78,18 @@ type nodeConn struct {
 
 func newNodeConn(ci string) *nodeConn {
 	return &nodeConn{
+		connInfo:   ci,
+		bpCh:       make(chan chan bool),
+		closeCh:    make(chan chan bool),
+		drainCh:    make(chan chan bool),
+		responseCh: make(chan *bytes.Buffer, maxResponseBuffer),
+		requests:   &sync.Map{},
+	}
+}
+
+func newNodeTLSConn(ci string, pemBytes []byte) *nodeConn {
+	return &nodeConn{
+		pemBytes: pemBytes,
 		connInfo:   ci,
 		bpCh:       make(chan chan bool),
 		closeCh:    make(chan chan bool),
@@ -115,18 +133,25 @@ func (nc *nodeConn) close() chan bool {
 }
 
 func (nc *nodeConn) connect(protocolVersion int) error {
-	tcpConn, connData, err := nc.networkConnect(protocolVersion)
+	connInterface, connData, err := nc.networkConnect(protocolVersion)
 	if err != nil {
 		return err
 	}
+
 	nc.connData = connData
-	nc.tcpConn = tcpConn
-
-	go nc.listen()
-
 	nc.drainCh = make(chan chan bool, 1)
 
-	go nc.loop(nc.bpCh)
+	switch c := connInterface.(type) {
+	case *net.TCPConn:
+		nc.tcpConn = c
+		go nc.listen()
+		go nc.loop()
+	case *tls.Conn:
+		nc.tlsConn = c
+		go nc.listenTLS()
+		go nc.loopTLS()
+	}
+
 	return nil
 }
 
@@ -155,16 +180,11 @@ func (nc *nodeConn) reconnect(protocolVersion int) {
 				if count > maxRetries {
 					return
 				}
-				tcpConn, connData, err := nc.networkConnect(protocolVersion)
-				if err != nil {
+				if err := nc.connect(protocolVersion); err != nil {
 					log.Println(fmt.Printf("Failed to reconnect to server %s with %s, retrying ...%d\n", nc.connInfo, err, count))
 					count++
 					continue
 				}
-				nc.tcpConn = tcpConn
-				nc.connData = connData
-				go nc.listen()
-				go nc.loop(nc.bpCh)
 				nc.closed.Store(false)
 				return
 			}
@@ -172,7 +192,7 @@ func (nc *nodeConn) reconnect(protocolVersion int) {
 	}
 }
 
-func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.ConnInfo, error) {
+func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.ConnInfo, error) {
 	u, err := parseURL(nc.connInfo)
 	if err != nil {
 		return nil, nil, err
@@ -181,33 +201,56 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.Con
 	if err != nil {
 		return nil, nil, fmt.Errorf("error resolving %v", nc.connInfo)
 	}
-	tcpConn, err := net.DialTCP("tcp", nil, raddr)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to connect to server %v", nc.connInfo)
+	if nc.pemBytes != nil {
+		roots := x509.NewCertPool()
+		ok := roots.AppendCertsFromPEM(nc.pemBytes)
+		if !ok {
+			log.Fatal("failed to parse root certificate")
+		}
+		config := &tls.Config{RootCAs: roots, ServerName: "localhost"}
+		conn, err := net.DialTCP("tcp", nil, raddr)
+		if err != nil {
+			return nil, nil, err
+		}
+		tlsConn := tls.Client(conn, config)
+		i, err := nc.setupConn(protocolVersion, u, tlsConn)
+		if err != nil {
+			tlsConn.Close()
+			return nil, nil, err
+		}
+		return tlsConn, i, nil
 	}
+	conn, err := net.DialTCP("tcp", nil, raddr)
+	i, err := nc.setupConn(protocolVersion, u, conn)
+	if err != nil {
+		conn.Close()
+		return nil, nil, err
+	}
+	return conn, i, nil
+}
+
+func (nc *nodeConn) setupConn(protocolVersion int, u *url.URL, tcpConn io.ReadWriter) (*wire.ConnInfo, error) {
 	pass, _ := u.User.Password()
 	encoder := wire.NewEncoder()
 	login, err := encoder.Login(protocolVersion, u.User.Username(), pass)
 	if err != nil {
-		tcpConn.Close()
-		return nil, nil, fmt.Errorf("failed to serialize login message %v", nc.connInfo)
+		return nil, fmt.Errorf("failed to serialize login message %v", nc.connInfo)
 	}
 	_, err = tcpConn.Write(login)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	decoder := wire.NewDecoder(tcpConn)
 	i, err := decoder.Login()
 	if err != nil {
-		tcpConn.Close()
-		return nil, nil, fmt.Errorf("failed to login to server %v", nc.connInfo)
+		return nil, fmt.Errorf("failed to login to server %v", nc.connInfo)
 	}
 	query := u.Query()
 	retry := query.Get("retry")
 	if retry != "" {
 		r, err := strconv.ParseBool(retry)
 		if err != nil {
-			return nil, nil, fmt.Errorf("voltdbclient: failed to parse retry value %v", err)
+			return nil, fmt.Errorf("voltdbclient: failed to parse retry value %v", err)
 		}
 		nc.retry = r
 
@@ -215,7 +258,7 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.Con
 		if interval != "" {
 			i, err := time.ParseDuration(interval)
 			if err != nil {
-				return nil, nil, fmt.Errorf("voltdbclient: failed to parse retry_interval value %v", err)
+				return nil, fmt.Errorf("voltdbclient: failed to parse retry_interval value %v", err)
 			}
 			nc.retryInterval = i
 		}
@@ -223,12 +266,12 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (*net.TCPConn, *wire.Con
 		if maxRetries != "" {
 			max, err := strconv.Atoi(maxRetries)
 			if err != nil {
-				return nil, nil, fmt.Errorf("voltdbclient: failed to parse max_retries value %v", err)
+				return nil, fmt.Errorf("voltdbclient: failed to parse max_retries value %v", err)
 			}
 			nc.maxRetries = max
 		}
 	}
-	return tcpConn, i, nil
+	return i, nil
 }
 
 func (nc *nodeConn) drain(respCh chan bool) {
@@ -273,7 +316,7 @@ func (nc *nodeConn) listen() {
 	}
 }
 
-func (nc *nodeConn) loop(bpCh <-chan chan bool) {
+func (nc *nodeConn) loop() {
 	var draining bool
 	var drainRespCh chan bool
 
@@ -341,7 +384,127 @@ func (nc *nodeConn) loop(bpCh <-chan chan bool) {
 				nc.handleAsyncResponse(handle, resp, req)
 			}
 
-		case respBPCh := <-bpCh:
+		case respBPCh := <-nc.bpCh:
+			respBPCh <- nc.bp
+		case drainRespCh = <-nc.drainCh:
+			draining = true
+		// check for timed out procedure invocations
+		case <-tcc:
+			nc.requests.Range(func(_, v interface{}) bool {
+				req := v.(*networkRequest)
+				if time.Now().After(req.submitted.Add(req.timeout)) {
+					nc.queuedBytes -= req.numBytes
+					nc.handleTimeout(req)
+					nc.requests.Delete(req.handle)
+				}
+				return true
+			})
+			tcc = time.NewTimer(time.Duration(tci) * time.Nanosecond).C
+		}
+	}
+}
+
+// listenTLS listens for messages from the server and calls back a registered listener.
+// listenTLS blocks on input from the server and should be run as a go routine.
+func (nc *nodeConn) listenTLS() {
+	d := wire.NewDecoder(nc.tlsConn)
+	s := &wire.Decoder{}
+	for {
+		if nc.isClosed() {
+			return
+		}
+		b, err := d.Message()
+		if err != nil {
+			if nc.responseCh == nil {
+				// exiting
+				return
+			}
+			// TODO: put the error on the channel
+			// the owner needs to reconnect
+			return
+		}
+		buf := bytes.NewBuffer(b)
+		s.SetReader(buf)
+		_, err = s.Byte()
+		if err != nil {
+			if nc.responseCh == nil {
+				return
+			}
+			return
+		}
+		nc.responseCh <- buf
+	}
+}
+
+func (nc *nodeConn) loopTLS() {
+	var draining bool
+	var drainRespCh chan bool
+
+	var tci = int64(DefaultQueryTimeout / 10)                    // timeout check interval
+	tcc := time.NewTimer(time.Duration(tci) * time.Nanosecond).C // timeout check timer channel
+
+	// for ping
+	var pingTimeout = 2 * time.Minute
+	pingSentTime := time.Now()
+	var pingOutstanding bool
+	for {
+		if nc.isClosed() {
+			return
+		}
+		// setup select cases
+		if draining {
+			if nc.queuedBytes <= 0 {
+				drainRespCh <- true
+				drainRespCh = nil
+				draining = false
+			}
+		}
+
+		// ping
+		pingSinceSent := time.Now().Sub(pingSentTime)
+		if pingOutstanding {
+			if pingSinceSent > pingTimeout {
+				// TODO: should disconnect
+			}
+		} else if pingSinceSent > pingTimeout/3 {
+			nc.sendPing()
+			pingOutstanding = true
+			pingSentTime = time.Now()
+		}
+
+		select {
+		case respCh := <-nc.closeCh:
+			nc.tlsConn.Close()
+			respCh <- true
+			return
+		case resp := <-nc.responseCh:
+			decoder := wire.NewDecoder(resp)
+			handle, err := decoder.Int64()
+			// can't do anything without a handle.  If reading the handle fails,
+			// then log and drop the message.
+			if err != nil {
+				continue
+			}
+			if handle == PingHandle {
+				pingOutstanding = false
+				continue
+			}
+			r, ok := nc.requests.Load(handle)
+			if !ok || r == nil {
+				// there's a race here with timeout.  A request can be timed out and
+				// then a response received.  In this case drop the response.
+				continue
+			}
+			req := r.(*networkRequest)
+			nc.queuedBytes -= req.numBytes
+			nc.requests.Delete(handle)
+			if req.isSync() {
+				nc.handleSyncResponse(handle, resp, req)
+			} else {
+				nc.handleAsyncResponse(handle, resp, req)
+			}
+
+		case respBPCh := <-nc.bpCh:
 			respBPCh <- nc.bp
 		case drainRespCh = <-nc.drainCh:
 			draining = true
