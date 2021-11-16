@@ -207,7 +207,11 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.Conn
 		if !ok {
 			log.Fatal("failed to parse root certificate")
 		}
-		config := &tls.Config{RootCAs: roots, ServerName: "localhost"}
+		config := &tls.Config{
+			RootCAs: roots,
+			ServerName: "localhost",
+			InsecureSkipVerify: true,
+		}
 		conn, err := net.DialTCP("tcp", nil, raddr)
 		if err != nil {
 			return nil, nil, err
@@ -535,7 +539,13 @@ func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, err
 	nc.queuedBytes += pi.slen
 	encoder := wire.NewEncoder()
 	EncodePI(encoder, pi)
-	n, err := nc.tcpConn.Write(encoder.Bytes())
+	var n int
+	var err error
+	if nc.tlsConn == nil {
+		n, err = nc.tcpConn.Write(encoder.Bytes())
+	} else {
+		n, err = nc.tlsConn.Write(encoder.Bytes())
+	}
 	if err != nil {
 		if strings.Contains(err.Error(), "write: broken pipe") {
 			return n, fmt.Errorf("node %s: is down", nc.connInfo)
