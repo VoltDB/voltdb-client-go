@@ -66,9 +66,9 @@ type Conn struct {
 	partitionMasters                         map[int]*nodeConn
 }
 
-func newTLSConn(cis []string, pemPath string) (*Conn, error) {
+func newTLSConn(cis []string, clientConfig ClientConfig) (*Conn, error) {
 	var c = &Conn{
-		pemPath: pemPath,
+		pemPath: clientConfig.PEMPath,
 		closeCh:           make(chan chan bool),
 		rl:                newTxnLimiter(),
 		drainCh:           make(chan chan bool),
@@ -77,7 +77,7 @@ func newTLSConn(cis []string, pemPath string) (*Conn, error) {
 	}
 	c.open.Store(true)
 
-	if err := c.start(cis); err != nil {
+	if err := c.start(cis, clientConfig.InsecureSkipVerify); err != nil {
 		return nil, err
 	}
 
@@ -94,7 +94,7 @@ func newConn(cis []string) (*Conn, error) {
 	}
 	c.open.Store(true)
 
-	if err := c.start(cis); err != nil {
+	if err := c.start(cis, false); err != nil {
 		return nil, err
 	}
 
@@ -146,13 +146,18 @@ func OpenConn(ci string) (*Conn, error) {
 }
 
 // OpenTLSConn uses TLS for network connections
-func OpenTLSConn(ci, pemPath string) (*Conn, error) {
+func OpenTLSConn(ci string, clientConfig ClientConfig) (*Conn, error) {
 	ci = strings.TrimSpace(ci)
 	if ci == "" {
 		return nil, ErrMissingServerArgument
 	}
 	cis := strings.Split(ci, ",")
-	return newTLSConn(cis, pemPath)
+	return newTLSConn(cis, clientConfig)
+}
+
+type ClientConfig struct {
+	PEMPath string
+	InsecureSkipVerify bool
 }
 
 // OpenConnWithLatencyTarget returns a new connection to the VoltDB server.
@@ -190,7 +195,7 @@ func OpenConnWithMaxOutstandingTxns(ci string, maxOutTxns int) (*Conn, error) {
 	return c, nil
 }
 
-func (c *Conn) start(cis []string) error {
+func (c *Conn) start(cis []string, insecureSkipVerify bool) error {
 	var (
 		err                error
 		disconnected       []*nodeConn
@@ -204,7 +209,7 @@ func (c *Conn) start(cis []string) error {
 			if err != nil {
 				return err
 			}
-			nc = newNodeTLSConn(ci, pemBytes)
+			nc = newNodeTLSConn(ci, insecureSkipVerify, pemBytes)
 		} else {
 			nc = newNodeConn(ci)
 		}

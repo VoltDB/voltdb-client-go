@@ -10,7 +10,11 @@ import (
 
 func TestMain(t *testing.T) {
 
-	conn, err := voltdbclient.OpenTLSConn("127.0.0.1", "foo.pem")
+	conn, err := voltdbclient.OpenTLSConn("127.0.0.1", voltdbclient.ClientConfig{"foo.pem", false})
+	assert.NotNil(t, err)
+	assert.Nil(t, conn)
+
+	conn, err = voltdbclient.OpenTLSConn("127.0.0.1", voltdbclient.ClientConfig{"foo.pem", true})
 	assert.Nil(t, err)
 	assert.NotNil(t, conn)
 

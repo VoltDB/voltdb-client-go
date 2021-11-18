@@ -50,6 +50,7 @@ const defaultRetryInterval = time.Second
 
 type nodeConn struct {
 	pemBytes []byte
+	insecureSkipVerify bool
 	connInfo     string
 	connData     *wire.ConnInfo
 	tcpConn      *net.TCPConn
@@ -87,9 +88,10 @@ func newNodeConn(ci string) *nodeConn {
 	}
 }
 
-func newNodeTLSConn(ci string, pemBytes []byte) *nodeConn {
+func newNodeTLSConn(ci string, insecureSkipVerify bool, pemBytes []byte) *nodeConn {
 	return &nodeConn{
 		pemBytes: pemBytes,
+		insecureSkipVerify: insecureSkipVerify,
 		connInfo:   ci,
 		bpCh:       make(chan chan bool),
 		closeCh:    make(chan chan bool),
@@ -210,7 +212,7 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.Conn
 		config := &tls.Config{
 			RootCAs: roots,
 			ServerName: "localhost",
-			InsecureSkipVerify: true,
+			InsecureSkipVerify: nc.insecureSkipVerify,
 		}
 		conn, err := net.DialTCP("tcp", nil, raddr)
 		if err != nil {
