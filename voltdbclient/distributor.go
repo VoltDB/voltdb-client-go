@@ -24,6 +24,7 @@ import (
 	"log"
 	"math/rand"
 	"strings"
+	"io/ioutil"
 	"sync/atomic"
 	"time"
 )
@@ -45,6 +46,7 @@ var ProtocolVersion = 1
 
 // Conn holds the set of currently active connections.
 type Conn struct {
+	pemPath string
 	closeCh                                  chan chan bool
 	open                                     atomic.Value
 	rl                                       rateLimiter
@@ -64,6 +66,24 @@ type Conn struct {
 	partitionMasters                         map[int]*nodeConn
 }
 
+func newTLSConn(cis []string, clientConfig ClientConfig) (*Conn, error) {
+	var c = &Conn{
+		pemPath: clientConfig.PEMPath,
+		closeCh:           make(chan chan bool),
+		rl:                newTxnLimiter(),
+		drainCh:           make(chan chan bool),
+		useClientAffinity: true,
+		partitionMasters:  make(map[int]*nodeConn),
+	}
+	c.open.Store(true)
+
+	if err := c.start(cis, clientConfig.InsecureSkipVerify); err != nil {
+		return nil, err
+	}
+
+	return c, nil
+}
+
 func newConn(cis []string) (*Conn, error) {
 	var c = &Conn{
 		closeCh:           make(chan chan bool),
@@ -74,7 +94,7 @@ func newConn(cis []string) (*Conn, error) {
 	}
 	c.open.Store(true)
 
-	if err := c.start(cis); err != nil {
+	if err := c.start(cis, false); err != nil {
 		return nil, err
 	}
 
@@ -125,6 +145,21 @@ func OpenConn(ci string) (*Conn, error) {
 	return newConn(cis)
 }
 
+// OpenTLSConn uses TLS for network connections
+func OpenTLSConn(ci string, clientConfig ClientConfig) (*Conn, error) {
+	ci = strings.TrimSpace(ci)
+	if ci == "" {
+		return nil, ErrMissingServerArgument
+	}
+	cis := strings.Split(ci, ",")
+	return newTLSConn(cis, clientConfig)
+}
+
+type ClientConfig struct {
+	PEMPath string
+	InsecureSkipVerify bool
+}
+
 // OpenConnWithLatencyTarget returns a new connection to the VoltDB server.
 // This connection will try to meet the specified latency target, potentially by
 // throttling the rate at which asynchronous transactions are submitted.
@@ -160,7 +195,7 @@ func OpenConnWithMaxOutstandingTxns(ci string, maxOutTxns int) (*Conn, error) {
 	return c, nil
 }
 
-func (c *Conn) start(cis []string) error {
+func (c *Conn) start(cis []string, insecureSkipVerify bool) error {
 	var (
 		err                error
 		disconnected       []*nodeConn
@@ -168,7 +203,16 @@ func (c *Conn) start(cis []string) error {
 	)
 
 	for _, ci := range cis {
-		nc := newNodeConn(ci)
+		var nc *nodeConn
+		if len(c.pemPath) > 0 {
+			pemBytes, err := ioutil.ReadFile(c.pemPath)
+			if err != nil {
+				return err
+			}
+			nc = newNodeTLSConn(ci, insecureSkipVerify, pemBytes)
+		} else {
+			nc = newNodeConn(ci)
+		}
 		if err = nc.connect(ProtocolVersion); err != nil {
 			disconnected = append(disconnected, nc)
 			continue
