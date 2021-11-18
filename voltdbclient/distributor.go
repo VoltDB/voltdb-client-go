@@ -208,12 +208,16 @@ func (c *Conn) start(cis []string, insecureSkipVerify bool) error {
 
 	for _, ci := range cis {
 		var nc *nodeConn
-		if len(c.pemPath) > 0 {
-			pemBytes, err := ioutil.ReadFile(c.pemPath)
-			if err != nil {
-				return err
+		if len(c.pemPath) > 0 || c.tlsConfig != nil {
+			if len(c.pemPath) > 0 {
+				PEMBytes, err := ioutil.ReadFile(c.pemPath)
+				if err != nil {
+					return err
+				}
+				nc = newNodeTLSConn(ci, insecureSkipVerify, c.tlsConfig, PEMBytes)
+			} else {
+				nc = newNodeTLSConn(ci, insecureSkipVerify, c.tlsConfig, nil)
 			}
-			nc = newNodeTLSConn(ci, insecureSkipVerify, c.tlsConfig, pemBytes)
 		} else {
 			nc = newNodeConn(ci)
 		}
