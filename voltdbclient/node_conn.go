@@ -29,11 +29,11 @@ import (
 	"sync"
 	"time"
 
-	"database/sql/driver"
-	"crypto/x509"
 	"crypto/tls"
-	"sync/atomic"
+	"crypto/x509"
+	"database/sql/driver"
 	"net/url"
+	"sync/atomic"
 
 	"github.com/VoltDB/voltdb-client-go/wire"
 )
@@ -49,21 +49,22 @@ const defaultMaxRetries = 10
 const defaultRetryInterval = time.Second
 
 type nodeConn struct {
-	pemBytes []byte
+	pemBytes           []byte
+	tlcConfig          *tls.Config
 	insecureSkipVerify bool
-	connInfo     string
-	connData     *wire.ConnInfo
-	tcpConn      *net.TCPConn
-	tlsConn      *tls.Conn
-	drainCh      chan chan bool
-	bpCh         chan chan bool
-	closeCh      chan chan bool
-	responseCh   chan *bytes.Buffer
-	requests     *sync.Map
-	queuedBytes  int
-	bp           bool
-	disconnected bool
-	closed       atomic.Value
+	connInfo           string
+	connData           *wire.ConnInfo
+	tcpConn            *net.TCPConn
+	tlsConn            *tls.Conn
+	drainCh            chan chan bool
+	bpCh               chan chan bool
+	closeCh            chan chan bool
+	responseCh         chan *bytes.Buffer
+	requests           *sync.Map
+	queuedBytes        int
+	bp                 bool
+	disconnected       bool
+	closed             atomic.Value
 
 	// This is the duration to wait before the next retry to connect to a node that
 	// lost connection attempt
@@ -75,6 +76,7 @@ type nodeConn struct {
 	// The maximum number of retries to reconnect to a disconeected node before
 	// giving up.
 	maxRetries int
+	tlsConfig  *tls.Config
 }
 
 func newNodeConn(ci string) *nodeConn {
@@ -88,16 +90,17 @@ func newNodeConn(ci string) *nodeConn {
 	}
 }
 
-func newNodeTLSConn(ci string, insecureSkipVerify bool, pemBytes []byte) *nodeConn {
+func newNodeTLSConn(ci string, insecureSkipVerify bool, tlsConfig *tls.Config, pemBytes []byte) *nodeConn {
 	return &nodeConn{
-		pemBytes: pemBytes,
+		pemBytes:           pemBytes,
+		tlsConfig: tlsConfig,
 		insecureSkipVerify: insecureSkipVerify,
-		connInfo:   ci,
-		bpCh:       make(chan chan bool),
-		closeCh:    make(chan chan bool),
-		drainCh:    make(chan chan bool),
-		responseCh: make(chan *bytes.Buffer, maxResponseBuffer),
-		requests:   &sync.Map{},
+		connInfo:           ci,
+		bpCh:               make(chan chan bool),
+		closeCh:            make(chan chan bool),
+		drainCh:            make(chan chan bool),
+		responseCh:         make(chan *bytes.Buffer, maxResponseBuffer),
+		requests:           &sync.Map{},
 	}
 }
 
@@ -209,21 +212,24 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.Conn
 	if err != nil {
 		return nil, nil, fmt.Errorf("error resolving %v", nc.connInfo)
 	}
-	if nc.pemBytes != nil {
-		roots := x509.NewCertPool()
-		ok := roots.AppendCertsFromPEM(nc.pemBytes)
-		if !ok {
-			log.Fatal("failed to parse root certificate")
-		}
-		config := &tls.Config{
-			RootCAs: roots,
-			InsecureSkipVerify: nc.insecureSkipVerify,
+	if nc.pemBytes != nil || nc.tlsConfig != nil {
+		if nc.pemBytes != nil {
+			roots := x509.NewCertPool()
+			ok := roots.AppendCertsFromPEM(nc.pemBytes)
+			if !ok {
+				log.Fatal("failed to parse root certificate")
+			}
+			// Use PEM file as your tlsconfig
+			nc.tlsConfig = &tls.Config{
+				RootCAs:            roots,
+				InsecureSkipVerify: nc.insecureSkipVerify,
+			}
 		}
 		conn, err := net.DialTCP("tcp", nil, raddr)
 		if err != nil {
 			return nil, nil, err
 		}
-		tlsConn := tls.Client(conn, config)
+		tlsConn := tls.Client(conn, nc.tlsConfig)
 		i, err := nc.setupConn(protocolVersion, u, tlsConn)
 		if err != nil {
 			tlsConn.Close()
