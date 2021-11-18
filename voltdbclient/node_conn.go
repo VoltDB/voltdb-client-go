@@ -211,7 +211,6 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.Conn
 		}
 		config := &tls.Config{
 			RootCAs: roots,
-			ServerName: "localhost",
 			InsecureSkipVerify: nc.insecureSkipVerify,
 		}
 		conn, err := net.DialTCP("tcp", nil, raddr)
@@ -622,7 +621,12 @@ func (nc *nodeConn) sendPing() error {
 	pi := newProcedureInvocationByHandle(PingHandle, true, "@Ping", []driver.Value{})
 	encoder := wire.NewEncoder()
 	EncodePI(encoder, pi)
-	_, err := nc.tcpConn.Write(encoder.Bytes())
+	var err error
+	if nc.tlsConn == nil {
+		_, err = nc.tcpConn.Write(encoder.Bytes())
+	} else {
+		_, err = nc.tlsConn.Write(encoder.Bytes())
+	}
 	if err != nil {
 		if strings.Contains(err.Error(), "write: broken pipe") {
 			return fmt.Errorf("node %s: is down", nc.connInfo)
