@@ -3,6 +3,9 @@ package main
 import (
 	"testing"
 
+	"database/sql/driver"
+
+	"github.com/kr/pretty"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/VoltDB/voltdb-client-go/voltdbclient"
@@ -18,11 +21,15 @@ func TestMain(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, conn)
 
-	vr, err := conn.Query("@Statistics", nil)
-	assert.Nil(t, err)
-	assert.NotNil(t, conn)
+	var params []driver.Value
 
-	rows, ok := vr.(*voltdbclient.VoltRows)
-	assert.Equal(t, true, ok)
-	assert.NotNil(t, rows)
+	for _, s := range []interface{}{"PAUSE_CHECK", int32(0)} {
+		params = append(params, s)
+	}
+
+	vr, err := conn.Query("@Statistics", params)
+	assert.Nil(t, err)
+	assert.NotNil(t, vr)
+
+	pretty.Print(vr)
 }
