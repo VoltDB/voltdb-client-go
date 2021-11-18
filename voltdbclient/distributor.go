@@ -18,13 +18,14 @@
 package voltdbclient
 
 import (
+	"crypto/tls"
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"strings"
-	"io/ioutil"
 	"sync/atomic"
 	"time"
 )
@@ -46,7 +47,8 @@ var ProtocolVersion = 1
 
 // Conn holds the set of currently active connections.
 type Conn struct {
-	pemPath string
+	pemPath                                  string
+	tlsConfig                                *tls.Config
 	closeCh                                  chan chan bool
 	open                                     atomic.Value
 	rl                                       rateLimiter
@@ -68,7 +70,8 @@ type Conn struct {
 
 func newTLSConn(cis []string, clientConfig ClientConfig) (*Conn, error) {
 	var c = &Conn{
-		pemPath: clientConfig.PEMPath,
+		pemPath:           clientConfig.PEMPath,
+		tlsConfig:         clientConfig.TLSConfig,
 		closeCh:           make(chan chan bool),
 		rl:                newTxnLimiter(),
 		drainCh:           make(chan chan bool),
@@ -156,7 +159,8 @@ func OpenTLSConn(ci string, clientConfig ClientConfig) (*Conn, error) {
 }
 
 type ClientConfig struct {
-	PEMPath string
+	PEMPath            string
+	TLSConfig          *tls.Config
 	InsecureSkipVerify bool
 }
 
@@ -209,7 +213,7 @@ func (c *Conn) start(cis []string, insecureSkipVerify bool) error {
 			if err != nil {
 				return err
 			}
-			nc = newNodeTLSConn(ci, insecureSkipVerify, pemBytes)
+			nc = newNodeTLSConn(ci, insecureSkipVerify, c.tlsConfig, pemBytes)
 		} else {
 			nc = newNodeConn(ci)
 		}
