@@ -52,7 +52,7 @@ func (c *Conn) ExecTimeout(query string, args []driver.Value, timeout time.Durat
 		if pi.conn.isClosed() {
 			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
 				error: fmt.Errorf("%s: writing on a closed node connection",
-					pi.conn.connInfo)}
+					pi.conn.Host)}
 		}
 		select {
 		case <-sec.C:
@@ -136,7 +136,7 @@ func (c *Conn) QueryTimeout(query string, args []driver.Value, timeout time.Dura
 		if pi.conn.isClosed() {
 			return nil, VoltError{voltResponse: voltResponseInfo{status: ConnectionTimeout, clusterRoundTripTime: -1},
 				error: fmt.Errorf("%s: writing on a closed node connection",
-					pi.conn.connInfo)}
+					pi.conn.Host)}
 		}
 		select {
 		case <-sec.C:

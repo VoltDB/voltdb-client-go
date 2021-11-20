@@ -53,6 +53,7 @@ type nodeConn struct {
 	tlcConfig          *tls.Config
 	insecureSkipVerify bool
 	connInfo           string
+	Host               string
 	connData           *wire.ConnInfo
 	tcpConn            *net.TCPConn
 	tlsConn            *tls.Conn
@@ -80,8 +81,10 @@ type nodeConn struct {
 }
 
 func newNodeConn(ci string) *nodeConn {
+	u, _ := parseURL(ci)
 	return &nodeConn{
 		connInfo:   ci,
+		Host:       u.Host,
 		bpCh:       make(chan chan bool),
 		closeCh:    make(chan chan bool),
 		drainCh:    make(chan chan bool),
@@ -91,11 +94,13 @@ func newNodeConn(ci string) *nodeConn {
 }
 
 func newNodeTLSConn(ci string, insecureSkipVerify bool, tlsConfig *tls.Config, pemBytes []byte) *nodeConn {
+	u, _ := parseURL(ci)
 	return &nodeConn{
 		pemBytes:           pemBytes,
-		tlsConfig: tlsConfig,
+		tlsConfig:          tlsConfig,
 		insecureSkipVerify: insecureSkipVerify,
 		connInfo:           ci,
+		Host:               u.Host,
 		bpCh:               make(chan chan bool),
 		closeCh:            make(chan chan bool),
 		drainCh:            make(chan chan bool),
@@ -107,7 +112,7 @@ func newNodeTLSConn(ci string, insecureSkipVerify bool, tlsConfig *tls.Config, p
 func (nc *nodeConn) submit(pi *procedureInvocation) (int, error) {
 	if nc.isClosed() {
 		return 0, fmt.Errorf("%s:%d writing on a closed node connection",
-			nc.connInfo, pi.handle)
+			nc.Host, pi.handle)
 	}
 	return nc.handleProcedureInvocation(pi)
 }
@@ -192,7 +197,7 @@ func (nc *nodeConn) reconnect(protocolVersion int) {
 					return
 				}
 				if err := nc.connect(protocolVersion); err != nil {
-					log.Println(fmt.Printf("Failed to reconnect to server %s with %s, retrying ...%d\n", nc.connInfo, err, count))
+					log.Println(fmt.Printf("Failed to reconnect to server %s with %s, retrying ...%d\n", nc.Host, err, count))
 					count++
 					continue
 				}
@@ -210,7 +215,7 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.Conn
 	}
 	raddr, err := net.ResolveTCPAddr("tcp", u.Host)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error resolving %v", nc.connInfo)
+		return nil, nil, fmt.Errorf("error resolving %v", nc.Host)
 	}
 	if nc.pemBytes != nil || nc.tlsConfig != nil {
 		if nc.pemBytes != nil {
@@ -251,7 +256,7 @@ func (nc *nodeConn) setupConn(protocolVersion int, u *url.URL, tcpConn io.ReadWr
 	encoder := wire.NewEncoder()
 	login, err := encoder.Login(protocolVersion, u.User.Username(), pass)
 	if err != nil {
-		return nil, fmt.Errorf("failed to serialize login message %v", nc.connInfo)
+		return nil, fmt.Errorf("failed to serialize login message %v", nc.Host)
 	}
 	_, err = tcpConn.Write(login)
 	if err != nil {
@@ -260,7 +265,7 @@ func (nc *nodeConn) setupConn(protocolVersion int, u *url.URL, tcpConn io.ReadWr
 	decoder := wire.NewDecoder(tcpConn)
 	i, err := decoder.Login()
 	if err != nil {
-		return nil, fmt.Errorf("failed to login to server %v", nc.connInfo)
+		return nil, fmt.Errorf("failed to login to server %v", nc.Host)
 	}
 	query := u.Query()
 	retry := query.Get("retry")
@@ -561,9 +566,9 @@ func (nc *nodeConn) handleProcedureInvocation(pi *procedureInvocation) (int, err
 	}
 	if err != nil {
 		if strings.Contains(err.Error(), "write: broken pipe") {
-			return n, fmt.Errorf("node %s: is down", nc.connInfo)
+			return n, fmt.Errorf("node %s: is down", nc.Host)
 		}
-		return n, fmt.Errorf("%s: %v", nc.connInfo, err)
+		return n, fmt.Errorf("%s: %v", nc.Host, err)
 	}
 	pi.conn = nc
 	return 0, nil
@@ -575,7 +580,7 @@ func (nc *nodeConn) handleSyncResponse(handle int64, r io.Reader, req *networkRe
 	rsp, err := decodeResponse(decoder, handle)
 	if err != nil {
 		e := err.(VoltError)
-		e.error = fmt.Errorf("%s: %v", nc.connInfo, e.error)
+		e.error = fmt.Errorf("%s: %v", nc.Host, e.error)
 		respCh <- e
 	} else if req.isQuery() {
 
@@ -641,7 +646,7 @@ func (nc *nodeConn) sendPing() error {
 	}
 	if err != nil {
 		if strings.Contains(err.Error(), "write: broken pipe") {
-			return fmt.Errorf("node %s: is down", nc.connInfo)
+			return fmt.Errorf("node %s: is down", nc.Host)
 		}
 	}
 	return err
