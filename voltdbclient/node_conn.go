@@ -243,6 +243,9 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.Conn
 		return tlsConn, i, nil
 	}
 	conn, err := net.DialTCP("tcp", nil, raddr)
+	if err != nil {
+		return nil, nil, err
+	}
 	i, err := nc.setupConn(protocolVersion, u, conn)
 	if err != nil {
 		conn.Close()
