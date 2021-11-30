@@ -33,7 +33,7 @@ import (
 const (
 	// DefaultQueryTimeout time out for queries.
 	DefaultQueryTimeout      time.Duration = 2 * time.Minute
-	DefaultConnectionTimeout time.Duration = 2 * time.Minute
+	DefaultConnectionTimeout time.Duration = 1 * time.Minute
 )
 
 var handle int64
@@ -243,10 +243,6 @@ func (c *Conn) startWithTimeout(cis []string, insecureSkipVerify bool, duration 
 
 	go c.loop(disconnected, &hostIDToConnection)
 	return nil
-}
-
-func (c *Conn) start(cis []string, insecureSkipVerify bool) error {
-	return c.startWithTimeout(cis, insecureSkipVerify, DefaultConnectionTimeout)
 }
 
 //Returns a node connection that is not closed.

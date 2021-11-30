@@ -83,9 +83,6 @@ type nodeConn struct {
 
 func newNodeConnWithTimeout(ci string, duration time.Duration) *nodeConn {
 	u, _ := parseURL(ci)
-	if duration <= 0 {
-		duration = DefaultConnectionTimeout
-	}
 	return &nodeConn{
 		connInfo:   ci,
 		Host:       u.Host,
@@ -223,6 +220,10 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.Conn
 	if err != nil {
 		return nil, nil, err
 	}
+	to := nc.connectTimeout
+	if to <= 0 {
+		to = DefaultConnectionTimeout
+	}
 	raddr, err := net.ResolveTCPAddr("tcp", u.Host)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error resolving %v", nc.Host)
@@ -241,7 +242,7 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.Conn
 			}
 		}
 		dialer := net.Dialer{
-			Timeout: nc.connectTimeout,
+			Timeout: to,
 		}
 		conn, err := dialer.Dial("tcp", raddr.String())
 		if err != nil {
