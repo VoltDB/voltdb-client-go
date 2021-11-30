@@ -20,6 +20,7 @@ package voltdbclient
 import (
 	"database/sql"
 	"database/sql/driver"
+	"time"
 )
 
 // VoltDriver implements A database/sql/driver for VoltDB.  This driver is
@@ -33,7 +34,12 @@ func NewVoltDriver() *VoltDriver {
 
 // Open a connection to the VoltDB server.
 func (vd *VoltDriver) Open(hostAndPort string) (driver.Conn, error) {
-	return OpenConn(hostAndPort)
+	return vd.OpenWithConnectTimeout(hostAndPort, DefaultConnectionTimeout)
+}
+
+// Open a connection to the VoltDB server.
+func (vd *VoltDriver) OpenWithConnectTimeout(hostAndPort string, duration time.Duration) (driver.Conn, error) {
+	return OpenConnWithTimeout(hostAndPort, duration)
 }
 
 func init() {

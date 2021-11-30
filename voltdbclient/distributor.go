@@ -32,7 +32,8 @@ import (
 
 const (
 	// DefaultQueryTimeout time out for queries.
-	DefaultQueryTimeout time.Duration = 2 * time.Minute
+	DefaultQueryTimeout      time.Duration = 2 * time.Minute
+	DefaultConnectionTimeout time.Duration = 1 * time.Minute
 )
 
 var handle int64
@@ -80,14 +81,14 @@ func newTLSConn(cis []string, clientConfig ClientConfig) (*Conn, error) {
 	}
 	c.open.Store(true)
 
-	if err := c.start(cis, clientConfig.InsecureSkipVerify); err != nil {
+	if err := c.startWithTimeout(cis, clientConfig.InsecureSkipVerify, clientConfig.ConnectTimeout); err != nil {
 		return nil, err
 	}
 
 	return c, nil
 }
 
-func newConn(cis []string) (*Conn, error) {
+func newConn(cis []string, duration time.Duration) (*Conn, error) {
 	var c = &Conn{
 		closeCh:           make(chan chan bool),
 		rl:                newTxnLimiter(),
@@ -97,7 +98,7 @@ func newConn(cis []string) (*Conn, error) {
 	}
 	c.open.Store(true)
 
-	if err := c.start(cis, false); err != nil {
+	if err := c.startWithTimeout(cis, false, duration); err != nil {
 		return nil, err
 	}
 
@@ -139,13 +140,17 @@ func newConn(cis []string) (*Conn, error) {
 // This has no effect when retry is false.
 //
 // retry_interval is the duration of time to wait until the next retry.
-func OpenConn(ci string) (*Conn, error) {
+func OpenConnWithTimeout(ci string, duration time.Duration) (*Conn, error) {
 	ci = strings.TrimSpace(ci)
 	if ci == "" {
 		return nil, ErrMissingServerArgument
 	}
 	cis := strings.Split(ci, ",")
-	return newConn(cis)
+	return newConn(cis, duration)
+}
+
+func OpenConn(ci string) (*Conn, error) {
+	return OpenConnWithTimeout(ci, DefaultConnectionTimeout)
 }
 
 // OpenTLSConn uses TLS for network connections
@@ -162,6 +167,7 @@ type ClientConfig struct {
 	PEMPath            string
 	TLSConfig          *tls.Config
 	InsecureSkipVerify bool
+	ConnectTimeout     time.Duration
 }
 
 // OpenConnWithLatencyTarget returns a new connection to the VoltDB server.
@@ -173,7 +179,7 @@ func OpenConnWithLatencyTarget(ci string, latencyTarget int32) (*Conn, error) {
 		return nil, ErrMissingServerArgument
 	}
 	cis := strings.Split(ci, ",")
-	c, err := newConn(cis)
+	c, err := newConn(cis, DefaultConnectionTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +197,7 @@ func OpenConnWithMaxOutstandingTxns(ci string, maxOutTxns int) (*Conn, error) {
 		return nil, ErrMissingServerArgument
 	}
 	cis := strings.Split(ci, ",")
-	c, err := newConn(cis)
+	c, err := newConn(cis, DefaultConnectionTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +205,7 @@ func OpenConnWithMaxOutstandingTxns(ci string, maxOutTxns int) (*Conn, error) {
 	return c, nil
 }
 
-func (c *Conn) start(cis []string, insecureSkipVerify bool) error {
+func (c *Conn) startWithTimeout(cis []string, insecureSkipVerify bool, duration time.Duration) error {
 	var (
 		err                error
 		disconnected       []*nodeConn
@@ -214,12 +220,12 @@ func (c *Conn) start(cis []string, insecureSkipVerify bool) error {
 				if err != nil {
 					return err
 				}
-				nc = newNodeTLSConn(ci, insecureSkipVerify, c.tlsConfig, PEMBytes)
+				nc = newNodeTLSConn(ci, insecureSkipVerify, c.tlsConfig, PEMBytes, duration)
 			} else {
-				nc = newNodeTLSConn(ci, insecureSkipVerify, c.tlsConfig, nil)
+				nc = newNodeTLSConn(ci, insecureSkipVerify, c.tlsConfig, nil, duration)
 			}
 		} else {
-			nc = newNodeConn(ci)
+			nc = newNodeConnWithTimeout(ci, duration)
 		}
 		if err = nc.connect(ProtocolVersion); err != nil {
 			disconnected = append(disconnected, nc)

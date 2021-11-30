@@ -78,9 +78,10 @@ type nodeConn struct {
 	// giving up.
 	maxRetries int
 	tlsConfig  *tls.Config
+	connectTimeout time.Duration
 }
 
-func newNodeConn(ci string) *nodeConn {
+func newNodeConnWithTimeout(ci string, duration time.Duration) *nodeConn {
 	u, _ := parseURL(ci)
 	return &nodeConn{
 		connInfo:   ci,
@@ -90,10 +91,15 @@ func newNodeConn(ci string) *nodeConn {
 		drainCh:    make(chan chan bool),
 		responseCh: make(chan *bytes.Buffer, maxResponseBuffer),
 		requests:   &sync.Map{},
+		connectTimeout: duration,
 	}
 }
 
-func newNodeTLSConn(ci string, insecureSkipVerify bool, tlsConfig *tls.Config, pemBytes []byte) *nodeConn {
+func newNodeConn(ci string) *nodeConn {
+	return newNodeConnWithTimeout(ci, DefaultConnectionTimeout)
+}
+
+func newNodeTLSConn(ci string, insecureSkipVerify bool, tlsConfig *tls.Config, pemBytes []byte, duration time.Duration) *nodeConn {
 	u, _ := parseURL(ci)
 	return &nodeConn{
 		pemBytes:           pemBytes,
@@ -106,6 +112,7 @@ func newNodeTLSConn(ci string, insecureSkipVerify bool, tlsConfig *tls.Config, p
 		drainCh:            make(chan chan bool),
 		responseCh:         make(chan *bytes.Buffer, maxResponseBuffer),
 		requests:           &sync.Map{},
+		connectTimeout: duration,
 	}
 }
 
@@ -213,6 +220,10 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.Conn
 	if err != nil {
 		return nil, nil, err
 	}
+	to := nc.connectTimeout
+	if to <= 0 {
+		to = DefaultConnectionTimeout
+	}
 	raddr, err := net.ResolveTCPAddr("tcp", u.Host)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error resolving %v", nc.Host)
@@ -230,7 +241,10 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.Conn
 				InsecureSkipVerify: nc.insecureSkipVerify,
 			}
 		}
-		conn, err := net.DialTCP("tcp", nil, raddr)
+		dialer := net.Dialer{
+			Timeout: to,
+		}
+		conn, err := dialer.Dial("tcp", raddr.String())
 		if err != nil {
 			return nil, nil, err
 		}
@@ -242,7 +256,10 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.Conn
 		}
 		return tlsConn, i, nil
 	}
-	conn, err := net.DialTCP("tcp", nil, raddr)
+	dialer := net.Dialer{
+		Timeout: nc.connectTimeout,
+	}
+	conn, err := dialer.Dial("tcp", raddr.String())
 	if err != nil {
 		return nil, nil, err
 	}
