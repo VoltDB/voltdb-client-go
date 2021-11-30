@@ -260,7 +260,6 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.Conn
 		Timeout: nc.connectTimeout,
 	}
 	conn, err := dialer.Dial("tcp", raddr.String())
-	// conn, err := net.DialTCP("tcp", nil, raddr)
 	if err != nil {
 		return nil, nil, err
 	}
