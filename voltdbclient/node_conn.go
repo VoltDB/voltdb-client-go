@@ -76,21 +76,21 @@ type nodeConn struct {
 
 	// The maximum number of retries to reconnect to a disconeected node before
 	// giving up.
-	maxRetries int
-	tlsConfig  *tls.Config
+	maxRetries     int
+	tlsConfig      *tls.Config
 	connectTimeout time.Duration
 }
 
 func newNodeConnWithTimeout(ci string, duration time.Duration) *nodeConn {
 	u, _ := parseURL(ci)
 	return &nodeConn{
-		connInfo:   ci,
-		Host:       u.Host,
-		bpCh:       make(chan chan bool),
-		closeCh:    make(chan chan bool),
-		drainCh:    make(chan chan bool),
-		responseCh: make(chan *bytes.Buffer, maxResponseBuffer),
-		requests:   &sync.Map{},
+		connInfo:       ci,
+		Host:           u.Host,
+		bpCh:           make(chan chan bool),
+		closeCh:        make(chan chan bool),
+		drainCh:        make(chan chan bool),
+		responseCh:     make(chan *bytes.Buffer, maxResponseBuffer),
+		requests:       &sync.Map{},
 		connectTimeout: duration,
 	}
 }
@@ -112,7 +112,7 @@ func newNodeTLSConn(ci string, insecureSkipVerify bool, tlsConfig *tls.Config, p
 		drainCh:            make(chan chan bool),
 		responseCh:         make(chan *bytes.Buffer, maxResponseBuffer),
 		requests:           &sync.Map{},
-		connectTimeout: duration,
+		connectTimeout:     duration,
 	}
 }
 

@@ -297,7 +297,7 @@ func (vr VoltRows) GetFloat(colIndex int16) (interface{}, error) {
 		return nil, fmt.Errorf("Did not find at FLOAT column at index %d\n", colIndex)
 	}
 	f := bytesToFloat(bs)
-	if f == -1.7E+308 {
+	if f == -1.7e+308 {
 		return nil, nil
 	}
 	return f, nil

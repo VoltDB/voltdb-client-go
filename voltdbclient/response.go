@@ -114,16 +114,16 @@ type ResponseStatus int8
 
 // The available ResponseStatus codes
 const (
-	Success                    ResponseStatus = 1
-	UserAbort                  ResponseStatus = -1
-	GracefulFailure            ResponseStatus = -2
-	UnexpectedFailure          ResponseStatus = -3
-	ConnectionLost             ResponseStatus = -4
-	ServerUnavailable          ResponseStatus = -5
-	ConnectionTimeout          ResponseStatus = -6
-	ResponseUnknown            ResponseStatus = -7
-	TXNRestart                 ResponseStatus = -8
-	OperationalFailure         ResponseStatus = -9
+	Success            ResponseStatus = 1
+	UserAbort          ResponseStatus = -1
+	GracefulFailure    ResponseStatus = -2
+	UnexpectedFailure  ResponseStatus = -3
+	ConnectionLost     ResponseStatus = -4
+	ServerUnavailable  ResponseStatus = -5
+	ConnectionTimeout  ResponseStatus = -6
+	ResponseUnknown    ResponseStatus = -7
+	TXNRestart         ResponseStatus = -8
+	OperationalFailure ResponseStatus = -9
 	// -10 to -12 are not in the client's perview
 	UnsupportedDynamicChange   ResponseStatus = -13
 	UninitializedAppStatusCode ResponseStatus = -128
