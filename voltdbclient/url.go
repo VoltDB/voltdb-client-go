@@ -37,7 +37,7 @@ func parseURL(src string) (*url.URL, error) {
 // this method is same with the code block of the url.Port() method. you can
 // find this metod inside the Port method of the url package.
 // this method is used inside the client package to support go versions <1.8
-func getPort(host string) string{
+func getPort(host string) string {
 	index := strings.IndexByte(host, ':')
 	if index == -1 {
 		return ""

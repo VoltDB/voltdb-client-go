@@ -49,7 +49,6 @@ func TestParseURL(t *testing.T) {
 	}
 }
 
-
 func TestGetPort(t *testing.T) {
 	sample := []struct {
 		host, port string
