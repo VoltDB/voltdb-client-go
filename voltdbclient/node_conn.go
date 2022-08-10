@@ -50,7 +50,6 @@ const defaultRetryInterval = time.Second
 
 type nodeConn struct {
 	pemBytes           []byte
-	tlcConfig          *tls.Config
 	insecureSkipVerify bool
 	connInfo           string
 	Host               string
@@ -235,19 +234,26 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.Conn
 			if !ok {
 				log.Fatal("failed to parse root certificate")
 			}
-			// Use PEM file as your tlsconfig
-			nc.tlsConfig = &tls.Config{
-				RootCAs:            roots,
-				InsecureSkipVerify: nc.insecureSkipVerify,
-			}
+
+			// Set up a config using PERM contents as the root CAs
+			tlsConfigCopy := nc.tlsConfig.Clone()
+			tlsConfigCopy.RootCAs = roots
+			nc.tlsConfig = tlsConfigCopy
 		}
 		dialer := net.Dialer{
 			Timeout: to,
 		}
+
+		// In secure mode, go requires a ServerName, so force it if absent
+		if nc.tlsConfig.ServerName == "" && !nc.tlsConfig.InsecureSkipVerify {
+			nc.tlsConfig.ServerName = nc.connInfo
+		}
+
 		conn, err := dialer.Dial("tcp", raddr.String())
 		if err != nil {
 			return nil, nil, err
 		}
+
 		tlsConn := tls.Client(conn, nc.tlsConfig)
 		i, err := nc.setupConn(protocolVersion, u, tlsConn)
 		if err != nil {
@@ -282,6 +288,7 @@ func (nc *nodeConn) setupConn(protocolVersion int, u *url.URL, tcpConn io.ReadWr
 	if err != nil {
 		return nil, err
 	}
+
 	decoder := wire.NewDecoder(tcpConn)
 	i, err := decoder.Login()
 	if err != nil {

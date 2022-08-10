@@ -1,3 +1,5 @@
+github.com/VoltDB/voltdb-client-go v1.0.13 h1:Eh/i6bO5kABp5kzB89RsNI4i0KuNbaqmFiuMMk64tM8=
+github.com/VoltDB/voltdb-client-go v1.0.13/go.mod h1:mMhb5zwkT46Ef3NvkFqt+kX0j+ltQ2Sdqj9+ICq+Yto=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

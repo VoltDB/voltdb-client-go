@@ -160,6 +160,11 @@ func OpenTLSConn(ci string, clientConfig ClientConfig) (*Conn, error) {
 		return nil, ErrMissingServerArgument
 	}
 	cis := strings.Split(ci, ",")
+	if clientConfig.TLSConfig == nil {
+		clientConfig.TLSConfig = &tls.Config{
+			InsecureSkipVerify: clientConfig.InsecureSkipVerify,
+		}
+	}
 	return newTLSConn(cis, clientConfig)
 }
 
