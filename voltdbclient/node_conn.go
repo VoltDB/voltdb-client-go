@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2018 VoltDB Inc.
+ * Copyright (C) 2008-2022 Volt Active Data Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -235,7 +235,7 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.Conn
 				log.Fatal("failed to parse root certificate")
 			}
 
-			// Set up a config using PERM contents as the root CAs
+			// Set up a config using PEM contents as the root CAs
 			tlsConfigCopy := nc.tlsConfig.Clone()
 			tlsConfigCopy.RootCAs = roots
 			nc.tlsConfig = tlsConfigCopy
@@ -245,7 +245,7 @@ func (nc *nodeConn) networkConnect(protocolVersion int) (interface{}, *wire.Conn
 		}
 
 		// In secure mode, go requires a ServerName, so force it if absent
-		if nc.tlsConfig.ServerName == "" && !nc.tlsConfig.InsecureSkipVerify {
+		if nc.tlsConfig != nil && nc.tlsConfig.ServerName == "" && !nc.tlsConfig.InsecureSkipVerify {
 			nc.tlsConfig.ServerName = nc.connInfo
 		}
 
