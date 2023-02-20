@@ -59,9 +59,9 @@ type Conn struct {
 	subscribedConnection                     *nodeConn
 	connected                                []*nodeConn
 	hasTopoStats                             bool
-	subTopoCh                                <-chan voltResponse
-	topoStatsCh                              <-chan voltResponse
-	prInfoCh                                 <-chan voltResponse
+	subTopoCh                                chan voltResponse
+	topoStatsCh                              chan voltResponse
+	prInfoCh                                 chan voltResponse
 	fetchedCatalog                           bool
 	hnator                                   hashinator
 	partitionReplicas                        *map[int][]*nodeConn
@@ -79,6 +79,7 @@ func newTLSConn(cis []string, clientConfig ClientConfig) (*Conn, error) {
 		useClientAffinity: true,
 		partitionMasters:  make(map[int]*nodeConn),
 	}
+	c.setupAffinity()
 	c.open.Store(true)
 
 	if err := c.startWithTimeout(cis, clientConfig.InsecureSkipVerify, clientConfig.ConnectTimeout); err != nil {
@@ -96,6 +97,7 @@ func newConn(cis []string, duration time.Duration) (*Conn, error) {
 		useClientAffinity: true,
 		partitionMasters:  make(map[int]*nodeConn),
 	}
+	c.setupAffinity()
 	c.open.Store(true)
 
 	if err := c.startWithTimeout(cis, false, duration); err != nil {
@@ -103,6 +105,17 @@ func newConn(cis []string, duration time.Duration) (*Conn, error) {
 	}
 
 	return c, nil
+}
+
+// setupAffinity sets up the response channels before the Conn is started to avoid race in loop()
+func (c *Conn) setupAffinity() {
+	if !c.useClientAffinity {
+		return
+	}
+
+	c.subTopoCh = make(chan voltResponse, 1)
+	c.topoStatsCh = make(chan voltResponse, 1)
+	c.prInfoCh = make(chan voltResponse, 1)
 }
 
 // OpenConn returns a new connection to the VoltDB server.  The name is a string
@@ -274,14 +287,14 @@ func (c *Conn) availableConn() *nodeConn {
 	nc := c.getConn()
 	c.subscribedConnection = nc
 	if c.useClientAffinity && c.subscribedConnection == nil && len(c.connected) > 0 {
-		c.subTopoCh = c.subscribeTopo(nc)
+		c.subscribeTopo(nc)
 	}
 	if c.useClientAffinity && !c.hasTopoStats && len(c.connected) > 0 {
-		c.topoStatsCh = c.getTopoStatistics(nc)
+		c.getTopoStatistics(nc)
 		c.hasTopoStats = true
 	}
 	if c.useClientAffinity && !c.fetchedCatalog && len(c.connected) > 0 {
-		c.prInfoCh = c.getProcedureInfo(nc)
+		c.getProcedureInfo(nc)
 		c.fetchedCatalog = true
 	}
 	return c.subscribedConnection
