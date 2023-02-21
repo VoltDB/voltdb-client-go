@@ -26,6 +26,7 @@ import (
 	"log"
 	"math/rand"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -48,6 +49,7 @@ var ProtocolVersion = 1
 
 // Conn holds the set of currently active connections.
 type Conn struct {
+	lock                                     sync.Mutex
 	pemPath                                  string
 	tlsConfig                                *tls.Config
 	closeCh                                  chan chan bool
@@ -284,6 +286,9 @@ func (c *Conn) getConn() *nodeConn {
 }
 
 func (c *Conn) availableConn() *nodeConn {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
 	nc := c.getConn()
 	c.subscribedConnection = nc
 	if c.useClientAffinity && c.subscribedConnection == nil && len(c.connected) > 0 {
