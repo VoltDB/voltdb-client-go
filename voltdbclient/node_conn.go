@@ -133,11 +133,14 @@ func (nc *nodeConn) markClosed() {
 	if nc.tlsConn != nil {
 		nc.tlsConn.Close()
 	}
-	// release all stored pending requests. This connection is closed so we can't
-	// satisfy the requests.
+
+	// FIXME
+	// Do not release all stored pending requests. This connection is closed so we can't
+	// satisfy the requests, but in order to avoid data races on the map, just let the
+	// pending requests time out.
 	//
 	// TODO: handle the requests with connection closed error?
-	nc.requests = &sync.Map{}
+	// nc.requests = &sync.Map{}
 }
 
 func (nc *nodeConn) isClosed() bool {

@@ -26,27 +26,21 @@ import (
 
 var errLegacyHashinator = errors.New("Not support Legacy hashinator.")
 
-func (c *Conn) subscribeTopo(nc *nodeConn) <-chan voltResponse {
-	responseCh := make(chan voltResponse, 1)
-	SubscribeTopoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Subscribe", []driver.Value{"TOPOLOGY"}, responseCh, DefaultQueryTimeout)
+func (c *Conn) subscribeTopo(nc *nodeConn) {
+	SubscribeTopoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Subscribe", []driver.Value{"TOPOLOGY"}, c.subTopoCh, DefaultQueryTimeout)
 	nc.submit(SubscribeTopoPi)
-	return responseCh
 }
 
-func (c *Conn) getTopoStatistics(nc *nodeConn) <-chan voltResponse {
+func (c *Conn) getTopoStatistics(nc *nodeConn) {
 	// TODO add sysHandle to procedureInvocation
 	// system call procedure should bypass timeout and backpressure
-	responseCh := make(chan voltResponse, 1)
-	topoStatisticsPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Statistics", []driver.Value{"TOPO", int32(JSONFormat)}, responseCh, DefaultQueryTimeout)
+	topoStatisticsPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@Statistics", []driver.Value{"TOPO", int32(JSONFormat)}, c.topoStatsCh, DefaultQueryTimeout)
 	nc.submit(topoStatisticsPi)
-	return responseCh
 }
 
-func (c *Conn) getProcedureInfo(nc *nodeConn) <-chan voltResponse {
-	responseCh := make(chan voltResponse, 1)
-	procedureInfoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@SystemCatalog", []driver.Value{"PROCEDURES"}, responseCh, DefaultQueryTimeout)
+func (c *Conn) getProcedureInfo(nc *nodeConn) {
+	procedureInfoPi := newSyncProcedureInvocation(c.getNextSystemHandle(), true, "@SystemCatalog", []driver.Value{"PROCEDURES"}, c.prInfoCh, DefaultQueryTimeout)
 	nc.submit(procedureInfoPi)
-	return responseCh
 }
 
 func (c *Conn) updateAffinityTopology(rows VoltRows) (hashinator, *map[int][]*nodeConn, error) {
