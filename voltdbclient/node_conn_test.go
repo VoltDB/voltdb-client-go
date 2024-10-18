@@ -10,8 +10,11 @@ import (
 
 func TestNodeConn_Close(t *testing.T) {
 	conn := "localhost:21212"
-	c := newNodeConn(conn)
-	err := c.connect(1)
+	c, err := newNodeConn(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.connect(1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,8 +43,11 @@ func TestNodeRetries(t *testing.T) {
 	query.Set("retry_interval", time.Second.String())
 	query.Set("max_retries", fmt.Sprint(n))
 	conn := "localhost:21212?" + query.Encode()
-	c := newNodeConn(conn)
-	err := c.connect(1)
+	c, err := newNodeConn(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.connect(1)
 	if err != nil {
 		t.Fatal(err)
 	}
