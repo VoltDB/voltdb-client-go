@@ -80,9 +80,12 @@ type nodeConn struct {
 	connectTimeout time.Duration
 }
 
-func newNodeConnWithTimeout(ci string, duration time.Duration) *nodeConn {
-	u, _ := parseURL(ci)
-	return &nodeConn{
+func newNodeConnWithTimeout(ci string, duration time.Duration) (nc *nodeConn, err error) {
+	u, err := parseURL(ci)
+	if err != nil {
+		return nil, err
+	}
+	nc = &nodeConn{
 		connInfo:       ci,
 		Host:           u.Host,
 		bpCh:           make(chan chan bool),
@@ -92,15 +95,19 @@ func newNodeConnWithTimeout(ci string, duration time.Duration) *nodeConn {
 		requests:       &sync.Map{},
 		connectTimeout: duration,
 	}
+	return nc, nil
 }
 
-func newNodeConn(ci string) *nodeConn {
+func newNodeConn(ci string) (*nodeConn, error) {
 	return newNodeConnWithTimeout(ci, DefaultConnectionTimeout)
 }
 
-func newNodeTLSConn(ci string, insecureSkipVerify bool, tlsConfig *tls.Config, pemBytes []byte, duration time.Duration) *nodeConn {
-	u, _ := parseURL(ci)
-	return &nodeConn{
+func newNodeTLSConn(ci string, insecureSkipVerify bool, tlsConfig *tls.Config, pemBytes []byte, duration time.Duration) (nc *nodeConn, err error) {
+	u, err := parseURL(ci)
+	if err != nil {
+		return nil, err
+	}
+	nc = &nodeConn{
 		pemBytes:           pemBytes,
 		tlsConfig:          tlsConfig,
 		insecureSkipVerify: insecureSkipVerify,
@@ -113,6 +120,7 @@ func newNodeTLSConn(ci string, insecureSkipVerify bool, tlsConfig *tls.Config, p
 		requests:           &sync.Map{},
 		connectTimeout:     duration,
 	}
+	return nc, nil
 }
 
 func (nc *nodeConn) submit(pi *procedureInvocation) (int, error) {

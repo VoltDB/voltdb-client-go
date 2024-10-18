@@ -131,7 +131,7 @@ func (c *Conn) setupAffinity() {
 // Here we authenticate if username and password are supplied, if they are not
 // then a connection is established without doing the authentication
 //
-// Connection string is similar to postgres, default port is 21212
+// # Connection string is similar to postgres, default port is 21212
 //
 // voltdb://
 // voltdb://localhost
@@ -240,12 +240,18 @@ func (c *Conn) startWithTimeout(cis []string, insecureSkipVerify bool, duration 
 				if err != nil {
 					return err
 				}
-				nc = newNodeTLSConn(ci, insecureSkipVerify, c.tlsConfig, PEMBytes, duration)
+				nc, err = newNodeTLSConn(ci, insecureSkipVerify, c.tlsConfig, PEMBytes, duration)
 			} else {
-				nc = newNodeTLSConn(ci, insecureSkipVerify, c.tlsConfig, nil, duration)
+				nc, err = newNodeTLSConn(ci, insecureSkipVerify, c.tlsConfig, nil, duration)
+			}
+			if err != nil {
+				return err
 			}
 		} else {
-			nc = newNodeConnWithTimeout(ci, duration)
+			nc, err = newNodeConnWithTimeout(ci, duration)
+			if err != nil {
+				return err
+			}
 		}
 		if err = nc.connect(ProtocolVersion); err != nil {
 			disconnected = append(disconnected, nc)
@@ -265,7 +271,7 @@ func (c *Conn) startWithTimeout(cis []string, insecureSkipVerify bool, duration 
 	return nil
 }
 
-//Returns a node connection that is not closed.
+// Returns a node connection that is not closed.
 func (c *Conn) getConn() *nodeConn {
 	if len(c.connected) == 1 {
 		return c.connected[0]

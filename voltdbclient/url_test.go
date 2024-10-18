@@ -14,6 +14,7 @@ func TestParseURL(t *testing.T) {
 		{"http://localhost:21212", true, "http", "", "", "localhost:21212"},
 		{"localhost:21212", true, "localhost", "", "", "localhost:21212"},
 		{"127.0.0.1:21212", false, "voltdb", "", "", "localhost:21212"},
+		{"tcp://192.168.102.9:21212", true, "tcp", "", "", "192.168.102.9:21212"},
 		{"voltdb://", true, "voltdb", "", "", ":21212"},
 		{"voltdb://localhost", true, "voltdb", "", "", "localhost:21212"},
 		{"voltdb://localhost:21212", true, "voltdb", "", "", "localhost:21212"},
