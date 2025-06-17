@@ -6,7 +6,6 @@ import (
 	"database/sql/driver"
 	"encoding/binary"
 	"errors"
-	"hash"
 	"math"
 	"reflect"
 	"time"
