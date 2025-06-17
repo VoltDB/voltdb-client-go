@@ -2,7 +2,6 @@ package wire
 
 import (
 	"bytes"
-	"crypto/sha1"
 	"crypto/sha256"
 	"database/sql/driver"
 	"encoding/binary"
@@ -388,13 +387,13 @@ func (e *Encoder) Args(v []driver.Value) error {
 	return nil
 }
 
-//Login encodes login details. This supports both version 0 and 1 of the wire
-//protocol.
+//Login encodes login details. This supports only version 1 of the wire
+//protocol. The password is hashed using sha256.
 //
-//The password is hashed using sha1 and sha356 for version 0 and 1 respectively.
+//Version 0, with sha1 hashing, is no longer allowed.
 //
 // For instance if the username is foo and password is bar,  the login message
-// will be encoded as follows
+// will be encoded as follows (with version 0 shown just for comparison):
 //
 // version 0
 // 	+------------------+--------------+-----------------------+----------+--------------------------------------+
@@ -410,27 +409,19 @@ func (e *Encoder) Args(v []driver.Value) error {
 // 	| 1                | database     | 1                     | foo      | sha256 encoded raw bytes of string bar |
 // 	+------------------+--------------+-----------------------+----------+----------------------------------------+
 func (e *Encoder) Login(version int, user, password string) ([]byte, error) {
-	var h hash.Hash
 	_, err := e.Byte(int8(version))
 	if err != nil {
 		return nil, err
 	}
 	if version == 0 {
-		h = sha1.New()
-		//password hash version
-		_, err = e.Byte(0)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		h = sha256.New()
-
-		//password hash version
-		_, err = e.Byte(1)
-		if err != nil {
-			return nil, err
-		}
+                return nil, errors.New("Protocol version 0 is no longer supported")
 	}
+	//password hash version
+	_, err = e.Byte(1)
+	if err != nil {
+		return nil, err
+	}
+	h := sha256.New()
 	_, err = h.Write([]byte(password))
 	if err != nil {
 		return nil, err
