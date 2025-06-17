@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2022 Volt Active Data Inc.
+ * Copyright (C) 2008-2025 Volt Active Data Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -166,6 +166,10 @@ func (nc *nodeConn) close() chan bool {
 }
 
 func (nc *nodeConn) connect(protocolVersion int) error {
+	if protocolVersion == 0 {
+		return errors.New("Protocol version 0 is no longer supported")
+	}
+
 	connInterface, connData, err := nc.networkConnect(protocolVersion)
 	if err != nil {
 		return err

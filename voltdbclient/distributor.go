@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2022 Volt Active Data Inc.
+ * Copyright (C) 2008-2025 Volt Active Data Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -43,8 +43,8 @@ var sHandle int64 = -1
 var ErrMissingServerArgument = errors.New("voltdbclient: missing voltdb connection string")
 
 // ProtocolVersion lists the version of the voltdb wire protocol to use.
-// For VoltDB releases of version 5.2 and later use version 1. For releases
-// prior to that use version 0.
+// Version 0 (VoltDB releases prior to 5.2) is no longer supported.
+// Releases of version 5.2 and later use version 1.
 var ProtocolVersion = 1
 
 // Conn holds the set of currently active connections.
