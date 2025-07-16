@@ -11,10 +11,10 @@ import (
 	"time"
 )
 
-//size of bytes
+// size of bytes
 const ()
 
-//Column types
+// Column types
 const (
 	ArrayColumn     int8 = -99 // array (short)(values*)
 	NullColumn      int8 = 1   // null
@@ -53,10 +53,10 @@ func NewEncoder() *Encoder {
 	return &Encoder{buf: &bytes.Buffer{}, tmp: &bytes.Buffer{}}
 }
 
-//Reset resets the underlying buffer. This will remove any values that were
-//encoded before.
+// Reset resets the underlying buffer. This will remove any values that were
+// encoded before.
 //
-//Call this to reuse the Encoder and avoid unnecessary allocations.
+// Call this to reuse the Encoder and avoid unnecessary allocations.
 func (e *Encoder) Reset() {
 	e.buf.Reset()
 	e.tmp.Reset()
@@ -168,6 +168,14 @@ func (e *Encoder) Time(v time.Time) (int, error) {
 		return e.Int64(math.MinInt64)
 	}
 	return e.Int64(nano / int64(time.Microsecond))
+}
+
+// Date encodes time.Time value to voltdb wire protocol time.
+func (e *Encoder) Date(v time.Time) (int, error) {
+	if v.IsZero() {
+		return e.Int32(math.MinInt32)
+	}
+	return e.Int32(EncodeDate(v))
 }
 
 // Write implements io.Writer interface
@@ -386,34 +394,36 @@ func (e *Encoder) Args(v []driver.Value) error {
 	return nil
 }
 
-//Login encodes login details. This supports only version 1 of the wire
-//protocol. The password is hashed using sha256.
+// Login encodes login details. This supports only version 1 of the wire
+// protocol. The password is hashed using sha256.
 //
-//Version 0, with sha1 hashing, is no longer allowed.
+// Version 0, with sha1 hashing, is no longer allowed.
 //
 // For instance if the username is foo and password is bar,  the login message
 // will be encoded as follows (with version 0 shown just for comparison):
 //
 // version 0
-// 	+------------------+--------------+-----------------------+----------+--------------------------------------+
-// 	| protocol version | service name | password hash version | username | password                             |
-// 	+------------------+--------------+-----------------------+----------+--------------------------------------+
-// 	| 0                | database     | 0                     | foo      | sha1 encoded raw bytes of string bar |
-// 	+------------------+--------------+-----------------------+----------+--------------------------------------+
+//
+//	+------------------+--------------+-----------------------+----------+--------------------------------------+
+//	| protocol version | service name | password hash version | username | password                             |
+//	+------------------+--------------+-----------------------+----------+--------------------------------------+
+//	| 0                | database     | 0                     | foo      | sha1 encoded raw bytes of string bar |
+//	+------------------+--------------+-----------------------+----------+--------------------------------------+
 //
 // version 1
-// 	+------------------+--------------+-----------------------+----------+----------------------------------------+
-// 	| protocol version | service name | password hash version | username | password                               |
-// 	+------------------+--------------+-----------------------+----------+----------------------------------------+
-// 	| 1                | database     | 1                     | foo      | sha256 encoded raw bytes of string bar |
-// 	+------------------+--------------+-----------------------+----------+----------------------------------------+
+//
+//	+------------------+--------------+-----------------------+----------+----------------------------------------+
+//	| protocol version | service name | password hash version | username | password                               |
+//	+------------------+--------------+-----------------------+----------+----------------------------------------+
+//	| 1                | database     | 1                     | foo      | sha256 encoded raw bytes of string bar |
+//	+------------------+--------------+-----------------------+----------+----------------------------------------+
 func (e *Encoder) Login(version int, user, password string) ([]byte, error) {
 	_, err := e.Byte(int8(version))
 	if err != nil {
 		return nil, err
 	}
 	if version == 0 {
-                return nil, errors.New("Protocol version 0 is no longer supported")
+		return nil, errors.New("Protocol version 0 is no longer supported")
 	}
 	//password hash version
 	_, err = e.Byte(1)

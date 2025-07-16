@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2018 VoltDB Inc.
+ * Copyright (C) 2008-2025 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -97,22 +97,22 @@ func (vt *voltTable) calcOffsets() error {
 
 func (vt *voltTable) colLength(r *bytes.Reader, offset int32, colType int8) (int32, error) {
 	a := wire.NewDecoderAt(r)
-	switch colType {
-	case -99: // ARRAY
+	switch VoltType(colType) {
+	case ARRAY:
 		return 0, fmt.Errorf("Not supporting ARRAY")
-	case 1: // NULL
+	case NULL:
 		return 0, nil
-	case 3: // TINYINT
+	case TINYINT:
 		return 1, nil
-	case 4: // SMALLINT
+	case SMALLINT:
 		return 2, nil
-	case 5: // INTEGER
+	case INTEGER:
 		return 4, nil
-	case 6: // BIGINT
+	case BIGINT:
 		return 8, nil
-	case 8: // FLOAT
+	case FLOAT:
 		return 8, nil
-	case 9: // STRING
+	case STRING:
 		strlen, err := a.Int32At(int64(offset))
 		if err != nil {
 			return 0, err
@@ -121,11 +121,13 @@ func (vt *voltTable) colLength(r *bytes.Reader, offset int32, colType int8) (int
 			return 4, nil
 		}
 		return strlen + 4, nil
-	case 11: // TIMESTAMP
+	case TIMESTAMP:
 		return 8, nil
-	case 22: // DECIMAL
+	case DATE:
+		return 4, nil
+	case DECIMAL:
 		return 16, nil
-	case 25: // VARBINARY
+	case VARBINARY:
 		strlen, err := a.Int32At(int64(offset))
 		if err != nil {
 			return 0, err
@@ -134,9 +136,9 @@ func (vt *voltTable) colLength(r *bytes.Reader, offset int32, colType int8) (int
 			return 4, nil
 		}
 		return strlen + 4, nil
-	case 26: // GEOGRAPHY_POINT
+	case GEOGRAPHY_POINT:
 		return 0, fmt.Errorf("Not supporting GEOGRAPHY_POINT")
-	case 27: // GEOGRAPHY
+	case GEOGRAPHY:
 		return 0, fmt.Errorf("Not supporting GEOGRAPHY")
 	default:
 		return 0, fmt.Errorf("Unexpected type %d", colType)

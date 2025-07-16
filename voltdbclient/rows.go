@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2018 VoltDB Inc.
+ * Copyright (C) 2008-2025 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -28,6 +28,8 @@ import (
 	"math/big"
 	"strings"
 	"time"
+
+	"github.com/VoltDB/voltdb-client-go/wire"
 )
 
 var nullDecimal = [...]byte{128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
@@ -103,64 +105,70 @@ func (vr VoltRows) Next(dest []driver.Value) (err error) {
 	cts := vr.table().getColumnTypes()
 	for i := 0; i < len(dest); i++ {
 		ct := cts[i]
-		switch ct {
-		case -99: // ARRAY
+		switch VoltType(ct) {
+		case ARRAY:
 			return fmt.Errorf("Not supporting ARRAY")
-		case 1: // NULL
+		case NULL:
 			dest[i] = nil
-		case 3: // TINYINT
+		case TINYINT:
 			v, err := vr.GetTinyInt(int16(i))
 			if err != nil {
 				return fmt.Errorf("Failed to get TINYINT at column index %d %s", i, err)
 			}
 			dest[i] = v
-		case 4: // SMALLINT
+		case SMALLINT:
 			v, err := vr.GetSmallInt(int16(i))
 			if err != nil {
 				return fmt.Errorf("Failed to get SMALLINT at column index %d %s", i, err)
 			}
 			dest[i] = v
-		case 5: // INTEGER
+		case INTEGER:
 			v, err := vr.GetInteger(int16(i))
 			if err != nil {
 				return fmt.Errorf("Failed to get INTEGER at column index %d %s", i, err)
 			}
 			dest[i] = v
-		case 6: // BIGINT
+		case BIGINT:
 			v, err := vr.GetBigInt(int16(i))
 			if err != nil {
 				return fmt.Errorf("Failed to get BIGINT at column index %d %s", i, err)
 			}
 			dest[i] = v
-		case 8: // FLOAT
+		case FLOAT:
 			v, err := vr.GetFloat(int16(i))
 			if err != nil {
 				return fmt.Errorf("Failed to get FLOAT at column index %d %s", i, err)
 			}
 			dest[i] = v
-		case 9: // STRING
+		case STRING:
 			v, err := vr.GetVarbinary(int16(i))
 			if err != nil {
 				return fmt.Errorf("Failed to get STRING/VARBINARY at column index %d %s", i, err)
 			}
 			dest[i] = v
-		case 11: // TIMESTAMP
+		case TIMESTAMP:
 			v, err := vr.GetTimestamp(int16(i))
 			if err != nil {
 				return fmt.Errorf("Failed to get TIMESTAMP at column index %d %s", i, err)
 			}
 			dest[i] = v
-		case 22: // DECIMAL
+		case DATE:
+			v, err := vr.GetDate(int16(i))
+			if err != nil {
+				return fmt.Errorf("Failed to get DATE at column index %d %s", i, err)
+			}
+			dest[i] = v
+		case DECIMAL:
 			return fmt.Errorf("Not supporting DECIMAL")
-		case 25: // VARBINARY
+		case VARBINARY:
 			v, err := vr.GetVarbinary(int16(i))
 			if err != nil {
 				return fmt.Errorf("Failed to get STRING/VARBINARY at column index %d %s", i, err)
 			}
 			dest[i] = v
-		case 26: // GEOGRAPHY_POINT
+		case GEOGRAPHY_POINT:
 			return errors.New("Not supporting GEOGRAPHY_POINT")
-		case 27: // GEOGRAPHY
+		case GEOGRAPHY:
 			return errors.New("Not supporting GEOGRAPHY")
 		default:
 			return fmt.Errorf("Unexpected type %d", ct)
@@ -370,8 +378,8 @@ func (vr VoltRows) GetSmallIntByName(cn string) (interface{}, error) {
 // GetString returns the value of a STRING column at the given index in the
 // current row taking into account correct type arg
 func (rows VoltRows) GetStringValue(valtype int8, colIndex int16) (string, error) {
-	switch valtype {
-	case 3:
+	switch VoltType(valtype) {
+	case TINYINT:
 		i, err := rows.GetTinyInt(colIndex)
 		if err != nil {
 			return "", err
@@ -380,7 +388,7 @@ func (rows VoltRows) GetStringValue(valtype int8, colIndex int16) (string, error
 			return "0", nil
 		}
 		return fmt.Sprintf("%d", i.(int8)), nil
-	case 4:
+	case SMALLINT:
 		i, err := rows.GetSmallInt(colIndex)
 		if err != nil {
 			return "", err
@@ -389,7 +397,7 @@ func (rows VoltRows) GetStringValue(valtype int8, colIndex int16) (string, error
 			return "0", nil
 		}
 		return fmt.Sprintf("%d", i.(int16)), nil
-	case 5:
+	case INTEGER:
 		i, err := rows.GetInteger(colIndex)
 		if err != nil {
 			return "", err
@@ -398,7 +406,7 @@ func (rows VoltRows) GetStringValue(valtype int8, colIndex int16) (string, error
 			return "0", nil
 		}
 		return fmt.Sprintf("%d", i.(int32)), nil
-	case 6:
+	case BIGINT:
 		i, err := rows.GetBigInt(colIndex)
 		if err != nil {
 			return "", err
@@ -407,7 +415,7 @@ func (rows VoltRows) GetStringValue(valtype int8, colIndex int16) (string, error
 			return "0", nil
 		}
 		return fmt.Sprintf("%d", i.(int64)), nil
-	case 8:
+	case FLOAT:
 		i, err := rows.GetFloat(colIndex)
 		if err != nil {
 			return "", err
@@ -416,7 +424,7 @@ func (rows VoltRows) GetStringValue(valtype int8, colIndex int16) (string, error
 			return "0", nil
 		}
 		return fmt.Sprintf("%f", i.(float64)), nil
-	case 11:
+	case TIMESTAMP:
 		t, err := rows.GetTimestamp(colIndex)
 		if err != nil {
 			return "", err
@@ -425,7 +433,16 @@ func (rows VoltRows) GetStringValue(valtype int8, colIndex int16) (string, error
 			return "0", nil
 		}
 		return t.(time.Time).String(), nil
-	case 22:
+	case DATE:
+		t, err := rows.GetDate(colIndex)
+		if err != nil {
+			return "", err
+		}
+		if t == nil {
+			return "0", nil
+		}
+		return t.(time.Time).Format(time.DateOnly), nil
+	case DECIMAL:
 		t, err := rows.GetDecimal(colIndex)
 		if err != nil {
 			return "", err
@@ -434,7 +451,7 @@ func (rows VoltRows) GetStringValue(valtype int8, colIndex int16) (string, error
 			return "0", nil
 		}
 		return fmt.Sprintf("%v", t.(big.Float)), nil
-	case 25:
+	case VARBINARY:
 		t, err := rows.GetVarbinary(colIndex)
 		if err != nil {
 			return "", err
@@ -497,7 +514,7 @@ func (vr VoltRows) GetTimestamp(colIndex int16) (interface{}, error) {
 	if bytes.Compare(bs, nullTimestamp[:]) == 0 {
 		return nil, nil
 	}
-	t := bytesToTime(bs)
+	t := bytesToTimestamp(bs)
 	return t, nil
 }
 
@@ -509,6 +526,34 @@ func (vr VoltRows) GetTimestampByName(cn string) (interface{}, error) {
 		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
 	return vr.GetTimestamp(ci)
+}
+
+// GetDate returns the value of a DATE column at the given index in
+// the current row.
+func (vr VoltRows) GetDate(colIndex int16) (interface{}, error) {
+	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
+	if err != nil {
+		return nil, err
+	}
+	if len(bs) != 4 {
+		return nil, fmt.Errorf("Did not find at DATE column at index %d\n", colIndex)
+	}
+	i := bytesToInt(bs)
+	if i == math.MinInt32 {
+		return nil, nil
+	}
+	date := wire.DecodeDate(i)
+	return date, nil
+}
+
+// GetDateByName returns the value of a DATE column with the given
+// name in the current row.
+func (vr VoltRows) GetDateByName(cn string) (interface{}, error) {
+	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
+	if !ok {
+		return nil, fmt.Errorf("column name %v was not found", cn)
+	}
+	return vr.GetDate(ci)
 }
 
 // GetTinyInt returns the value of a TINYINT column at the given index in the
@@ -590,7 +635,7 @@ func bytesToSmallInt(bs []byte) int16 {
 	return int16(order.Uint16(bs))
 }
 
-func bytesToTime(bs []byte) time.Time {
+func bytesToTimestamp(bs []byte) time.Time {
 	// the time is essentially a long as milliseconds
 	millis := int64(order.Uint64(bs))
 	// time.Unix will take either seconds or nanos. Multiply by 1000 and use nanos.

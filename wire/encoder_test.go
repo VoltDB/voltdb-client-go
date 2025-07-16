@@ -2,6 +2,7 @@ package wire
 
 import (
 	"bytes"
+	"github.com/stretchr/testify/assert"
 	"io/ioutil"
 	"testing"
 	"time"
@@ -208,6 +209,35 @@ func TestEncoder_Time(t *testing.T) {
 		t.Errorf("timestamp round trip failed, expected %s got %s",
 			ts.String(), result.String())
 	}
+}
+
+func TestEncoder_Date_null(t *testing.T) {
+	t.Parallel()
+	e := NewEncoder()
+
+	bytesSaved, err := e.Date(time.Time{})
+
+	assert.Equal(t, bytesSaved, IntegerSize)
+
+	d := NewDecoder(e)
+	result, err := d.Date()
+	assert.Nil(t, err)
+	assert.True(t, result.IsZero())
+}
+
+func TestEncoder_Date_non_null_value(t *testing.T) {
+	t.Parallel()
+	e := NewEncoder()
+	date := time.Date(1995, 9, 18, 0, 0, 0, 0, time.Local)
+
+	bytesSaved, err := e.Date(date)
+	assert.Nil(t, err)
+	assert.Equal(t, bytesSaved, IntegerSize)
+
+	d := NewDecoder(e)
+	result, err := d.Date()
+	assert.Nil(t, err)
+	assert.Equal(t, result, date)
 }
 
 func TestEncoder_PtrParam(t *testing.T) {
