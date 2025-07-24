@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2018 VoltDB Inc.
+ * Copyright (C) 2008-2025 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -20,6 +20,7 @@ package voltdbclient
 import (
 	"database/sql"
 	"fmt"
+	"github.com/stretchr/testify/assert"
 	"math/big"
 	"math/rand"
 	"strings"
@@ -432,4 +433,49 @@ func TestRowsNextResultSet(t *testing.T) {
 	if idx != len(items) {
 		t.Errorf("expected %d rowsets, got %d", len(items), idx)
 	}
+}
+
+func TestQueryWithDateType(t *testing.T) {
+	db, err := sql.Open("voltdb", "localhost:21212")
+	assert.NoError(t, err)
+	defer db.Close()
+
+	_, err = db.Exec("@AdHoc", "DROP TABLE date_table IF EXISTS")
+	assert.NoError(t, err)
+
+	_, err = db.Exec("@AdHoc", "CREATE TABLE date_table(val DATE);")
+	assert.NoError(t, err)
+
+	_, err = db.Exec("@AdHoc", "INSERT INTO date_table(val) VALUES(?)", nil)
+	assert.NoError(t, err)
+	_, err = db.Exec("@AdHoc", "INSERT INTO date_table(val) VALUES(?)", "1995-09-18")
+	assert.NoError(t, err)
+	_, err = db.Exec("@AdHoc", "INSERT INTO date_table(val) VALUES(?)", time.Date(2025, 7, 31, 0, 0, 0, 0, time.UTC))
+	assert.NoError(t, err)
+
+	rows, err := db.Query("@AdHoc", "SELECT val FROM date_table ORDER BY val")
+	assert.NoError(t, err)
+
+	var date sql.NullTime
+
+	// nil
+	assert.True(t, rows.Next())
+	err = rows.Scan(&date)
+	assert.NoError(t, err)
+
+	assert.False(t, date.Valid)
+
+	// "1995-09-18"
+	assert.True(t, rows.Next())
+	err = rows.Scan(&date)
+	assert.NoError(t, err)
+
+	assert.True(t, date.Valid)
+	assert.Equal(t, date.Time, time.Date(1995, 9, 18, 0, 0, 0, 0, time.Local))
+
+	// time.Date(2025, 7, 31, 0, 0, 0, 0, time.UTC)
+	assert.True(t, rows.Next())
+	err = rows.Scan(&date)
+	assert.NoError(t, err)
+	assert.Equal(t, date.Time, time.Date(2025, 7, 31, 0, 0, 0, 0, time.Local))
 }

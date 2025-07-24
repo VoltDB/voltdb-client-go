@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-//integer sizes
+// integer sizes
 const (
 	ByteSize    = 1
 	ShortSize   = 2
@@ -120,6 +120,18 @@ func (d *Decoder) Time() (time.Time, error) {
 	if v != math.MinInt64 {
 		ts := time.Unix(0, v*int64(time.Microsecond))
 		return ts.Round(time.Microsecond), err
+	}
+	return time.Time{}, nil
+}
+
+// Date reads and decodes voltdb wire protocol encoded []byte to time.Time.
+func (d *Decoder) Date() (time.Time, error) {
+	v, err := d.Int32()
+	if err != nil {
+		return time.Time{}, err
+	}
+	if v != math.MinInt32 {
+		return DecodeDate(v), err
 	}
 	return time.Time{}, nil
 }
@@ -251,7 +263,7 @@ func (d *Decoder) Login() (*ConnInfo, error) {
 	return NewDecoder(bytes.NewReader(msg)).LoginInfo()
 }
 
-//LoginInfo decodes login message.
+// LoginInfo decodes login message.
 func (d *Decoder) LoginInfo() (*ConnInfo, error) {
 	c := &ConnInfo{}
 
