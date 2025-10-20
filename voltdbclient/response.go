@@ -1,5 +1,5 @@
 /* This file is part of VoltDB.
- * Copyright (C) 2008-2018 VoltDB Inc.
+ * Copyright (C) 2008-2025 VoltDB Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -124,8 +124,11 @@ const (
 	ResponseUnknown    ResponseStatus = -7
 	TXNRestart         ResponseStatus = -8
 	OperationalFailure ResponseStatus = -9
-	// -10 to -12 are not in the client's perview
+	// -10 to -12 are not in the client's purview
 	UnsupportedDynamicChange   ResponseStatus = -13
+	CannotUpdateConfig         ResponseStatus = -20
+	FailedConfigUpdate         ResponseStatus = -21
+	UserNoLongerValid          ResponseStatus = -22
 	UninitializedAppStatusCode ResponseStatus = -128
 )
 
@@ -154,6 +157,12 @@ func (rs ResponseStatus) String() string {
 		return "OPERATIONAL FAILURE"
 	case UnsupportedDynamicChange:
 		return "UNSUPPORTED DYNAMIC CHANGE"
+	case CannotUpdateConfig:
+		return "CANNOT UPDATE CONFIG"
+	case FailedConfigUpdate:
+		return "FAILED CONFIG UPDATE"
+	case UserNoLongerValid:
+		return "USER NO LONGER VALID"
 	case UninitializedAppStatusCode:
 		return "UNINITIALIZED APP STATUS CODE"
 	}
