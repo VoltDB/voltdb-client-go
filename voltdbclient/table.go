@@ -104,6 +104,8 @@ func (vt *voltTable) colLength(r *bytes.Reader, offset int32, colType int8) (int
 		return 0, nil
 	case TINYINT:
 		return 1, nil
+	case BOOL:
+		return 1, nil
 	case SMALLINT:
 		return 2, nil
 	case INTEGER:

@@ -126,6 +126,7 @@ func TestEncoder_Float64(t *testing.T) {
 	}
 }
 
+
 func TestEncoder_String(t *testing.T) {
 	t.Parallel()
 	expected := []byte{0x00, 0x00, 0x00, 0x06, 'a', 'b', 'c', 'd', 'e', 'f'}
@@ -240,6 +241,31 @@ func TestEncoder_Date_non_null_value(t *testing.T) {
 	assert.Equal(t, result, date)
 }
 
+func TestEncoder_Bool(t *testing.T) {
+	t.Parallel()
+
+	sample := []bool{true, false}
+	e := NewEncoder()
+	d := &Decoder{}
+	for _, v := range sample {
+		e.Reset()
+		n, err := e.Bool(v)
+		if err != nil {
+			t.Error(err)
+		}
+		if n != BoolSize {
+			t.Errorf("expected %d got %d", BoolSize, n)
+		}
+		d.SetReader(e)
+		f, err := d.Bool()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v != f {
+			t.Errorf("expected %v have %v", v, f)
+		}
+	}
+}
 func TestEncoder_PtrParam(t *testing.T) {
 	f := 451.0
 	e := NewEncoder()

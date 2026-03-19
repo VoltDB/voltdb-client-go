@@ -170,6 +170,12 @@ func (vr VoltRows) Next(dest []driver.Value) (err error) {
 			return errors.New("Not supporting GEOGRAPHY_POINT")
 		case GEOGRAPHY:
 			return errors.New("Not supporting GEOGRAPHY")
+		case BOOL:
+			v, err := vr.GetBool(int16(i))
+			if err != nil {
+				return fmt.Errorf("Failed to get BOOL at column index %d %s", i, err)
+			}
+			dest[i] = v
 		default:
 			return fmt.Errorf("Unexpected type %d", ct)
 		}
@@ -442,6 +448,15 @@ func (rows VoltRows) GetStringValue(valtype int8, colIndex int16) (string, error
 			return "0", nil
 		}
 		return t.(time.Time).Format(time.DateOnly), nil
+	case BOOL:
+		t, err := rows.GetBool(colIndex)
+		if err != nil {
+			return "", err
+		}
+		if t == nil {
+			return "", nil
+		}
+		return  fmt.Sprintf("%t", t), nil
 	case DECIMAL:
 		t, err := rows.GetDecimal(colIndex)
 		if err != nil {
@@ -582,6 +597,34 @@ func (vr VoltRows) GetTinyIntByName(cn string) (interface{}, error) {
 		return nil, fmt.Errorf("column name %v was not found", cn)
 	}
 	return vr.GetTinyInt(ci)
+}
+
+// GetBool returns the value of a BOOL column at the given index in the
+// current row.
+func (vr VoltRows) GetBool(colIndex int16) (interface{}, error) {
+	bs, err := vr.table().getBytes(vr.table().rowIndex, colIndex)
+	if err != nil {
+		return nil, err
+	}
+	if len(bs) > 1 {
+		return nil, fmt.Errorf("Did not find at BOOL column at index %d\n", colIndex)
+	}
+	i := int8(bs[0])
+	if i == math.MinInt8 {
+		return nil, nil
+	}
+	return  (i == 1), nil
+
+}
+
+// GetBoolByName returns the value of a BOOL column with the given name in
+// the current row.
+func (vr VoltRows) GetBoolByName(cn string) (interface{}, error) {
+	ci, ok := vr.table().cnToCi[strings.ToUpper(cn)]
+	if !ok {
+		return nil, fmt.Errorf("column name %v was not found", cn)
+	}
+	return vr.GetBool(ci)
 }
 
 // GetVarbinary returns the value of a VARBINARY column at the given index in

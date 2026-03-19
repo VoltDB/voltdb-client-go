@@ -435,6 +435,37 @@ func TestRowsNextResultSet(t *testing.T) {
 	}
 }
 
+func TestQueryWithBoolType(t *testing.T) {
+	db, err := sql.Open("voltdb", "localhost:21212")
+	assert.NoError(t, err)
+	defer db.Close()
+
+	_, err = db.Exec("@AdHoc", "DROP TABLE bool_table IF EXISTS")
+	assert.NoError(t, err)
+
+	_, err = db.Exec("@AdHoc", "CREATE TABLE bool_table(key int not null, val boolean);")
+	assert.NoError(t, err)
+
+	_, err = db.Exec("@AdHoc", "INSERT INTO bool_table(key, val) VALUES(?, ?)", 1, true)
+	assert.NoError(t, err)
+	_, err = db.Exec("@AdHoc", "INSERT INTO bool_table(key, val) VALUES(?, ?)", 2, false)
+	assert.NoError(t, err)
+
+	rows, err := db.Query("@AdHoc", "SELECT val FROM bool_table order by key")
+	assert.NoError(t, err)
+	
+	var bval bool
+	assert.True(t, rows.Next())
+	err = rows.Scan(&bval)
+	assert.NoError(t, err)
+	assert.Equal(t, bval, true)
+	
+	assert.True(t, rows.Next())
+	err = rows.Scan(&bval)
+	assert.NoError(t, err)
+	assert.Equal(t, bval, false)
+}
+
 func TestQueryWithDateType(t *testing.T) {
 	db, err := sql.Open("voltdb", "localhost:21212")
 	assert.NoError(t, err)

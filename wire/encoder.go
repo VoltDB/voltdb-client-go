@@ -18,7 +18,6 @@ const ()
 const (
 	ArrayColumn     int8 = -99 // array (short)(values*)
 	NullColumn      int8 = 1   // null
-	BoolColumn      int8 = 3   // boolean
 	ByteColumn      int8 = 3   // byte
 	ShortColumn     int8 = 4   // int16
 	IntColumn       int8 = 5   // int32
@@ -28,6 +27,7 @@ const (
 	TimestampColumn int8 = 11  // int64 timestamp microseconds
 	Table           int8 = 21  // VoltTable
 	DecimalColumn   int8 = 22  // fix-scaled, fix-precision decimal
+	BoolColumn      int8 = 23   // boolean
 	VarBinColumn    int8 = 25  // varbinary (int)(bytes)
 )
 
