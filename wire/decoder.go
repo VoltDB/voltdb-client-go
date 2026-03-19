@@ -12,6 +12,7 @@ import (
 // integer sizes
 const (
 	ByteSize    = 1
+	BoolSize    = 1
 	ShortSize   = 2
 	IntegerSize = 4
 	LongSize    = 8
@@ -245,6 +246,18 @@ func (d *Decoder) Byte() (int8, error) {
 	}
 	v := a[0]
 	return int8(v), nil
+}
+
+// Bool reads and decodes voltdb wire protocol encoded []byte to int8.
+func (d *Decoder) Bool() (bool, error) {
+	var a [ByteSize]byte
+	b := a[:]
+	_, err := d.r.Read(b)
+	if err != nil {
+		return false, err
+	}
+	v := a[0]
+	return v == 0x1, nil
 }
 
 // Login decodes response message received after successful logging to a voltdb

@@ -31,6 +31,7 @@ const (
 	TIMESTAMP       VoltType = 11
 	DATE            VoltType = 12
 	DECIMAL         VoltType = 22
+	BOOL            VoltType = 23
 	VARBINARY       VoltType = 25
 	GEOGRAPHY_POINT VoltType = 26
 	GEOGRAPHY       VoltType = 27
