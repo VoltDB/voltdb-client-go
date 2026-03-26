@@ -2,10 +2,11 @@ package wire
 
 import (
 	"bytes"
-	"github.com/stretchr/testify/assert"
 	"io/ioutil"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestEncoder_Byte(t *testing.T) {
@@ -126,7 +127,6 @@ func TestEncoder_Float64(t *testing.T) {
 	}
 }
 
-
 func TestEncoder_String(t *testing.T) {
 	t.Parallel()
 	expected := []byte{0x00, 0x00, 0x00, 0x06, 'a', 'b', 'c', 'd', 'e', 'f'}
@@ -217,7 +217,7 @@ func TestEncoder_Date_null(t *testing.T) {
 	e := NewEncoder()
 
 	bytesSaved, err := e.Date(time.Time{})
-
+	assert.NoError(t, err)
 	assert.Equal(t, bytesSaved, IntegerSize)
 
 	d := NewDecoder(e)
